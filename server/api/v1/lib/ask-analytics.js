@@ -1,0 +1,136 @@
+'use strict';
+
+const { Pool } = require('pg');
+const { createHash, randomUUID } = require('node:crypto');
+const { compilePlan, metrics } = require('./ask-analytics-plan');
+const { askError } = require('./ask-errors');
+
+// Separate connection and credentials. Never import the explorer's read router:
+// it can fall back to primary, which is forbidden for this service.
+const GUARD = `SELECT pg_catalog.pg_is_in_recovery() AS standby,
+  current_user = 'ask_analytics_reader' AND session_user = current_user AS identity,
+  EXTRACT(EPOCH FROM (pg_catalog.clock_timestamp() - pg_catalog.pg_last_xact_replay_timestamp())) AS replay_age,
+  NOT (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls OR r.rolinherit)
+    AND r.rolconnlimit BETWEEN 1 AND 2 AS restricted,
+  pg_catalog.pg_size_bytes(current_setting('temp_file_limit')) BETWEEN 0 AND 16777216 AS disk_bounded,
+  NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE member = r.oid) AS no_memberships,
+  NOT pg_catalog.has_database_privilege(current_user, current_database(), 'CREATE')
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n WHERE pg_catalog.has_schema_privilege(current_user, n.oid, 'CREATE')) AS no_create,
+  NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND c.relkind IN ('r','v','m','f','p')
+    AND (pg_catalog.has_table_privilege(current_user, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES')
+      OR pg_catalog.has_any_column_privilege(current_user, c.oid, 'INSERT,UPDATE,REFERENCES')
+      OR ((pg_catalog.has_table_privilege(current_user, c.oid, 'SELECT') OR pg_catalog.has_any_column_privilege(current_user, c.oid, 'SELECT'))
+        AND NOT (n.nspname = 'ask_public' AND c.relname = 'daily_v1' AND c.relkind = 'v')))) AS only_public_view,
+  NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND c.relkind = 'S'
+    AND pg_catalog.has_sequence_privilege(current_user, c.oid, 'SELECT,USAGE,UPDATE')) AS no_sequences,
+  NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND p.prosecdef
+    AND pg_catalog.has_function_privilege(current_user, p.oid, 'EXECUTE')) AS no_definers
+  FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`;
+
+const ADMIT_QUERY = `
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+if redis.call('ZCARD', KEYS[1]) >= 2 or tonumber(redis.call('GET', KEYS[2]) or '0') >= tonumber(ARGV[4]) then return 0 end
+redis.call('ZADD', KEYS[1], ARGV[2], ARGV[3]); redis.call('EXPIRE', KEYS[1], 60)
+redis.call('INCR', KEYS[2]); redis.call('EXPIRE', KEYS[2], 172800)
+return 1`;
+function analyticsConfig(env) {
+  const daily = Number(env.ASK_ANALYTICS_DAILY_QUERY_LIMIT);
+  if (env.ASK_ANALYTICS_ENABLED !== 'true' || !env.ASK_ANALYTICS_DATABASE_URL || !Number.isInteger(daily) || daily < 1 || daily > 10000) return null;
+  try {
+    const url = new URL(env.ASK_ANALYTICS_DATABASE_URL);
+    // Dedicated login, no DSN options/search_path/SSL overrides from a URL.
+    if (!['postgres:', 'postgresql:'].includes(url.protocol) || decodeURIComponent(url.username) !== 'ask_analytics_reader' || !url.hostname || url.search || url.hash) return null;
+  } catch { return null; }
+  return { connectionString: env.ASK_ANALYTICS_DATABASE_URL, daily };
+}
+function checkGuard(row) {
+  if (!row || !['standby','identity','restricted','disk_bounded','no_memberships','no_create','only_public_view','no_sequences','no_definers'].every(key => row[key] === true)
+    || row.replay_age === null || !Number.isFinite(Number(row.replay_age)) || Number(row.replay_age) < -5 || Number(row.replay_age) > 120) throw askError('source');
+}
+function bounded(operation, signal) {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    Promise.resolve(operation).then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
+function format(value, unit) {
+  if (!/^(?:0|[1-9]\d{0,39})$/.test(value)) throw askError('source');
+  const n = BigInt(value);
+  return unit === 'ZEC' ? `${n / 100000000n}.${String(n % 100000000n).padStart(8, '0')} ZEC` : `${n.toLocaleString('en-US')} transactions`;
+}
+function evidenceFor(compiled, rows, coverage, retrievedAt) {
+  const { plan, days, definition } = compiled;
+  if (rows.length > plan.limit || Buffer.byteLength(JSON.stringify(rows)) > 16384) throw askError('source');
+  if (!coverage || !Number.isInteger(Number(coverage.observed_days)) || Number(coverage.observed_days) < 0 || Number(coverage.observed_days) > days) throw askError('source');
+  const facts = { window_start: plan.start, window_end: plan.end, missing_days: String(days - Number(coverage.observed_days)), returned_rows: String(rows.length) };
+  const resultRows = rows.map((row, index) => {
+    for (const key of ['bucket','observed_through']) if (!/^20\d{2}-\d{2}-\d{2}$/.test(row[key] || '')) throw askError('source');
+    if (row.observed_through < plan.start || row.observed_through > plan.end || !Number.isInteger(row.observed_days) || row.observed_days < 1 || row.observed_days > days) throw askError('source');
+    const id = `row_${String.fromCharCode(97 + index)}`;
+    const value = format(row.value, definition.unit);
+    facts[`${id}_date`] = row.bucket; facts[`${id}_value`] = value;
+    facts[`${id}_through`] = row.observed_through; facts[`${id}_days`] = String(row.observed_days);
+    return { date: row.bucket, value: row.value, formatted: value, observedDays: row.observed_days, observedThrough: row.observed_through };
+  });
+  const result = { plan, label: definition.label, unit: definition.unit, kind: definition.kind, rows: resultRows,
+    coverage: { expectedDays: days, observedDays: Number(coverage.observed_days), missingDays: days - Number(coverage.observed_days) }, retrievedAt,
+    methodology: definition.kind === 'count' ? 'Non-coinbase transactions, classified by shielded components. Counts sum within the selected UTC window; weeks start Monday. Missing days are not zero. Historical counts are maintained snapshots, not a fresh transaction-table replay.' : 'Last observed pool snapshot per selected UTC day/week/month, in exact zatoshis. Balances are not summed. Week/month buckets can be partial; observedThrough identifies the actual snapshot date. Pool changes do not trace individual transfers.' };
+  return { result, facts, evidenceKey: createHash('sha256').update(JSON.stringify([plan, rows, coverage])).digest('hex') };
+}
+function createAnalytics(env, dependencies = {}) {
+  const config = analyticsConfig(env);
+  if (!config) return null;
+  const pool = dependencies.pool || new Pool({ connectionString: config.connectionString, max: 2, connectionTimeoutMillis: 1500, idleTimeoutMillis: 10000,
+    statement_timeout: 3000, query_timeout: 3500, application_name: 'zecblock-ask-analytics', options: '-c default_transaction_read_only=on -c search_path=pg_catalog' });
+  pool.on?.('error', () => {}); // Never log connection strings or raw SQL errors.
+  let active = 0;
+  return {
+    async execute(input, { redis, signal, now = Date.now() } = {}) {
+      const compiled = compilePlan(input, now); // Validate before quota or pool access.
+      if (!redis?.isReady) throw askError('unavailable');
+      if (active >= 2) { const error = askError('quota'); error.quota = true; throw error; }
+      active++;
+      const deadline = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(10000)]);
+      const lease = randomUUID(); let admitted = false; let client; let released = false;
+      const destroy = () => { if (client && !released) { released = true; client.release(true); } };
+      deadline.addEventListener('abort', destroy, { once: true });
+      try {
+        deadline.throwIfAborted();
+        const accepted = await bounded(redis.eval(ADMIT_QUERY, { keys: ['ask:{mainnet}:analytics:active', `ask:{mainnet}:analytics:queries:${new Date(now).toISOString().slice(0,10)}`], arguments: [String(now), String(now + 30000), lease, String(config.daily)] }), deadline);
+        admitted = Number(accepted) === 1;
+        deadline.throwIfAborted();
+        if (!admitted) { const error = askError('quota'); error.quota = true; throw error; }
+        client = await bounded(pool.connect().then(connection => { if (deadline.aborted) { connection.release(true); throw deadline.reason; } return connection; }), deadline);
+        deadline.throwIfAborted();
+        await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+        await client.query("SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='500ms'; SET LOCAL idle_in_transaction_session_timeout='5s'; SET LOCAL work_mem='1MB'; SET LOCAL search_path=pg_catalog; SET LOCAL timezone='UTC'");
+        checkGuard((await client.query(GUARD)).rows[0]);
+        const coverage = (await client.query('SELECT count(*)::int AS observed_days FROM ask_public.daily_v1 WHERE date >= $1::date AND date <= $2::date', compiled.values.slice(0,2))).rows[0];
+        const rows = (await client.query(compiled.text, compiled.values)).rows;
+        deadline.throwIfAborted();
+        const evidence = evidenceFor(compiled, rows, coverage, new Date(now).toISOString());
+        await client.query('ROLLBACK');
+        client.release(); released = true;
+        return evidence;
+      } catch (error) {
+        // Discard aborted/failed transactions; no session state can leak back.
+        destroy();
+        if (deadline.aborted) throw deadline.reason;
+        if (error?.quota || error?.askKind) throw error;
+        throw askError('source');
+      } finally {
+        deadline.removeEventListener('abort', destroy);
+        active--;
+        if (admitted) { try { await bounded(redis.zRem('ask:{mainnet}:analytics:active', lease), AbortSignal.timeout(1000)); } catch { /* bounded lease expires */ } }
+      }
+    },
+    close: () => pool.end(),
+    catalogue: Object.entries(metrics).map(([metric, { label, unit, kind }]) => ({ metric, label, unit, kind })),
+  };
+}
+module.exports = { createAnalytics, analyticsConfig, checkGuard, evidenceFor, ADMIT_QUERY, GUARD };

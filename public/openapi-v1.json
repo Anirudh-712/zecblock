@@ -522,7 +522,7 @@
     "/v1/ask/chat": {
       "post": {
         "operationId": "post_ask_Chat",
-        "summary": "Contextual mainnet questions with reviewed public sources, supported language selection and bounded recent questions. Paid answers require bot verification and shared spend limits.",
+        "summary": "Contextual mainnet questions with reviewed public sources, supported languages and bounded history. Optional restricted replica analytics return dated count/pool rankings by day, week or month. Paid answers require bot verification and shared spend limits; analytics additionally require private-worker query quotas. Arbitrary SQL is never accepted.",
         "tags": [
           "ask"
         ],
@@ -766,7 +766,7 @@
         "x-cipherscan-v1-status": "native",
         "responses": {
           "200": {
-            "description": "Contextual mainnet questions with reviewed public sources, supported language selection and bounded recent questions. Paid answers require bot verification and shared spend limits.",
+            "description": "Contextual mainnet questions with reviewed public sources, supported languages and bounded history. Optional restricted replica analytics return dated count/pool rankings by day, week or month. Paid answers require bot verification and shared spend limits; analytics additionally require private-worker query quotas. Arbitrary SQL is never accepted.",
             "content": {
               "application/json": {
                 "schema": {

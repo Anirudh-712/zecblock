@@ -44,7 +44,7 @@
   {
     "method": "POST",
     "path": "/v1/ask/chat",
-    "description": "Contextual mainnet questions with reviewed public sources, supported language selection and bounded recent questions. Paid answers require bot verification and shared spend limits.",
+    "description": "Contextual mainnet questions with reviewed public sources, supported languages and bounded history. Optional restricted replica analytics return dated count/pool rankings by day, week or month. Paid answers require bot verification and shared spend limits; analytics additionally require private-worker query quotas. Arbitrary SQL is never accepted.",
     "category": "ask",
     "query": [],
     "listKey": null,

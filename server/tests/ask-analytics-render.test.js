@@ -1,0 +1,21 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const Module = require('node:module');
+const ts = require('typescript');
+const React = require('react');
+const { renderToStaticMarkup } = require('react-dom/server');
+const filename = path.resolve(__dirname,'../../components/ask/AskAnalytics.tsx');
+const compiled = new Module(filename,module); compiled.paths = Module._nodeModulePaths(path.dirname(filename));
+compiled._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.CommonJS}}).outputText,filename);
+const {AskAnalytics} = compiled.exports;
+const result = {label:'Shielded transactions',unit:'transactions',kind:'count',plan:{version:1,metric:'shielded_transactions',start:'2026-09-01',end:'2026-09-30',bucket:'week',order:'highest',limit:5},rows:[{date:'2026-09-07',value:'6000',formatted:'6,000 transactions',observedDays:7,observedThrough:'2026-09-13'}],coverage:{expectedDays:30,observedDays:29,missingDays:1},retrievedAt:'2026-10-02T00:00:00Z',methodology:'Counts sum observed days only.'};
+test('shared native analytics table renders exact data, actual snapshot dates and incomplete coverage safely',()=>{
+  const html=renderToStaticMarkup(React.createElement(AskAnalytics,{result}));
+  assert.match(html,/6,000 transactions/); assert.match(html,/2026-09-13/); assert.match(html,/Rankings cover the available data/); assert.match(html,/<caption/); assert.match(html,/scope="row"/);
+  const unsafe=renderToStaticMarkup(React.createElement(AskAnalytics,{result:{...result,label:'<script>bad()</script>',methodology:'<img src=x onerror=bad()>'}}));
+  assert.doesNotMatch(unsafe,/<script|<img/); assert.match(unsafe,/&lt;script&gt;/);
+  const empty=renderToStaticMarkup(React.createElement(AskAnalytics,{result:{...result,rows:[]}}));assert.match(empty,/No observations were returned/);assert.doesNotMatch(empty,/zero activity/);
+});

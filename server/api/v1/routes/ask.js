@@ -14,6 +14,7 @@ const { sendSuccess } = require('../lib/envelope');
 const { sendProblem } = require('../lib/problem');
 const { createRateLimiter } = require('../lib/rate-limit');
 const { explainRequestSchema, explanationTaskFor, loadExplanationEvidence, renderExplanation } = require('../lib/ask-explanation');
+const { createAnalyticsClient } = require('../lib/ask-analytics-client');
 
 const outputSchema = z.object({ spec: analysisSchema.nullable() }).strict();
 const jsonSchema = z.toJSONSchema(outputSchema);
@@ -79,6 +80,7 @@ async function interpret(config, input, signal, fetchImpl = fetch, task = { name
 function createAskRouter(env = process.env, dependencies = {}) {
   const router = express.Router();
   const config = providerConfig(env);
+  const analytics = config ? dependencies.analytics || createAnalyticsClient(env) : null;
   const limiter = createRateLimiter({ max: 10, windowMs: 60000, key: 'ask' });
   router.use((req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
@@ -129,7 +131,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
       if (guided) return sendSuccess(res, guided);
       return sendProblem(res, 'upstream-error', { status: 503, detail: 'Contextual AI is not connected. Reviewed page guides and starter charts remain available.' });
     }
-    return limited(req, res, (signal, run) => chat(parsed.data, run, dependencies.internalClient, signal, instruction, { redis: redisFor(req), model: [config.provider, config.model, config.reasoningEffort] }));
+    return limited(req, res, (signal, run) => chat(parsed.data, run, dependencies.internalClient, signal, instruction, { redis: redisFor(req), model: [config.provider, config.model, config.reasoningEffort] }, analytics));
   });
   router.post('/', limiter, async (req, res) => {
     const { challenge, ...body } = req.body || {};
@@ -159,7 +161,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
       return { explanation: renderExplanation(raw, evidence.facts), evidenceKey: evidence.evidenceKey };
     });
   });
-  router.stop = limiter._stop;
+  router.stop = () => { limiter._stop(); return analytics?.close(); };
   return router;
 }
 

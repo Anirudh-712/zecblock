@@ -10,6 +10,7 @@ import { AskTransactions } from './AskTransactions';
 import { AskBlocks } from './AskBlocks';
 import { AskTransfers } from './AskTransfers';
 import { AskSources } from './AskSources';
+import { AskAnalytics } from './AskAnalytics';
 import { analysisFollowUps } from '@/lib/ask/follow-ups';
 
 export default function AskPanel({ pathname, open, onClose, initialSpec }: { pathname: string; open: boolean; onClose: () => void; initialSpec?: AnalysisSpec }) {
@@ -54,7 +55,7 @@ export default function AskPanel({ pathname, open, onClose, initialSpec }: { pat
       setTurns(all => [...all, { ...reply, question: text.trim() }].slice(-12));
       if (reply.transactions) setTransaction(reply.transactions.query.txid || reply.transactions.rows[0]?.txid);
       if (reply.blocks?.rows[0]) setBlock(reply.blocks.rows[0].hash);
-      if (reply.transfers || reply.blocks || reply.transactions) setSpec(null); else if (reply.spec) setSpec(reply.spec);
+      if (reply.analytics || reply.transfers || reply.blocks || reply.transactions) setSpec(null); else if (reply.spec) setSpec(reply.spec);
       setQuestion('');
     } catch (cause) {
       if (request.current === controller && (!controller.signal.aborted || controller.signal.reason?.name === 'TimeoutError')) {
@@ -80,7 +81,7 @@ export default function AskPanel({ pathname, open, onClose, initialSpec }: { pat
       <div className="border-b border-cipher-border px-4 py-3"><p className="text-xs text-secondary">{page.title} · Mainnet</p><p className="mt-1 text-caption text-muted">{spec ? `${initialSpec ? 'Chart analysis' : 'Analysis'}: ${spec.period} · ${spec.pool === 'all' ? 'all pools / network' : spec.pool}` : page.id === 'blocks' || page.id === 'block' ? 'Public block lookups' : page.id === 'transaction' || page.id === 'transactions' ? 'Public transaction lookups' : 'Page guide · controls & methodology'}</p></div>
       <div ref={transcript} className="min-h-0 flex-1 overflow-y-auto p-4" aria-live="polite">
         {!turns.length ? <div className="py-6"><h3 className="text-xl font-medium tracking-tight">Make sense of what you see.</h3><p className="mt-3 text-sm leading-relaxed text-secondary">Understand this page’s metrics and controls, or ask a follow-up.</p><div className="mt-5 flex flex-wrap gap-2">{suggestions.map(text => <button key={text} onClick={() => void send(text)} disabled={blocked} className="rounded-lg border border-cipher-border px-3 py-2 text-left text-xs text-secondary hover:border-cipher-gold disabled:opacity-50">{text}</button>)}</div></div> : null}
-        {turns.map((turn, index) => <article key={index} className="mb-6"><p dir="auto" className="ml-6 rounded-lg border border-cipher-border bg-cipher-surface p-3 text-sm">{turn.question}</p><div dir="auto" lang={turn.locale} className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-secondary">{turn.answer}</div><AskBlocks result={turn.blocks} /><AskTransactions result={turn.transactions} /><AskTransfers result={turn.transfers} /><AskSources sources={turn.sources} dataContext={turn.dataContext} />{turn.scope ? <p className="mt-2 text-caption text-muted">{turn.scope}</p> : null}{turn.spec ? <button onClick={expand} className="mt-3 text-xs text-cipher-gold">Explore this analysis →</button> : null}</article>)}
+        {turns.map((turn, index) => <article key={index} className="mb-6"><p dir="auto" className="ml-6 rounded-lg border border-cipher-border bg-cipher-surface p-3 text-sm">{turn.question}</p><div dir="auto" lang={turn.locale} className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-secondary">{turn.answer}</div><AskAnalytics result={turn.analytics} /><AskBlocks result={turn.blocks} /><AskTransactions result={turn.transactions} /><AskTransfers result={turn.transfers} /><AskSources sources={turn.sources} dataContext={turn.dataContext} />{turn.scope ? <p className="mt-2 text-caption text-muted">{turn.scope}</p> : null}{turn.spec ? <button onClick={expand} className="mt-3 text-xs text-cipher-gold">Explore this analysis →</button> : null}</article>)}
         {busy ? <p role="status" className="text-sm text-muted">Reading public sources and preparing your answer…</p> : null}
       </div>
       <footer className="border-t border-cipher-border p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
