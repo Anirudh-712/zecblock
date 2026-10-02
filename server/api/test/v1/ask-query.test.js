@@ -52,3 +52,11 @@ test('custom query chat passes previous plan as untrusted context and returns ve
     assert.equal(reply.analytics.plan.version, 2);
 });
 module.exports = { plan };
+
+test('narrative rounds money with explicit approximation and preserves tiny fees and large exact values',()=>{
+ const {narrativeDecimal}=require('../../v1/lib/ask-query-reply');
+ assert.equal(narrativeDecimal('55388103348791.000000','ZEC'),'≈553,881.03 ZEC');
+ assert.equal(narrativeDecimal('22073.250695','ZEC'),'≈0.00022073 ZEC');
+ assert.equal(narrativeDecimal('-1.000000','ZEC'),'-0.00000001 ZEC');
+ assert.equal(narrativeDecimal('50000000000','ZEC'),'500 ZEC');
+});
