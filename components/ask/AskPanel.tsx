@@ -50,7 +50,8 @@ export default function AskPanel({ pathname, open, onClose, initialSpec }: { pat
     const timeout = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), 45000);
     setBusy(true); setError('');
     try {
-      const reply = await askChat(text.trim(), page.id, spec, 'auto', turns.map(turn => turn.question), token, controller.signal, block, /^explain this (page|view)[?.!]?$/i.test(text.trim()) ? pathname.match(/^\/tx\/([a-fA-F0-9]{64})$/)?.[1] || transaction : transaction);
+      const previousAnalytics = turns.at(-1)?.analytics;
+      const reply = await askChat(text.trim(), page.id, spec, 'auto', turns.map(turn => turn.question), token, controller.signal, block, /^explain this (page|view)[?.!]?$/i.test(text.trim()) ? pathname.match(/^\/tx\/([a-fA-F0-9]{64})$/)?.[1] || transaction : transaction, previousAnalytics?.plan.version === 2 ? previousAnalytics.plan : undefined);
       if (controller.signal.aborted) return;
       setTurns(all => [...all, { ...reply, question: text.trim() }].slice(-12));
       if (reply.transactions) setTransaction(reply.transactions.query.txid || reply.transactions.rows[0]?.txid);

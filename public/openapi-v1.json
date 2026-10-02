@@ -743,6 +743,220 @@
                       "maxLength": 1000
                     }
                   },
+                  "currentAnalytics": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "const": 2
+                      },
+                      "dataset": {
+                        "type": "string",
+                        "enum": [
+                          "daily",
+                          "blocks",
+                          "transactions",
+                          "flows",
+                          "swaps"
+                        ]
+                      },
+                      "start": {
+                        "type": "string",
+                        "pattern": "^20\\d{2}-\\d{2}-\\d{2}$"
+                      },
+                      "end": {
+                        "type": "string",
+                        "pattern": "^20\\d{2}-\\d{2}-\\d{2}$"
+                      },
+                      "bucket": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "day",
+                          "week",
+                          "month"
+                        ]
+                      },
+                      "dimensions": {
+                        "maxItems": 2,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z_]{0,31}$"
+                        }
+                      },
+                      "filters": {
+                        "maxItems": 4,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "field": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z_]{0,31}$"
+                            },
+                            "op": {
+                              "type": "string",
+                              "enum": [
+                                "eq",
+                                "ne",
+                                "gte",
+                                "lte"
+                              ]
+                            },
+                            "value": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            }
+                          },
+                          "required": [
+                            "field",
+                            "op",
+                            "value"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "measures": {
+                        "minItems": 1,
+                        "maxItems": 4,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "field": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z_]{0,31}$"
+                            },
+                            "operation": {
+                              "type": "string",
+                              "enum": [
+                                "count",
+                                "sum",
+                                "avg",
+                                "min",
+                                "max",
+                                "last"
+                              ]
+                            },
+                            "filters": {
+                              "maxItems": 2,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "field": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z_]{0,31}$"
+                                  },
+                                  "op": {
+                                    "type": "string",
+                                    "enum": [
+                                      "eq",
+                                      "ne",
+                                      "gte",
+                                      "lte"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  }
+                                },
+                                "required": [
+                                  "field",
+                                  "op",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "field",
+                            "operation",
+                            "filters"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "calculations": {
+                        "maxItems": 2,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "operation": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "difference"
+                              ]
+                            },
+                            "left": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 3
+                            },
+                            "right": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 3
+                            }
+                          },
+                          "required": [
+                            "operation",
+                            "left",
+                            "right"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "order": {
+                        "type": "object",
+                        "properties": {
+                          "column": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 8
+                          },
+                          "direction": {
+                            "type": "string",
+                            "enum": [
+                              "asc",
+                              "desc"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "column",
+                          "direction"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 25
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "dataset",
+                      "start",
+                      "end",
+                      "bucket",
+                      "dimensions",
+                      "filters",
+                      "measures",
+                      "calculations",
+                      "order",
+                      "limit"
+                    ],
+                    "additionalProperties": false
+                  },
                   "challenge": {
                     "type": "string",
                     "maxLength": 2048

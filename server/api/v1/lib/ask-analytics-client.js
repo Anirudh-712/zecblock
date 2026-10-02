@@ -1,7 +1,7 @@
 'use strict';
 const { compilePlan } = require('./ask-analytics-plan');
 const { evidenceFor } = require('./ask-analytics');
-const { metrics } = require('./ask-analytics-plan');
+const { catalogue } = require('./ask-query-plan');
 const { askError } = require('./ask-errors');
 
 function createAnalyticsClient(env, fetchImpl = fetch) {
@@ -12,7 +12,7 @@ function createAnalyticsClient(env, fetchImpl = fetch) {
     if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.pathname !== '/' || url.search || url.hash || url.username || url.password) return null;
   } catch { return null; }
   return {
-    catalogue: Object.entries(metrics).map(([metric, { label, unit, kind }]) => ({ metric, label, unit, kind })),
+    catalogue,
     close: async () => {},
     async execute(input, { signal } = {}) {
       const compiled = compilePlan(input);
@@ -27,12 +27,12 @@ function createAnalyticsClient(env, fetchImpl = fetch) {
       const reader = response.body.getReader(); const chunks = []; let bytes = 0;
       try {
         while (true) { const { done, value } = await reader.read(); if (done) break;
-          bytes += value.length; if (bytes > 32768) throw askError('source'); chunks.push(Buffer.from(value)); }
+          bytes += value.length; if (bytes > 65536) throw askError('source'); chunks.push(Buffer.from(value)); }
       } finally { await reader.cancel(); }
       const wire = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (!Array.isArray(wire.rows) || typeof wire.retrievedAt !== 'string' || !Number.isFinite(Date.parse(wire.retrievedAt))) throw askError('source');
       // Recompute facts locally; never trust worker-supplied narrative or facts.
-      return evidenceFor(compiled, wire.rows, { observed_days: wire.observedDays }, new Date(wire.retrievedAt).toISOString());
+      return evidenceFor(compiled, wire.rows, { observed_days: wire.observedDays, indexed_through: wire.indexedThrough }, new Date(wire.retrievedAt).toISOString());
     },
   };
 }

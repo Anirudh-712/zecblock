@@ -2,7 +2,9 @@
 
 const { Pool } = require('pg');
 const { createHash, randomUUID } = require('node:crypto');
-const { compilePlan, metrics } = require('./ask-analytics-plan');
+const { compilePlan } = require('./ask-analytics-plan');
+const { catalogue, views } = require('./ask-query-plan');
+const { queryEvidence } = require('./ask-query-evidence');
 const { askError } = require('./ask-errors');
 
 // Separate connection and credentials. Never import the explorer's read router:
@@ -21,7 +23,7 @@ const GUARD = `SELECT pg_catalog.pg_is_in_recovery() AS standby,
     AND (pg_catalog.has_table_privilege(current_user, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES')
       OR pg_catalog.has_any_column_privilege(current_user, c.oid, 'INSERT,UPDATE,REFERENCES')
       OR ((pg_catalog.has_table_privilege(current_user, c.oid, 'SELECT') OR pg_catalog.has_any_column_privilege(current_user, c.oid, 'SELECT'))
-        AND NOT (n.nspname = 'ask_public' AND c.relname = 'daily_v1' AND c.relkind = 'v')))) AS only_public_view,
+        AND NOT (n.nspname = 'ask_public' AND c.relname IN (${views.map(name => `'${name}'`).join(',')}) AND c.relkind = 'v')))) AS only_public_view,
   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND c.relkind = 'S'
     AND pg_catalog.has_sequence_privilege(current_user, c.oid, 'SELECT,USAGE,UPDATE')) AS no_sequences,
@@ -64,6 +66,7 @@ function format(value, unit) {
   return unit === 'ZEC' ? `${n / 100000000n}.${String(n % 100000000n).padStart(8, '0')} ZEC` : `${n.toLocaleString('en-US')} transactions`;
 }
 function evidenceFor(compiled, rows, coverage, retrievedAt) {
+  if (compiled.plan.version === 2) return queryEvidence(compiled, rows, coverage, retrievedAt);
   const { plan, days, definition } = compiled;
   if (rows.length > plan.limit || Buffer.byteLength(JSON.stringify(rows)) > 16384) throw askError('source');
   if (!coverage || !Number.isInteger(Number(coverage.observed_days)) || Number(coverage.observed_days) < 0 || Number(coverage.observed_days) > days) throw askError('source');
@@ -111,9 +114,11 @@ function createAnalytics(env, dependencies = {}) {
         client = await bounded(pool.connect().then(connection => { if (deadline.aborted) { connection.release(true); throw deadline.reason; } return connection; }), deadline);
         deadline.throwIfAborted();
         await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-        await client.query("SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='500ms'; SET LOCAL idle_in_transaction_session_timeout='5s'; SET LOCAL work_mem='1MB'; SET LOCAL search_path=pg_catalog; SET LOCAL timezone='UTC'");
+        await client.query("SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='500ms'; SET LOCAL idle_in_transaction_session_timeout='5s'; SET LOCAL work_mem='1MB'; SET LOCAL search_path=pg_catalog; SET LOCAL timezone='UTC'; SET LOCAL max_parallel_workers_per_gather=0; SET LOCAL jit=off");
         checkGuard((await client.query(GUARD)).rows[0]);
-        const coverage = (await client.query('SELECT count(*)::int AS observed_days FROM ask_public.daily_v1 WHERE date >= $1::date AND date <= $2::date', compiled.values.slice(0,2))).rows[0];
+        const coverage = (await client.query(compiled.plan.version === 2
+          ? `SELECT ${compiled.plan.dataset === 'daily' ? '(SELECT count(*)::int FROM ask_public.daily_v2 WHERE date >= $1::date AND date <= $2::date)' : 'NULL::int'} AS observed_days, (SELECT pg_catalog.to_timestamp(timestamp)::text FROM ask_public.blocks_v2 ORDER BY height DESC LIMIT 1) AS indexed_through`
+          : 'SELECT count(*)::int AS observed_days FROM ask_public.daily_v1 WHERE date >= $1::date AND date <= $2::date', compiled.plan.version === 1 || compiled.plan.dataset === 'daily' ? compiled.values.slice(0,2) : [])).rows[0];
         const rows = (await client.query(compiled.text, compiled.values)).rows;
         deadline.throwIfAborted();
         const evidence = evidenceFor(compiled, rows, coverage, new Date(now).toISOString());
@@ -133,7 +138,7 @@ function createAnalytics(env, dependencies = {}) {
       }
     },
     close: () => pool.end(),
-    catalogue: Object.entries(metrics).map(([metric, { label, unit, kind }]) => ({ metric, label, unit, kind })),
+    catalogue,
   };
 }
 module.exports = { createAnalytics, analyticsConfig, checkGuard, evidenceFor, ADMIT_QUERY, GUARD };

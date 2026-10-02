@@ -1,6 +1,7 @@
 'use strict';
 
 const { z } = require('zod');
+const { querySchema, compileQuery } = require('./ask-query-plan');
 const DAY = 86400000;
 const metrics = Object.freeze({
   transactions: { column: '(shielded_count::numeric + transparent_count::numeric)', label: 'Non-coinbase transactions', unit: 'transactions', kind: 'count' },
@@ -12,18 +13,19 @@ const metrics = Object.freeze({
   sprout_balance: { column: 'sprout_pool_size::numeric', label: 'Sprout balance', unit: 'ZEC', kind: 'snapshot' },
 });
 const date = z.string().regex(/^20\d{2}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value);
-const planSchema = z.object({
+const legacyPlanSchema = z.object({
   version: z.literal(1), metric: z.enum(Object.keys(metrics)), start: date, end: date,
   bucket: z.enum(['day', 'week', 'month']), order: z.enum(['newest', 'highest', 'lowest']), limit: z.number().int().min(1).max(25),
 }).strict();
 function validatePlan(input, now = Date.now()) {
-  const plan = planSchema.parse(input);
+  const plan = legacyPlanSchema.parse(input);
   const days = (Date.parse(plan.end) - Date.parse(plan.start)) / DAY + 1;
   // Completed UTC days only. No all-history scans or future/partial-day ranks.
   if (days < 1 || days > 366 || plan.end >= new Date(now).toISOString().slice(0, 10)) throw new Error('Invalid analytics window');
   return { plan, days, definition: metrics[plan.metric] };
 }
 function compilePlan(input, now) {
+  if (input?.version === 2) return compileQuery(input, now);
   const { plan, days, definition } = validatePlan(input, now);
   // Every identifier/expression originates here. User/model values are bound
   // parameters; there is deliberately no raw SQL, joins or expression input.
@@ -39,4 +41,5 @@ function compilePlan(input, now) {
   return { plan, days, definition, text: `WITH observed AS (${observed}), grouped AS (${grouped})
     SELECT bucket::text, value::text, observed_days, observed_through::text FROM grouped ORDER BY ${order} LIMIT $3::int`, values: [plan.start, plan.end, plan.limit] };
 }
-module.exports = { planSchema, metrics, validatePlan, compilePlan };
+const planSchema = z.union([legacyPlanSchema, querySchema]);
+module.exports = { planSchema, legacyPlanSchema, metrics, validatePlan, compilePlan };

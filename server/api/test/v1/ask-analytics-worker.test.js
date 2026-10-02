@@ -46,3 +46,11 @@ test('actual Redis enforces shared query leases and daily limits atomically', as
   await redis.zRem(keys[0],results.findIndex(Boolean).toString());assert.equal(await reserve('next'),1);assert.equal(await reserve('daily-denied',40000),0);
   assert.equal(await redis.get(keys[1]),'3');
 });
+
+test('relational worker/client preserve exact raw cells and missing-value evidence across the authenticated boundary',async t=>{
+  const query={version:2,dataset:'flows',start:'2026-09-01',end:'2026-09-30',bucket:'week',dimensions:[],filters:[],measures:[{field:'amount',operation:'sum',filters:[]}],calculations:[],order:{column:1,direction:'desc'},limit:5};
+  const analytics={execute:async input=>evidenceFor(compilePlan(input),[{d0:'2026-09-14',m0:'9007199254740993.000000',u0:'2'}],{observed_days:null,indexed_through:'2026-10-02T00:00:00Z'},new Date().toISOString())};
+  const server=createWorker({ASK_ANALYTICS_SERVICE_KEY:key},{analytics,redis:{isReady:true}}).listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close();});
+  const client=createAnalyticsClient({ASK_ANALYTICS_ENABLED:'true',ASK_ANALYTICS_SERVICE_KEY:key,ASK_ANALYTICS_SERVICE_URL:`http://127.0.0.1:${server.address().port}/`});
+  const evidence=await client.execute(query);assert.equal(evidence.result.rows[0].m0.value,'9007199254740993.000000');assert.equal(evidence.result.rows[0].m0.missing,2);assert.equal(evidence.result.coverage.missingDays,null);assert.equal(evidence.facts.row_a_ma_missing,'2');
+});

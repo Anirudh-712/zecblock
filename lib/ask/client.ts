@@ -21,8 +21,8 @@ export async function askCapability(signal: AbortSignal): Promise<AskCapability>
   if (meta.network !== 'mainnet') throw new Error('Wrong network');
   return data;
 }
-export async function askChat(question: string, page: string, context: AnalysisSpec | null, locale: AskLocale, history: string[], challenge: string, signal: AbortSignal, block?: string, transaction?: string): Promise<AskReply> {
-  const response = await fetch(`${getApiUrl()}/v1/ask/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal, body: JSON.stringify({ question, page, context, locale, history: history.slice(-4), challenge, block, transaction }) });
+export async function askChat(question: string, page: string, context: AnalysisSpec | null, locale: AskLocale, history: string[], challenge: string, signal: AbortSignal, block?: string, transaction?: string, currentAnalytics?: import('./chat').QueryPlan): Promise<AskReply> {
+  const response = await fetch(`${getApiUrl()}/v1/ask/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal, body: JSON.stringify({ question, page, context, locale, currentAnalytics, history: history.slice(-4), challenge, block, transaction }) });
   const { data, meta } = await readApiResponse<AskReply>(response);
   if (meta.network !== 'mainnet') throw new Error('Wrong network');
   return data;

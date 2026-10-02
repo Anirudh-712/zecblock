@@ -25,3 +25,8 @@ test('calendar labels never make a partial September week appear to include Augu
   const snapshot=renderToStaticMarkup(React.createElement(AskAnalytics,{result:{...result,kind:'snapshot',rows:[{...result.rows[0],observedThrough:'2026-09-11'}]}}));
   assert.match(snapshot,/Snapshot date/); assert.match(snapshot,/dateTime="2026-09-11"/); assert.match(snapshot,/11 Sept 2026/);
 });
+
+test('relational results render multiple exact measures, clipped dates and public record links without injecting row text',()=>{
+ const custom={label:'Public flows',plan:{version:2,dataset:'flows',start:'2026-09-01',end:'2026-09-30',bucket:'week',order:{column:1,direction:'desc'}},columns:[{key:'d0',type:'date',label:'Period'},{key:'m0',type:'number',label:'Total amount',unit:'ZEC'}],rows:[{d0:{value:'2026-08-31',formatted:'2026-08-31'},m0:{value:'9007199254740993',formatted:'90,071,992.54740993 ZEC'}}],coverage:{missingDays:null,indexedThrough:'2026-10-02T00:00:00Z'},methodology:'Reviewed public boundary flows.'};
+ const html=renderToStaticMarkup(React.createElement(AskAnalytics,{result:custom}));assert.match(html,/90,071,992.54740993 ZEC/);assert.match(html,/1.*6 Sept/);assert.match(html,/Partial week/);assert.match(html,/Source and query/);assert.doesNotMatch(html,/Aug|undefined|missing database/);
+});

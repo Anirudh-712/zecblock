@@ -140,7 +140,7 @@ export function AskWorkspace() {
     } : item));
     try {
       if (!next || capability.mode === 'ai' && token) {
-        const reply = await askChat(trimmed, session.page || 'ask', spec, 'auto', session.messages.map(message => message.question), token, controller.signal, session.block, session.transaction);
+        const reply = await askChat(trimmed, session.page || 'ask', spec, 'auto', session.messages.map(message => message.question), token, controller.signal, session.block, session.transaction, analytics?.plan.version === 2 ? analytics.plan : undefined);
         if (controller.signal.aborted) return;
         append(reply.answer, reply.spec ? analysisSchema.parse(reply.spec) : undefined, reply.sources, reply.locale, reply.scope, reply.transfers, reply.dataContext, reply.blocks, reply.transactions, reply.analytics);
       } else {

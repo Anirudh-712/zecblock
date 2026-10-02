@@ -22,10 +22,44 @@ No expressions, arbitrary identifiers, joins, functions, URLs or SQL text can be
 submitted. Existing fixed charts and block/transaction tools remain available;
 they are not replaced by this initial dataset.
 
+## Relational query engine (version two)
+
+`upgrade-v2.sql` adds five reviewed views after v1 provisioning. The reader can
+SELECT these views and `daily_v1`, with no underlying-table access. Public datasets:
+
+- `daily`: maintained non-coinbase activity and pool-stock observations.
+- `blocks`: current canonical blocks, transaction counts, size and fees.
+- `transactions`: non-coinbase confirmed transactions joined by hash and height
+  to canonical blocks, including component flags, fees, sizes, actions and miner.
+- `flows`: indexed public boundary amounts joined to canonical transactions and
+  blocks; direction and pool filters, individual or aggregated rankings.
+- `swaps`: successful tracked swaps, counterparty chain/token and reported USD.
+
+A plan chooses an inclusive completed UTC window of at most 366 days, optional
+calendar bucket, up to two category/identifier dimensions, four AND filters,
+four measures with up to two per-measure filters, and two ratio/difference
+calculations. Sort by any returned column and return up to 25 groups. Numeric
+ZEC filters use storage zatoshis; results format these as exact decimal ZEC.
+The compiler controls every identifier/operator/function and binds filter values.
+Prejoined canonical datasets provide reviewed relationships without arbitrary
+joins or fanout. This is a flexible public-data query language, not an SQL editor.
+It does not yet expose every explorer table, arbitrary joins, address history,
+saved queries/dashboards or unrestricted all-history scans.
+
+Examples: weekly deshielding counts and volume; largest public boundary transfers
+in a selected month; average transaction fees by shielded-component status;
+Orchard versus Ironwood stock ratios; highest tracked inflow chains by USD.
+Follow-ups carry the prior bounded plan as untrusted context, never DB rows or SQL.
+Missing measures are reported per result cell. A sum/average ignores null inputs;
+last uses the last dated row even if null. Ratios with zero denominators stay null.
+Dates are clipped at window boundaries. Event datasets do not certify historical
+backfill completeness; absent events are not automatically zero or missing days.
+The latest canonical block timestamp is shown separately from retrieval time.
+
 ## Independent boundaries
 
 - Dedicated `ask_analytics_reader`, no memberships or elevated role attributes.
-  Only SELECT on the public view; a non-login view owner has only explicitly
+  Only SELECT on the explicitly reviewed public views; a non-login view owner has only explicitly
   granted source columns. Do not reuse `zcash_user` or `REPLICA_DATABASE_URL`.
 - Every request checks standby recovery, replay age (maximum 120 seconds),
   role identity/permissions, PUBLIC and column grants, schemas, sequences and
@@ -33,7 +67,7 @@ they are not replaced by this initial dataset.
   query. Promotion and replica failure never fall back to primary.
 - Read-only repeatable-read transaction, server 3-second statement deadline,
   500ms lock deadline, 1MB work_mem, role 16MB temp-file bound, 2 login connections.
-  Overall execution deadline 10 seconds, 25 rows, 16KiB raw result cap. Failed or
+  Overall execution deadline 10 seconds, 25 rows; v1 raw cap 16KiB, v2 32KiB and authenticated wire cap 64KiB. Query parallel workers and JIT are disabled. Failed or
   cancelled sessions are discarded. PostgreSQL timeouts also bound remaining
   server work after disconnect.
 - Redis atomic admission: maximum 2 analytics executions across instances and
