@@ -64,6 +64,11 @@ test('counts and snapshots retain exact values, coverage and provenance', async 
   assert.match(f.queries[0].text, /READ ONLY/); assert.match(f.queries[1].text, /statement_timeout='3s'/); assert.equal(f.queries.at(-1).text, 'ROLLBACK'); assert.deepEqual(f.releases, [false]);
   const snapshot = evidenceFor(compilePlan({ ...plan, metric: 'ironwood_balance' }, now), [{ ...rows[0], value: '399789745000001' }], { observed_days: 29 }, '2026-10-02T00:00:00Z');
   assert.equal(snapshot.facts.row_a_value, '3997897.45000001 ZEC'); assert.equal(snapshot.result.coverage.missingDays, 1);
+  const partial = evidenceFor(compilePlan(plan, now), [{ bucket: '2026-08-31', value: '48158', observed_days: 6, observed_through: '2026-09-06' }], { observed_days: 30 }, '2026-10-02T00:00:00Z');
+  assert.equal(partial.facts.row_a_date, '2026-08-31');
+  assert.equal(partial.facts.row_a_window_start, '2026-09-01');
+  assert.equal(partial.facts.row_a_days, '6');
+  assert.equal(evidence.facts.row_a_window_start, '2026-09-07');
   assert.throws(() => evidenceFor(compilePlan(plan, now), [{ ...rows[0], value: '<script>' }], { observed_days: 30 }, 'now'));
 });
 test('local concurrency and cancellation destroy the connection, including late pool checkout', async () => {

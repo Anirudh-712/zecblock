@@ -74,6 +74,9 @@ function evidenceFor(compiled, rows, coverage, retrievedAt) {
     const id = `row_${String.fromCharCode(97 + index)}`;
     const value = format(row.value, definition.unit);
     facts[`${id}_date`] = row.bucket; facts[`${id}_value`] = value;
+    // Calendar week/month labels may precede the selected window. They never
+    // mean that observations outside the requested dates were included.
+    facts[`${id}_window_start`] = row.bucket < plan.start ? plan.start : row.bucket;
     facts[`${id}_through`] = row.observed_through; facts[`${id}_days`] = String(row.observed_days);
     return { date: row.bucket, value: row.value, formatted: value, observedDays: row.observed_days, observedThrough: row.observed_through };
   });

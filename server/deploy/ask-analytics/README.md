@@ -57,11 +57,21 @@ endpoint. A physical replica still contains operational data.
 
 ## Before enabling production
 
+Private preview rollout, October 2: the reader/view have been provisioned and
+the standalone worker is running on standby, serving only authenticated
+loopback requests. Public Ask remains guided; the public API is not connected
+to this worker. The local preview reaches it through SSH forwarding.
+
 1. Review `provision.sql` and primary/standby source at the intended release SHA.
    Apply the additive script on primary only, verify WAL replay. It aborts if
    roles/schema already exist; do not silently reuse them. It changes no shared
    PUBLIC grants. Audit any existing PUBLIC grants separately rather than
    automatically revoking permissions needed by other services.
+   On the current deployment, the two pg_stat_statements extension views had
+   PUBLIC SELECT. `restrict-statistics-views.sql` records the separately
+   reviewed cleanup: explicit SELECT for all three existing login roles before
+   revoking PUBLIC SELECT. The new reader must not inherit those views. Run this
+   preflight before provisioning, and review again if the role list changes.
 2. Set the reader password privately, with SCRAM and credential rotation. Restrict
    its login in pg_hba/network rules to the analytics service and standby only;
    deny reader login on primary. Install the separate non-root analytics worker with
@@ -71,6 +81,13 @@ endpoint. A physical replica still contains operational data.
    `zecblock-ask-analytics.service`. Verify its effective systemd restrictions;
    unit-file presence is not proof of runtime isolation. Host egress rules should
    allow only loopback, the private standby and quota Redis endpoints.
+   The supplied unit now permits only loopback traffic and binding port 3015;
+   install it on standby so PostgreSQL and quota Redis are both local. Install
+   a checksum-verified Node 22 runtime under `/opt/zecblock-analytics/runtime`
+   without replacing the existing API/node runtime. The dedicated quota unit
+   uses a root-only config delivered through LoadCredential, AOF fsync on each
+   write, no eviction, 16MB data limit and 64MB service memory limit. Its only
+   listener is 127.0.0.1:6391. Neither service is enabled at boot during preview.
 3. Supply only a private standby DSN as `ASK_ANALYTICS_DATABASE_URL`, using the
    exact reader role and no URL query/options. Use a TLS/private tunnel appropriate
    to that topology; do not put a public plaintext Postgres connection in service

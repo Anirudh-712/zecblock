@@ -41,6 +41,7 @@ export function AskWorkspace() {
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
   const [capability, setCapability] = useState<Capability>({ mode: 'guided', provider: null });
+  const [capabilityReady, setCapabilityReady] = useState(false);
   const [fetchedEvidence, setEvidence] = useState<Evidence | null>(null);
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState('');
@@ -80,7 +81,7 @@ export function AskWorkspace() {
     const controller = new AbortController();
     fetch(`${getApiUrl()}/v1/ask`, { signal: controller.signal, cache: 'no-store' }).then(res => readApiResponse<Capability>(res)).then(({ data, meta }) => {
       if (meta.network === 'mainnet' && ['guided', 'ai'].includes(data.mode)) setCapability(data);
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => { if (!controller.signal.aborted) setCapabilityReady(true); });
     return () => { controller.abort(); request.current?.abort(); };
   }, []);
 
@@ -124,7 +125,7 @@ export function AskWorkspace() {
   async function ask(text: string) {
     const trimmed = text.trim();
     const next = resolveShortcut(trimmed, spec);
-    if (!trimmed || trimmed.length > 1000 || busy || request.current || capability.mode === 'ai' && !token && !next) return;
+    if (!trimmed || trimmed.length > 1000 || busy || request.current || !capabilityReady && !next || capability.mode === 'ai' && !token && !next) return;
     setQuestion(''); setBusy(true); setChatError(''); setCopied(false);
     const controller = new AbortController();
     request.current = controller;
@@ -175,7 +176,7 @@ export function AskWorkspace() {
       onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(question); } }} />
     <div className="flex items-center justify-between gap-3 px-4 pb-3"><span className="text-caption font-mono text-muted">{capability.mode === 'ai' ? 'Public chain data' : 'Guided preview'}</span>
       {busy ? <button type="button" className={styles.submit} onClick={() => request.current?.abort()} aria-label="Stop response">■</button>
-        : <button type="submit" className={styles.submit} disabled={!question.trim() || capability.mode === 'ai' && !token && !resolveShortcut(question, spec)} aria-label="Send question">↑</button>}
+        : <button type="submit" className={styles.submit} disabled={!question.trim() || (!capabilityReady || capability.mode === 'ai' && !token) && !resolveShortcut(question, spec)} aria-label="Send question">↑</button>}
     </div>
   </form><AskChallenge siteKey={capability.siteKey} onToken={setToken} reset={challengeReset} />{chatError ? <p role="alert" className="mt-3 text-sm text-warning">{chatError}</p> : null}</div>;
 
