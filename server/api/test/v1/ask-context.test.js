@@ -69,6 +69,15 @@ test('unsupported multilingual intent stops after classification', async () => {
   const result = await chat({ ...input, question: 'Écris une recette de cupcakes' }, async () => { calls++; return { intent: 'unsupported', transactionQuery: null, blockQuery: null, spec: null, topics: [], locale: 'fr' }; }, null, signal, '');
   assert.equal(calls, 1); assert.match(result.answer, /Zcash/); assert.deepEqual(result.sources, []);
 });
+test('incomplete model analysis plans report validation failure without source access', async () => {
+  for (const intent of ['analysis', 'analytics']) {
+    let sourceCalls = 0;
+    const client = { dispatch: async () => { sourceCalls++; throw new Error('Must not read source'); } };
+    const analytics = { catalogue: [], execute: async () => { sourceCalls++; throw new Error('Must not query replica'); } };
+    await assert.rejects(chat({ ...input, question: 'Rank an unavailable weekly metric' }, async () => ({ intent, spec: null, analyticsPlan: null, topics: [], locale: 'en' }), client, signal, '', {}, analytics), error => error.askKind === 'answer');
+    assert.equal(sourceCalls, 0);
+  }
+});
 
 test('page explanations and suggested follow-ups supply the matching guide without unrelated data or classification', async () => {
   const { pageGuides } = require('../../v1/lib/ask-page-guides');
