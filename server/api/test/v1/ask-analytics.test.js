@@ -92,3 +92,24 @@ test('contextual analytics uses approved plan and verified facts, with no challe
   }, null, new AbortController().signal, '', {redis:{}}, analytics);
   assert.equal(calls, 2); assert.equal(reply.analytics.rows.length, 1); assert.match(reply.answer, /6,000 transactions/);
 });
+test('ranked narrative uses localized periods, preserves full results and cannot dump all ranks', async () => {
+  const ranking = [
+    { bucket:'2026-09-14',value:'62379',observed_days:7,observed_through:'2026-09-20' },
+    { bucket:'2026-09-21',value:'60731',observed_days:7,observed_through:'2026-09-27' },
+    { bucket:'2026-08-31',value:'48158',observed_days:6,observed_through:'2026-09-06' },
+  ];
+  const evidence = evidenceFor(compilePlan(plan,now),ranking,{observed_days:30},'2026-10-02T00:00:00Z');
+  const analytics = { catalogue:[],execute:async()=>evidence }; let calls=0;
+  const reply = await chat({question:'Classe les semaines de septembre',page:'ask',context:null,locale:'fr',history:[]},async(input,task)=>{
+    if (++calls===1) return task.validator.parse({intent:'analytics',analyticsPlan:plan,spec:null,transactionQuery:null,blockQuery:null,flowQuery:null,topics:['transactions'],locale:'fr'});
+    assert.equal(input.evidence.rows.length,3);
+    assert.match(input.evidence.facts.row_a_period,/sept\./);
+    assert.equal(input.evidence.facts.lead_comparison,undefined);
+    assert.equal(input.evidence.facts.lead_margin_relative,undefined);
+    assert.equal(input.evidence.facts.row_c_value,undefined);
+    assert.equal(task.validator.safeParse({summary:'{{row_c_value}}',observations:[],limitation:'',sources:['transactions']}).success,false);
+    return task.validator.parse({summary:'Le maximum observé est celui du {{row_a_period}}, avec {{row_a_value}}.',observations:[],limitation:'',sources:['transactions']});
+  },null,new AbortController().signal,'',{redis:{}},analytics);
+  assert.equal(reply.analytics.rows.length,3); assert.match(reply.answer,/sept\./); assert.doesNotMatch(reply.answer,/2026-09/);
+  assert.match(reply.answer,/La période en tête compte 2\.7% de transactions de plus que la suivante\./);
+});
