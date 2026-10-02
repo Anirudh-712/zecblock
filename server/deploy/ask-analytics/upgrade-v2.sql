@@ -24,11 +24,12 @@ CREATE VIEW ask_public.flows_v2 WITH (security_barrier=true) AS SELECT f.txid,b.
  FROM public.shielded_flows f JOIN public.transactions t ON t.txid=f.txid AND t.block_height=f.block_height
  JOIN public.blocks b ON b.height=t.block_height AND b.hash=t.block_hash AND b.timestamp=f.block_time
  WHERE f.flow_type IN ('shield','deshield') AND f.amount_zat>=0 AND t.is_coinbase=false;
-CREATE VIEW ask_public.swaps_v2 WITH (security_barrier=true) AS SELECT swap_created_at AS timestamp,direction,
- CASE WHEN direction='inflow' THEN source_chain ELSE dest_chain END AS chain,
- CASE WHEN direction='inflow' THEN source_token ELSE dest_token END AS token,
- CASE WHEN direction='inflow' THEN source_amount_usd ELSE dest_amount_usd END AS usd
- FROM public.cross_chain_swaps WHERE status='SUCCESS' AND direction IN ('inflow','outflow');
+CREATE VIEW ask_public.swaps_v2 WITH (security_barrier=true) AS SELECT swap_created_at AS timestamp,
+ CASE WHEN lower(dest_chain)='zec' THEN 'inflow' ELSE 'outflow' END AS direction,
+ CASE WHEN lower(dest_chain)='zec' THEN source_chain ELSE dest_chain END AS chain,
+ CASE WHEN lower(dest_chain)='zec' THEN source_token ELSE dest_token END AS token,
+ NULLIF(CASE WHEN lower(dest_chain)='zec' THEN source_amount_usd ELSE dest_amount_usd END,0) AS usd
+ FROM public.cross_chain_swaps WHERE status='SUCCESS' AND (lower(source_chain)='zec')<>(lower(dest_chain)='zec');
 RESET ROLE;
 REVOKE ALL ON ask_public.daily_v2,ask_public.blocks_v2,ask_public.transactions_v2,ask_public.flows_v2,ask_public.swaps_v2 FROM PUBLIC;
 GRANT SELECT ON ask_public.daily_v2,ask_public.blocks_v2,ask_public.transactions_v2,ask_public.flows_v2,ask_public.swaps_v2 TO ask_analytics_reader;

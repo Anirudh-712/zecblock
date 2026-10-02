@@ -62,7 +62,7 @@ test('real PostgreSQL least-privilege reader, injection boundary, coverage, snap
     INSERT INTO blocks VALUES (1,'canonical',1789430400,2,100,7,'miner'),(2,'next',1789516800,2,200,9,'miner');
     INSERT INTO transactions VALUES ('a',1,'canonical',false,false,true,false,false,80,7,1,0,'secret'),('orphan',1,'old-hash',false,false,true,false,false,80,99,1,0,'secret'),('b',2,'next',false,false,false,true,false,90,9,0,2,'secret');
     INSERT INTO shielded_flows VALUES ('a',1,1789430400,'deshield','orchard',9007199254740993),('orphan',1,1789430400,'deshield','orchard',999),('b',2,1789516800,'shield','ironwood',100000000);
-    INSERT INTO cross_chain_swaps VALUES ('SUCCESS','inflow','ETH','ETH',123.45,'ZEC','ZEC',120,'2026-09-14'),('SUCCESS','outflow','ZEC','ZEC',900,'BTC','BTC',800,'2026-09-14'),('SUCCESS','inflow','ETH','ETH',NULL,'ZEC','ZEC',NULL,'2026-09-14'),('PENDING','inflow','ETH','ETH',900,'ZEC','ZEC',900,'2026-09-14');`);
+    INSERT INTO cross_chain_swaps VALUES ('SUCCESS','inflow','ETH','ETH',123.45,'ZEC','ZEC',120,'2026-09-14'),('SUCCESS','outflow','ZEC','ZEC',900,'BTC','BTC',800,'2026-09-14'),('SUCCESS','inflow','ETH','ETH',NULL,'ZEC','ZEC',NULL,'2026-09-14'),('PENDING','inflow','ETH','ETH',900,'ZEC','ZEC',900,'2026-09-14'),('SUCCESS','inflow','ZEC','ZEC',1000,'ZEC','ZEC',1000,'2026-09-14'),('SUCCESS','inflow','ETH','ETH',0,'ZEC','ZEC',0,'2026-09-14'),('SUCCESS','inflow','ETH','ETH',500,'BTC','BTC',500,'2026-09-14');`);
   await owner.query(fs.readFileSync(path.resolve(__dirname,'../../../deploy/ask-analytics/upgrade-v2.sql'),'utf8'));
   assert.equal((await reader.query(GUARD)).rows[0].only_public_view,true);
   const query = {version:2,dataset:'flows',start:'2026-09-01',end:'2026-09-30',bucket:'week',dimensions:[],filters:[{field:'direction',op:'eq',value:'deshield'}],measures:[{field:'records',operation:'count',filters:[]},{field:'amount',operation:'sum',filters:[]}],calculations:[],order:{column:2,direction:'desc'},limit:5};
@@ -71,7 +71,9 @@ test('real PostgreSQL least-privilege reader, injection boundary, coverage, snap
   const fees=await run({...query,dataset:'transactions',filters:[],dimensions:['miner'],bucket:'none',measures:[{field:'fees',operation:'sum',filters:[]},{field:'records',operation:'count',filters:[]}],order:{column:1,direction:'desc'}});
   assert.equal(fees[0].m0,'16.000000');assert.equal(fees[0].m1,'2.000000');
   const swaps=await run({...query,dataset:'swaps',bucket:'none',dimensions:['direction','chain'],filters:[],measures:[{field:'usd',operation:'sum',filters:[]}],order:{column:2,direction:'desc'}});
-  assert.equal(swaps.length,2);assert.equal(swaps[0].d1,'BTC');assert.equal(swaps[0].m0,'800.000000');assert.equal(swaps[1].m0,'123.450000');assert.equal(swaps[1].u0,'1');
+  assert.equal(swaps.length,2);assert.equal(swaps[0].d1,'BTC');assert.equal(swaps[0].m0,'800.000000');assert.equal(swaps[1].m0,'123.450000');assert.equal(swaps[1].u0,'2');
+  await owner.query(fs.readFileSync(path.resolve(__dirname,'../../../deploy/ask-analytics/refresh-swaps-v2.sql'),'utf8'));
+  assert.deepEqual(await run({...query,dataset:'swaps',bucket:'none',dimensions:['direction','chain'],filters:[],measures:[{field:'usd',operation:'sum',filters:[]}],order:{column:2,direction:'desc'}}),swaps);
   const ratio=await run({...query,dataset:'daily',bucket:'none',filters:[],measures:[{field:'ironwood',operation:'last',filters:[]},{field:'sapling',operation:'last',filters:[]}],calculations:[{operation:'ratio',left:0,right:1}],order:{column:0,direction:'desc'}});assert.equal(ratio[0].c0,null);
   await assert.rejects(reader.query('SELECT private_fixture FROM public.transactions'),/permission denied/);
   await owner.query('CREATE VIEW ask_public.unreviewed AS SELECT secret FROM public.private_fixture; GRANT SELECT ON ask_public.unreviewed TO ask_analytics_reader');

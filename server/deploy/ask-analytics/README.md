@@ -22,7 +22,10 @@ storage decimal places. Prose uses verified rounded facts with ≈; tables retai
 exact returned values. Follow-ups carry the last validated plan as untrusted context.
 
 Cross-chain authority is `public.cross_chain_swaps` (`legacy-success-index`),
-matching the public cross-chain reader verified October 3. Inflow USD uses the
+matching the public cross-chain reader verified October 3. Direction derives from
+the source/destination ZEC chains; internal ZEC-to-ZEC routes are excluded and
+legacy zero USD sentinels become NULL. Already installed v2 views use the
+reviewed `refresh-swaps-v2.sql` correction. Inflow USD uses the
 source valuation; outflow USD uses the destination valuation. This **counterparty**
 valuation differs from the cross-chain page's source-side-only USD definition.
 Do not compare them as identical metrics. No upstream completeness is certified.
