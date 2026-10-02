@@ -1,19 +1,39 @@
 # Ask replica analytics — operator gate
 
-This is the first restricted analytics slice, disabled unless explicitly
+This is a bounded public-data query engine, disabled unless explicitly
 configured. It is not arbitrary SQL or a direct model database connection.
 
 ## Implemented contract
 
-`POST /v1/ask/chat` can select an analytics plan when both paid Ask and
-`ASK_ANALYTICS_ENABLED=true` are configured. Plans allow one reviewed metric,
-inclusive completed UTC dates (at most 366 days), day/week/month grouping,
-newest/highest/lowest ordering and 1–25 returned buckets. Counts exclude coinbase
-and sum; balances take the last observed snapshot in each bucket. Weeks start
-Monday. Edge buckets can be partial. Missing snapshots are not zero; rankings
-are explicitly over observed days. Source: `public.privacy_trends_daily`, through
-the only granted view `ask_public.daily_v1`. Historical counts are maintained
-snapshots, not freshly replayed transactions. Exact zatoshis stay decimal strings.
+`POST /v1/ask/chat` can select version-two relational plans when paid Ask and
+`ASK_ANALYTICS_ENABLED=true` are configured. Five reviewed datasets expose daily
+observations, canonical blocks, confirmed non-coinbase transactions, public
+shielding/deshielding boundary flows and tracked successful cross-chain swaps.
+`upgrade-v2.sql` adds security-barrier views; v1 `daily_v1` remains compatible.
+
+Plans accept inclusive completed UTC dates (at most 366 days), day/week/month
+buckets, up to two dimensions, four bound filters, four measures, two same-unit
+ratios/differences and 1–25 ranked rows. No SQL text or arbitrary joins. Stocks
+cannot be summed; `last` preserves a null reading on the last dated snapshot.
+Per-measure missing counts remain visible. Sparse event dates do not imply zero
+activity or missing database days. Canonical joins exclude orphan transactions.
+Exact monetary values remain decimal strings; SQL averages/ratios round to six
+storage decimal places. Prose uses verified rounded facts with ≈; tables retain
+exact returned values. Follow-ups carry the last validated plan as untrusted context.
+
+Cross-chain authority is `public.cross_chain_swaps` (`legacy-success-index`),
+matching the public cross-chain reader verified October 3. Inflow USD uses the
+source valuation; outflow USD uses the destination valuation. This **counterparty**
+valuation differs from the cross-chain page's source-side-only USD definition.
+Do not compare them as identical metrics. No upstream completeness is certified.
+Historical flow backfill coverage is also unverified.
+
+The worker enforces a 3s statement timeout, serial query execution, 1MB work_mem,
+two database connections, daily query quota, 32KiB raw results and 64KiB transport
+responses. Worker CPU limits do not limit PostgreSQL backend CPU; scan/concurrency
+limits and statement timeouts are separate controls. Runtime audit accepts exactly
+six reviewed views and rejects unexpected reader privileges. Numeric claims must
+use server placeholders; provider decoding rejects all Unicode numeric categories.
 
 The AI receives a public metric catalogue, validated results and fact placeholders;
 it never receives the database password, SQL, private tables, filesystem or shell

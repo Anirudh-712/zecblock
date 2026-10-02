@@ -19,13 +19,27 @@ const explanationTask = {
   instruction: `Write a concise, useful explanation of this Zcash mainnet analysis using only verified facts and methodology. Return a summary, up to two observations, and a limitation only when useful (otherwise empty). Every numerical value and date MUST be an exact supplied {{fact_id}} placeholder; facts already include units. No literal digits, URLs, markup or invented placeholders. Keep under two hundred words. ${analysisGuidance}`,
 };
 
+// Literal ranges keep provider decoding and the final Unicode-aware renderer
+// consistent. The provider does not accept Unicode property escapes. Include
+// every numeric category (decimal digits, superscripts, Roman numerals, etc.),
+// rather than allowing a model to evade the rule by changing numeral scripts.
+const numericRanges = (() => {
+  const ranges = []; let start = null;
+  for (let point = 0; point <= 0x110000; point++) {
+    const numeric = point < 0x110000 && /\p{N}/u.test(String.fromCodePoint(point));
+    if (numeric && start === null) start = point;
+    if (!numeric && start !== null) {
+      const end = point - 1;
+      ranges.push(String.fromCodePoint(start) + (end === start ? '' : '-' + String.fromCodePoint(end)));
+      start = null;
+    }
+  }
+  return ranges.join('');
+})();
 function evidenceProse(facts) {
   const ids = Object.keys(facts);
   if (ids.some(id => !/^[a-z_]+$/.test(id))) throw new Error('Invalid server fact ID');
-  // Provider regex compilation rejects Unicode property escapes. The final
-  // renderer still rejects all Unicode numeric categories, not only these.
-  const digits = '0-9\u0660-\u0669\u06f0-\u06f9\uff10-\uff19';
-  const pattern = ids.length ? `^(?:\\{\\{(?:${ids.join('|')})\\}\\}|[^${digits}{}<>])*$` : `^[^${digits}{}<>]*$`;
+  const pattern = ids.length ? `^(?:\\{\\{(?:${ids.join('|')})\\}\\}|[^${numericRanges}{}<>])*$` : `^[^${numericRanges}{}<>]*$`;
   return z.string().regex(new RegExp(pattern, 'u'));
 }
 

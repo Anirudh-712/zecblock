@@ -60,3 +60,13 @@ test('narrative rounds money with explicit approximation and preserves tiny fees
  assert.equal(narrativeDecimal('-1.000000','ZEC'),'-0.00000001 ZEC');
  assert.equal(narrativeDecimal('50000000000','ZEC'),'500 ZEC');
 });
+
+ test('provider prose rejects numeral-script evasions and custom-query rendering classifies invalid prose', async () => {
+ const { evidenceProse } = require('../../v1/lib/ask-explanation');
+ const prose = evidenceProse({window_start:'2026-09-01'});
+ for (const value of ['2026','२०२६','٢٠٢٦','۲۰۲۶','２０２６','𝟚𝟘𝟚𝟞','Ⅵ','²']) assert.equal(prose.safeParse('September '+value).success, false, value);
+ assert.equal(prose.safeParse('Septembre {{window_start}}').success,true);
+ const { queryReply } = require('../../v1/lib/ask-query-reply'), { answerTaskFor } = require('../../v1/lib/ask-chat');
+ const compiled = compilePlan(plan, now), e = queryEvidence(compiled, [{ d0:'2026-09-14',m0:'100',m1:'1',u0:'0',u1:'0' }], {observed_days:null,indexed_through:'2026-10-02'}, '2026-10-03');
+ await assert.rejects(queryReply(e,{question:'Explain',history:[]},async()=>({summary:'www.example.com',observations:[],limitation:''}),'fr',answerTaskFor),err=>err.askKind==='answer');
+ });

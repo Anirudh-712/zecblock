@@ -1,3 +1,4 @@
+import { formatChain } from '../../lib/ask/data';
 import type { AskAnalytics as AnalyticsResult } from '@/lib/ask/chat';
 import { analyticsPeriod, formatAnalyticsDate, formatAnalyticsRange } from '../../lib/ask/analytics-presentation';
 
@@ -30,7 +31,7 @@ function QueryTable({ result }: { result: import('@/lib/ask/chat').QueryResult }
       <thead><tr className="border-b border-cipher-border text-muted"><th scope="col" className="pb-2 pr-3 font-normal">Rank</th>{result.columns.map(c => <th key={c.key} scope="col" className={`pb-2 pr-3 font-normal ${c.type === 'number' ? 'text-right' : ''}`}>{c.label}{c.key === result.columns[result.plan.order.column].key ? result.plan.order.direction === 'desc' ? ' ↓' : ' ↑' : ''}</th>)}</tr></thead>
       <tbody>{result.rows.map((row, i) => <tr key={i} className="border-b border-cipher-border last:border-0"><th scope="row" className="py-3 pr-3 font-mono font-normal text-muted">{i + 1}</th>{result.columns.map(c => {
         const cell = row[c.key];
-        let value = cell.formatted;
+        let value = c.field === 'chain' && cell.value ? formatChain(cell.value) : cell.formatted;
         let partial = false;
         if (c.type === 'date' && cell.value) {
           const end = new Date(cell.value + 'T00:00:00Z');
