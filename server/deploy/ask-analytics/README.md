@@ -3,6 +3,16 @@
 This is a bounded public-data query engine, disabled unless explicitly
 configured. It is not arbitrary SQL or a direct model database connection.
 
+## Public catalogue audit (operator tooling)
+
+[`catalogue-audit.md`](catalogue-audit.md) describes the draft nine-source
+catalogue, bounded standby inventory, selected-row storage samples and canonical
+join proof. Generate the fixed profiling script with
+`node server/api/scripts/profile-ask-catalogue.js`; benchmarks and samples are
+explicit opt-ins. This catalogue is not connected to model routing or public
+SQL execution and grants no additional permissions. The v2 contract below
+remains the deployed-private query surface.
+
 ## Implemented contract
 
 `POST /v1/ask/chat` can select version-two relational plans when paid Ask and
