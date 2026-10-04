@@ -210,3 +210,12 @@ selects a column-filtered native feed as the first production candidate. Its
 operator preflight is read-only; source logical WAL/restart, finite retention,
 dedicated host, bootstrap admission and failover remain rollout gates. No
 publication, slot, source role or configuration has been changed by this work.
+
+## Dedicated destination schema
+
+The [subscriber-core v1 migration](subscriber-core-v1.md) prepares the new
+public-only store: exact native raw types/identities, canonical views, a dormant
+NOLOGIN reader, and coverage that hides uninitialized/stale/uncovered data. The
+real two-cluster PG16 fixture now uses this actual migration. It creates no
+source connection/publication/subscription or query login; trusted reconciliation,
+source maintenance, transport, backups and SQL/worker release gates remain open.

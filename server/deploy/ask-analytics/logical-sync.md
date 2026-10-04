@@ -66,9 +66,10 @@ artifacts. No Rust source or numbered migration changes in this task.
 Native table names must match on publisher/subscriber. Prepare thin raw
 `public.blocks`, `public.transactions`, `public.shielded_flows` on the NEW host;
 place reviewed canonical views in `analytics_public`. The query reader gets
-SELECT on those views only, with no raw/meta/subscription privileges. This is a
-separate schema from `local-core-store.sql`; that local-only script is not the
-production subscriber migration.
+SELECT on those views only, with no raw/meta/subscription privileges. The dedicated [subscriber-core v1 migration](subscriber-core-v1.md) now creates
+these exact thin tables and canonical views with a dormant reader and
+uninitialized coverage. It is separate from `local-core-store.sql`; the latter
+is a disposable snapshot fixture, not a production subscriber migration.
 
 `shielded_flows.id` must travel because the existing default replica identity is
 its integer primary key. Keep it in the hidden raw table and omit it from the
@@ -98,7 +99,15 @@ official archive after verifying its published SHA-256; no global installation.
 Node **22.22.1** ran the tests. The initial sandboxed initdb failed on shmget;
 the approved local run completed with all checks enabled.
 
-Checks cover column-filtered initial copying/all table-ready states; exact amount
+The destination now uses the actual `subscriber-core-v1.sql` migration, not
+a separately constructed test schema. Fixture-only login activation and trusted
+admin publication of synthetic coverage are not a production admission service.
+New checks cover inherited-owner refusal, type compatibility, migration collision/
+wrong-database refusal and hidden unready/stale/future/quarantined/noncanonical/
+uncovered data. Denial probes retain one connection with its read-only default
+disabled, so reconnects cannot silently restore that default.
+
+Checks also cover column-filtered initial copying/all table-ready states; exact amount
 9007199254740993; no source private-marker columns on the subscriber; committed
 multi-table change visibility; paused consumer plus historical fee/flow updates,
 deletions and reorg tail removal; actual subscriber-process stop/restart and

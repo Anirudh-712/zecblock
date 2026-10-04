@@ -4,6 +4,9 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
+const {createHash}=require('node:crypto');
+const subscriberSQL=fs.readFileSync(path.join(__dirname,'../../../deploy/ask-analytics/subscriber-core-v1.sql'),'utf8');
+const fixtureHash=tag=>createHash('sha256').update(tag).digest('hex');
 const {execFileSync}=require('node:child_process');
 const {TABLES,publicationDDL,buildPreflightSQL,assessPreflight,buildPublicationPlan}=require('../../scripts/profile-ask-logical-sync');
 
@@ -52,7 +55,7 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
  const start=c=>{command('pg_ctl',['-D',c.data,'-l',path.join(root,`${c.name}.log`),'-w','start']);c.active=true;};
  const stop=c=>{command('pg_ctl',['-D',c.data,'-m','fast','-w','stop']);c.active=false;};
  const close=async pool=>{if(pool && pools.includes(pool)) {pools.splice(pools.indexOf(pool),1);await pool.end();}};
- const pool=(cluster,user='ask_fixture_admin')=>{const p=new Pool({host:cluster.socket,port:5432,user,database:'ask_logical_fixture',max:2,ssl:false});pools.push(p);return p;};
+ const pool=(cluster,user='ask_fixture_admin')=>{const p=new Pool({host:cluster.socket,port:5432,user,database:cluster.name==='target'?'ask_analytics':'ask_logical_fixture',max:2,ssl:false});pools.push(p);return p;};
  t.after(async()=>{
   for(const p of [...pools]) await close(p);
   try {for(const c of clusters.reverse()) if(c.active) stop(c);}
@@ -64,48 +67,62 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
   fs.appendFileSync(path.join(c.data,'postgresql.conf'),`\nlisten_addresses=''\nunix_socket_directories='${c.socket.replaceAll("'","''")}'\nwal_level=logical\nmax_replication_slots=8\nmax_wal_senders=8\nmax_logical_replication_workers=4\nmax_worker_processes=8\nmax_slot_wal_keep_size='64MB'\nshared_buffers='32MB'\nlog_min_messages=warning\n`);
   start(c);
   const admin=new Pool({host:c.socket,port:5432,user:'ask_fixture_admin',database:'postgres',max:1,ssl:false});
-  try {await admin.query('CREATE DATABASE ask_logical_fixture');}finally {await admin.end();}
+  try {
+   if(c.name==='target') {
+    await admin.query('CREATE ROLE analytics_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS');
+    await admin.query('CREATE DATABASE ask_analytics OWNER analytics_owner');
+   } else await admin.query('CREATE DATABASE ask_logical_fixture');
+  }finally {await admin.end();}
  }
  source=pool(clusters[0]);target=pool(clusters[1]);
  for(const table of TABLES) {
   const columns=table.columns.map(k=>`${k} ${table.types[k]}`);
   await source.query(`CREATE TABLE public.${table.name}(${columns.join(',')},private_marker text,PRIMARY KEY(${table.key.join(',')}))`);
-  await target.query(`CREATE TABLE public.${table.name}(${columns.join(',')},PRIMARY KEY(${table.key.join(',')}))`);
+
  }
  await source.query(`CREATE TABLE public.private_fixture(secret text);INSERT INTO public.private_fixture VALUES('secret-fixture');
   CREATE ROLE ask_fixture_replicator LOGIN REPLICATION NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT 4;`);
  for(const table of TABLES) await source.query(`GRANT SELECT(${table.columns.join(',')}) ON public.${table.name} TO ask_fixture_replicator`);
  await source.query(publicationDDL());
- await target.query(`REVOKE ALL ON SCHEMA public FROM PUBLIC;
-  REVOKE TEMP ON DATABASE ask_logical_fixture FROM PUBLIC;
-  CREATE ROLE ask_fixture_view_owner NOLOGIN NOINHERIT;
-  CREATE ROLE ask_fixture_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
-  CREATE SCHEMA analytics_public AUTHORIZATION ask_fixture_view_owner;
-  GRANT USAGE ON SCHEMA public TO ask_fixture_view_owner;
-  GRANT SELECT ON public.blocks,public.transactions,public.shielded_flows TO ask_fixture_view_owner;
-  SET ROLE ask_fixture_view_owner;
-  CREATE VIEW analytics_public.blocks WITH(security_barrier=true) AS SELECT * FROM public.blocks;
-  CREATE VIEW analytics_public.transactions WITH(security_barrier=true) AS SELECT t.* FROM public.transactions t JOIN public.blocks b ON b.height=t.block_height AND b.hash=t.block_hash AND b.timestamp=t.block_time;
-  CREATE VIEW analytics_public.flows WITH(security_barrier=true) AS SELECT f.txid,f.block_height,f.block_time,f.flow_type,f.pool,f.amount_zat FROM public.shielded_flows f JOIN public.transactions t ON t.txid=f.txid AND t.block_height=f.block_height AND t.block_time=f.block_time JOIN public.blocks b ON b.height=t.block_height AND b.hash=t.block_hash AND b.timestamp=t.block_time;
-  RESET ROLE;
-  GRANT USAGE ON SCHEMA analytics_public TO ask_fixture_reader;
-  GRANT SELECT ON analytics_public.blocks,analytics_public.transactions,analytics_public.flows TO ask_fixture_reader;`);
- const insertBlock=async(c,height,hash)=>{
+ await t.test('fresh migration rejects inherited owner authority without creating objects',async()=>{
+  await target.query('CREATE ROLE ask_fixture_extra NOLOGIN;GRANT ask_fixture_extra TO analytics_owner');
+  await assert.rejects(target.query(subscriberSQL),/must not inherit other roles/);
+  await target.query('ROLLBACK');
+  assert.equal((await target.query("SELECT count(*) FROM pg_roles WHERE rolname IN ('ask_public_reader','ask_public_view_owner')")).rows[0].count,'0');
+  await target.query('REVOKE ask_fixture_extra FROM analytics_owner;DROP ROLE ask_fixture_extra');
+ });
+ await target.query(subscriberSQL);
+ // Production migration leaves the reader dormant. Only this private trust
+ // fixture activates it; no real credential/HBA or deployed worker is involved.
+ assert.equal((await target.query("SELECT rolcanlogin FROM pg_roles WHERE rolname='ask_public_reader'")).rows[0].rolcanlogin,false);
+ await target.query('ALTER ROLE ask_public_reader LOGIN');
+ const sourceSystem=(await source.query('SELECT system_identifier::text FROM pg_control_system()')).rows[0].system_identifier;
+ const markReady=async()=>{
+  const tip=(await target.query('SELECT height::text,hash FROM public.blocks ORDER BY height DESC LIMIT 1')).rows[0];
+  const progress=(await target.query('SELECT remote_lsn::text FROM pg_replication_origin_status LIMIT 1')).rows[0];
+  // Trusted fixture admin publishes synthetic coverage after waiting for native
+  // apply. This is NOT the production reconciliation/admission service.
+  await target.query(`UPDATE analytics_meta.sync_state SET state='ready',source_id='00000000-0000-4000-8000-000000000001',
+   source_system_identifier=$1,applied_lsn=$2,covered_from=1,covered_through=$3,tip_hash=$4,verified_at=clock_timestamp()`,
+   [sourceSystem,progress?.remote_lsn||'0/0',tip.height,tip.hash]);
+ };
+ const insertBlock=async(c,height,tag)=>{
+  const hash=fixtureHash(tag);
   const columns=TABLES[0].columns;
-  await c.query(`INSERT INTO blocks(${columns.join(',')},private_marker) VALUES($1,$2,$3,$4,2,100,7,'fixture-miner','excluded-secret')`,[height,hash,height===1?'parent':'b1',1700000000+height]);
+  await c.query(`INSERT INTO blocks(${columns.join(',')},private_marker) VALUES($1,$2,$3,$4,2,100,7,'fixture-miner','excluded-secret')`,[height,hash,fixtureHash(height===1?'parent':'b1'),1700000000+height]);
   for(const coinbase of [true,false]) {
-   const txid=`${hash}-${coinbase?'coinbase':'tx'}`;
+   const txid=`${tag}-${coinbase?'coinbase':'tx'}`;
    const values={txid,block_height:height,block_hash:hash,block_time:String(1700000000+height),is_coinbase:coinbase,fee:coinbase?'0':'7',size:'50',has_sapling:false,has_orchard:!coinbase,has_ironwood:false,has_sprout:false,value_balance_orchard:null,value_balance_ironwood:null};
    const fields=TABLES[1].columns;
    await c.query(`INSERT INTO transactions(${fields.join(',')},private_marker) VALUES(${fields.map((_,i)=>`$${i+1}`).join(',')},'excluded-secret')`,fields.map(k=>values[k]));
   }
-  await c.query("INSERT INTO shielded_flows VALUES($1,$2,$3,$4,'shield','orchard',9007199254740993,'excluded-secret')",[height*10,`${hash}-tx`,height,1700000000+height]);
+  await c.query("INSERT INTO shielded_flows VALUES($1,$2,$3,$4,'shield','orchard',9007199254740993,'excluded-secret')",[height*10,`${tag}-tx`,height,1700000000+height]);
  };
  await insertBlock(source,1,'b1');
  await source.query("INSERT INTO shielded_flows VALUES(11,'b1-tx',1,1700000001,'deshield','orchard',100,'excluded-secret')");
  const conn=`host=${clusters[0].socket} port=5432 dbname=ask_logical_fixture user=ask_fixture_replicator application_name=ask_fixture`;
  await target.query(`CREATE SUBSCRIPTION ask_public_core_v1 CONNECTION '${conn.replaceAll("'","''")}' PUBLICATION ask_public_core_v1 WITH(copy_data=true,streaming=off)`);
- reader=pool(clusters[1],'ask_fixture_reader');
+ reader=pool(clusters[1],'ask_public_reader');
  const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  const wait=async(fn)=>{const until=Date.now()+10000;while(Date.now()<until) {if(await fn()) return;await sleep(40);}throw new Error('Fixture replication deadline exceeded');};
  const counts=async()=>(await reader.query(`SELECT (SELECT count(*) FROM analytics_public.blocks)::text AS blocks,
@@ -113,6 +130,9 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
   (SELECT count(*) FROM analytics_public.flows)::text AS flows`)).rows[0];
  await t.test('column-filtered snapshot synchronizes all tables and retains exact amounts',async()=>{
   await wait(async()=>Number((await target.query("SELECT count(*) FROM pg_subscription_rel WHERE srsubstate='r'")).rows[0].count)===3);
+  assert.equal((await reader.query('SELECT ready FROM analytics_public.coverage')).rows[0].ready,false);
+  assert.deepEqual(await counts(),{blocks:'0',transactions:'0',flows:'0'});
+  await markReady();
   await wait(async()=>(await counts()).flows==='2');
   assert.deepEqual(await counts(),{blocks:'1',transactions:'2',flows:'2'});
   assert.equal((await reader.query("SELECT amount_zat::text FROM analytics_public.flows WHERE flow_type='shield'")).rows[0].amount_zat,'9007199254740993');
@@ -122,6 +142,8 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
   const client=await source.connect();
   try {await client.query('BEGIN');await insertBlock(client,2,'b2');await sleep(100);assert.deepEqual(await counts(),{blocks:'1',transactions:'2',flows:'2'});await client.query('COMMIT');}
   finally {await client.query('ROLLBACK');client.release();}
+  await wait(async()=>(await target.query('SELECT count(*) FROM public.blocks')).rows[0].count==='2');
+  await markReady();
   await wait(async()=>(await counts()).blocks==='2');
   assert.deepEqual(await counts(),{blocks:'2',transactions:'4',flows:'3'});
  });
@@ -133,6 +155,9 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
   assert.deepEqual(await counts(),{blocks:'2',transactions:'4',flows:'3'});
   assert.equal((await reader.query("SELECT fee::text FROM analytics_public.transactions WHERE txid='b1-tx'")).rows[0].fee,'7');
   await target.query('ALTER SUBSCRIPTION ask_public_core_v1 ENABLE');
+  await wait(async()=>(await target.query('SELECT count(*) FROM public.blocks')).rows[0].count==='1');
+  assert.equal((await reader.query('SELECT ready FROM analytics_public.coverage')).rows[0].ready,false);
+  await markReady();
   await wait(async()=>(await counts()).blocks==='1');
   assert.deepEqual(await counts(),{blocks:'1',transactions:'2',flows:'1'});
   assert.equal((await reader.query("SELECT fee::text FROM analytics_public.transactions WHERE txid='b1-tx'")).rows[0].fee,'42');
@@ -141,10 +166,12 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
  await t.test('subscriber process restart resumes durable native checkpoint',async()=>{
   await close(reader);await close(target);stop(clusters[1]);
   await source.query('BEGIN');await insertBlock(source,2,'replacement-b2');await source.query('COMMIT');
-  start(clusters[1]);target=pool(clusters[1]);reader=pool(clusters[1],'ask_fixture_reader');
+  start(clusters[1]);target=pool(clusters[1]);reader=pool(clusters[1],'ask_public_reader');
+  await wait(async()=>(await target.query('SELECT count(*) FROM public.blocks')).rows[0].count==='2');
+  await markReady();
   await wait(async()=>(await counts()).blocks==='2');
   assert.deepEqual(await counts(),{blocks:'2',transactions:'4',flows:'2'});
-  assert.equal((await reader.query('SELECT hash FROM analytics_public.blocks WHERE height=2')).rows[0].hash,'replacement-b2');
+  assert.equal((await reader.query('SELECT hash FROM analytics_public.blocks WHERE height=2')).rows[0].hash,fixtureHash('replacement-b2'));
  });
  await t.test('truncate changes are carried; WAL budget is finite and identity unchanged',async()=>{
   await source.query('TRUNCATE shielded_flows');await wait(async()=>(await counts()).flows==='0');
@@ -153,12 +180,57 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
   const flowPK=(await source.query("SELECT attname FROM pg_index i CROSS JOIN LATERAL unnest(i.indkey) key(attnum) JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=key.attnum WHERE i.indrelid='shielded_flows'::regclass AND i.indisprimary")).rows.map(r=>r.attname);assert.deepEqual(flowPK,['id']);
  });
  await t.test('replication credentials/private columns are inaccessible to query reader',async()=>{
-  for(const attack of ['SELECT * FROM public.transactions','SELECT subconninfo FROM pg_subscription','DELETE FROM analytics_public.blocks','CREATE TEMP TABLE attack(x int)',
-    "SELECT pg_read_file('/etc/passwd')",'SET ROLE ask_fixture_admin','ALTER SUBSCRIPTION ask_public_core_v1 DISABLE']) await assert.rejects(reader.query(attack),/permission|must be|not permitted/i,attack);
+  const attacker=await reader.connect();
+  try {
+   await attacker.query('SET default_transaction_read_only=off');
+   assert.equal((await attacker.query('SHOW default_transaction_read_only')).rows[0].default_transaction_read_only,'off');
+   for(const attack of ['SELECT * FROM public.transactions','DELETE FROM public.blocks','SELECT * FROM analytics_meta.sync_state',"UPDATE analytics_meta.sync_state SET state='ready'",'SELECT id FROM public.shielded_flows','SET ROLE analytics_owner','SET ROLE ask_public_view_owner','DROP VIEW analytics_public.blocks','CREATE TABLE public.attack(x int)','CREATE ROLE attack','SELECT subconninfo FROM pg_subscription','DELETE FROM analytics_public.blocks','CREATE TEMP TABLE attack(x int)',
+    "SELECT pg_read_file('/etc/passwd')",'SET ROLE ask_fixture_admin','ALTER SUBSCRIPTION ask_public_core_v1 DISABLE']) await assert.rejects(attacker.query(attack),/permission|must be|not permitted|cannot delete from view/i,attack);
+   assert.equal((await attacker.query("SELECT has_table_privilege(current_user,'analytics_public.coverage','UPDATE') AS allowed")).rows[0].allowed,false);
+  } finally {attacker.release();}
   const replicator=pool(clusters[0],'ask_fixture_replicator');
   await assert.rejects(replicator.query('SELECT private_marker FROM public.blocks'),/permission denied/);
   await assert.rejects(replicator.query('SELECT secret FROM public.private_fixture'),/permission denied/);
   await close(replicator);
+ });
+ await t.test('destination migration matches types, rejects reruns and excludes noncanonical/uncovered rows',async()=>{
+  for(const table of TABLES) {
+   const actual=(await target.query(`SELECT a.attname,format_type(a.atttypid,a.atttypmod) AS type FROM pg_attribute a
+    WHERE a.attrelid=$1::regclass AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum`,[`public.${table.name}`])).rows;
+   assert.deepEqual(actual.map(a=>a.attname),table.columns);
+   assert.deepEqual(Object.fromEntries(actual.map(a=>[a.attname,a.type])),table.types);
+  }
+  await assert.rejects(target.query(subscriberSQL),/empty and reserved/);await target.query('ROLLBACK');
+  await assert.rejects(source.query(subscriberSQL),/Expected dedicated/);await source.query('ROLLBACK');
+  await target.query(`INSERT INTO public.transactions(txid,block_height,block_hash,block_time) VALUES
+   ('orphan',1,'wrong-hash',1700000001),('wrong-time',1,$1,0)`,[fixtureHash('b1')]);
+  await target.query('INSERT INTO public.blocks(height,hash,timestamp) VALUES(3,$1,1700000003)',[fixtureHash('b3')]);
+  assert.deepEqual(await counts(),{blocks:'2',transactions:'4',flows:'0'});
+  await target.query("DELETE FROM public.transactions WHERE txid IN ('orphan','wrong-time');DELETE FROM public.blocks WHERE height=3");
+ });
+ await t.test('unready, stale, future-dated or quarantined evidence hides all data and cannot be forged by reader',async()=>{
+  for(const state of ['copying','reconciling','quarantined']) {
+   await target.query('UPDATE analytics_meta.sync_state SET state=$1',[state]);
+   assert.deepEqual(await counts(),{blocks:'0',transactions:'0',flows:'0'});
+  }
+  await markReady();
+  for(const offset of ["-interval '121 seconds'","+interval '1 hour'"]) {
+   await target.query(`UPDATE analytics_meta.sync_state SET verified_at=clock_timestamp()${offset}`);
+   assert.deepEqual(await counts(),{blocks:'0',transactions:'0',flows:'0'});
+   assert.equal((await reader.query('SELECT state FROM analytics_public.coverage')).rows[0].state,'stale');
+  }
+  await markReady();
+  await target.query("UPDATE analytics_meta.sync_state SET tip_hash=repeat('f',64)");
+  assert.deepEqual(await counts(),{blocks:'0',transactions:'0',flows:'0'});
+  await markReady();assert.deepEqual(await counts(),{blocks:'2',transactions:'4',flows:'0'});
+  await assert.rejects(reader.query('UPDATE analytics_public.coverage SET ready=true'),/permission|cannot update view|not automatically/i);
+  await assert.rejects(reader.query('SELECT source_system_identifier,applied_lsn FROM analytics_public.coverage'),/does not exist/);
+  const ownerProbe=await target.connect();
+  try {
+   await ownerProbe.query('SET ROLE ask_public_view_owner');
+   await assert.rejects(ownerProbe.query('SELECT id FROM public.shielded_flows'),/permission/);
+   await assert.rejects(ownerProbe.query('SELECT source_system_identifier FROM analytics_meta.sync_state'),/permission/);
+  } finally {await ownerProbe.query('RESET ROLE');ownerProbe.release();}
  });
  await target.query('DROP SUBSCRIPTION ask_public_core_v1');
  assert.equal((await source.query('SELECT count(*) FROM pg_replication_slots')).rows[0].count,'0');
