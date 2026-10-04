@@ -202,3 +202,11 @@ The [disposable local store prototype](local-core-store.md) tests a separate
 public-only schema, atomic bounded-window publication, retries and reorgs on
 small fixtures. It does not deploy a database, implement production CDC, or
 expand current Ask access.
+
+## Public-core continuous synchronization candidate
+
+The [PG16 logical replication plan and isolated fixture proof](logical-sync.md)
+selects a column-filtered native feed as the first production candidate. Its
+operator preflight is read-only; source logical WAL/restart, finite retention,
+dedicated host, bootstrap admission and failover remain rollout gates. No
+publication, slot, source role or configuration has been changed by this work.
