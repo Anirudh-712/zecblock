@@ -195,3 +195,10 @@ The opt-in integration test uses only local `/tmp` PostgreSQL, creates a disposa
 database, refuses existing reader/owner roles, and removes its own fixtures. It
 proves database permission denials even with the user-changeable read-only default
 disabled, and tests PUBLIC/column/SECURITY DEFINER leaks and primary refusal.
+
+## Local public-core synchronization prototype
+
+The [disposable local store prototype](local-core-store.md) tests a separate
+public-only schema, atomic bounded-window publication, retries and reorgs on
+small fixtures. It does not deploy a database, implement production CDC, or
+expand current Ask access.
