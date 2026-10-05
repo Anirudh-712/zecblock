@@ -67,8 +67,12 @@ mirror initialization. Restore into a newly created disposable destination DB,
 verify owners/ACLs/view guards, and delete only that probe DB. It does not verify
 full-history backup/PITR, role recreation, off-host recovery or an independent
 backup. Do not copy production Storage Box credentials to analytics. Provision
-separate repository access/encryption, retention, verified restoration and alert
-delivery before a history bootstrap. Source PostgreSQL backups remain separate.
+separate repository access/encryption, retention and verified restoration after
+implementation works as intended: the owner deferred analytics backups on
+October 5, 2026. No analytics backup account/repository/schedule is configured at
+this stage; backups do not block the initial private copy. Source PostgreSQL
+backups continue unchanged. Monitoring/WAL capacity and reconciliation gates
+remain separate.
 
 `host-health.py` and the bootstrap health timer perform fixed read-only checks
 for mirror member health/sync status, free disk, private database listener/socket,

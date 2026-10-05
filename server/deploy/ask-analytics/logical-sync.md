@@ -122,10 +122,21 @@ Fixture timing is not a mainnet benchmark, failover drill or arbitrary-SQL
 sandbox certification. The 64MB fixture WAL budget is not a production sizing
 recommendation. Checkpoint-bound enforcement is not an immediate disk hard cap.
 
+## Implementation backup policy — October 5, 2026
+
+The owner explicitly deferred analytics backup setup until implementation works
+as intended. No analytics backup repository/account/schedule will be provisioned
+at this stage, and it is not a prerequisite for the initial private chain-data
+copy. Raw blockchain rows can be rebuilt from the source; losing this store
+requires a fresh copy and reconciliation. Existing source production backups
+continue unchanged. Revisit analytics backup/configuration/user-content recovery
+after implementation is accepted. This does not waive WAL retention, capacity,
+source maintenance, copy reconciliation or query-access controls.
+
 ## Required production rollout gates
 
 1. **New analytics host and schema:** select budget/configuration, provision
-   private transport and backups, create versioned hidden raw tables + reviewed
+   private transport, create versioned hidden raw tables + reviewed
    views, and a separately audited read-only worker. No source credentials or
    replication role memberships in the worker/model/API client.
 2. **Source maintenance review:** measure WAL rate/headroom; choose finite
