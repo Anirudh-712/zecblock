@@ -1,5 +1,16 @@
 # Private analytics source transport
 
+## Current rollout — October 6, 2026 JST
+
+Dedicated PostgreSQL authentication/publication/subscription is now active through
+this socket. Initial three-table copy finished; new store remains reconciling and
+not admitted to Ask. Health timer now uses explicit `--stage copying` via its
+reviewed drop-in, covering copying/reconciling with readiness false plus native
+worker/enabled/error checks. The bootstrap-only instructions below are the earlier
+transport baseline. See [source-feed-operations.md](source-feed-operations.md) for
+current source maintenance, WAL guard, verification and pending admission gates.
+
+
 Dedicated SSH transport carries PostgreSQL traffic from the analytics host to
 source loopback `127.0.0.1:5432`. It is a connection path, not a source database
 login, publication/subscription or permission for an Ask worker to query primary.

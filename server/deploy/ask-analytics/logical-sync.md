@@ -1,5 +1,16 @@
 # Public-core logical synchronization: candidate and local proof
 
+## Current private feed status — October 6, 2026 JST
+
+Initial three-table native copy is complete and live changes are streaming on
+the dedicated analytics host. Bounded source counts/exact samples and target
+canonical relationships reconcile. The store remains reconciling/not ready,
+with a dormant reader and no new Ask integration; continuous admission and
+historical flow completeness are still pending. Source logical-WAL maintenance,
+private authentication and finite WAL/disk guard are installed. Operational details,
+verified numbers and recovery boundaries: [source-feed-operations.md](source-feed-operations.md).
+
+
 **Recommended first production feed:** native PostgreSQL 16 logical replication,
 with an explicit column-list publication, one subscription for all three core
 tables and a separate public-only analytics host. This captures committed inserts,
