@@ -219,3 +219,9 @@ NOLOGIN reader, and coverage that hides uninitialized/stale/uncovered data. The
 real two-cluster PG16 fixture now uses this actual migration. It creates no
 source connection/publication/subscription or query login; trusted reconciliation,
 source maintenance, transport, backups and SQL/worker release gates remain open.
+
+## Private source transport and bootstrap checks
+
+[Private transport](private-transport.md) defines a dedicated tunnel-only SSH
+account, hardened Unix-socket transport and passive bootstrap checks. This is
+separate from a source database login/feed and from public SQL/AI admission.
