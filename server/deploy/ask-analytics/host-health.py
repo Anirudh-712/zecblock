@@ -8,6 +8,11 @@ def command(args):
 def stage_alerts(db,stage):
     if stage=='bootstrap':
         return ['bootstrap_stage_changed_review_monitor_policy'] if db['subscriptions'] or db['ready'] or db['state']!='uninitialized' else []
+    if stage=='ready':
+        alerts=[]
+        if db['subscriptions']!=1 or not db['ready'] or db['state']!='ready': alerts.append('admission_not_ready')
+        if not db['subscription_enabled'] or not db['apply_worker_active'] or db['apply_errors'] or db['sync_errors']: alerts.append('ready_replication_unhealthy')
+        return alerts
     if stage!='copying': raise ValueError('unknown health stage')
     alerts=[]
     if db['subscriptions']!=1 or db['ready'] or db['state'] not in ('copying','reconciling'):
@@ -32,6 +37,7 @@ def main(stage):
     SELECT json_build_object('database',current_database(),'directory',current_setting('data_directory'),
      'listener_private',current_setting('listen_addresses')='',
      'socket_private',current_setting('unix_socket_permissions')='0700',
+     'reader_active',(SELECT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit AND rolconnlimit=2 FROM pg_roles WHERE rolname='ask_public_reader'),
      'subscriptions',(SELECT count(*) FROM pg_subscription),
      'subscription_enabled',(SELECT bool_and(subenabled AND subdisableonerr AND NOT subrunasowner AND subname='ask_public_core_v1') FROM pg_subscription),
      'apply_worker_active',(SELECT count(*)=1 FROM pg_stat_subscription WHERE relid IS NULL AND pid IS NOT NULL AND subname='ask_public_core_v1'),
@@ -45,7 +51,10 @@ def main(stage):
         raw=command(['/usr/bin/psql','-X','-w','-At','-v','ON_ERROR_STOP=1','-d','ask_analytics','-c',sql])
         db=json.loads(next(line for line in raw.splitlines() if line.startswith('{')))
         report['checks']['database']=db
-        report['checks']['bootstrap_database_boundary_ok']=all((db['database']=='ask_analytics',db['directory']=='/srv/analytics/postgresql/16/main',db['listener_private'],db['socket_private'],db['reader_dormant'],db['reader_memberships']==0))
+        if stage=='ready':
+            admin=os.stat('/var/run/postgresql'); public=os.stat('/run/ask-public-db')
+            db['socket_private']=stat.S_IMODE(admin.st_mode)&0o777==0o700 and stat.S_IMODE(public.st_mode)==0o750
+        report['checks']['bootstrap_database_boundary_ok']=all((db['database']=='ask_analytics',db['directory']=='/srv/analytics/postgresql/16/main',db['listener_private'],db['socket_private'],db['reader_active'] if stage=='ready' else db['reader_dormant'],db['reader_memberships']==0))
         report['checks']['transport_active']=command(['/usr/bin/systemctl','is-active','zecblock-ask-source-transport.service'])=='active'
         sock=os.stat('/run/ask-source-transport/.s.PGSQL.15432')
         report['checks']['transport_socket_private']=stat.S_ISSOCK(sock.st_mode) and stat.S_IMODE(sock.st_mode)==0o660 and sock.st_gid==os.getgid()
@@ -62,5 +71,5 @@ def main(stage):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
-    parser.add_argument('--stage',choices=('bootstrap','copying'),default='bootstrap')
+    parser.add_argument('--stage',choices=('bootstrap','copying','ready'),default='bootstrap')
     main(parser.parse_args().stage)

@@ -121,7 +121,7 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
  await insertBlock(source,1,'b1');
  await source.query("INSERT INTO shielded_flows VALUES(11,'b1-tx',1,1700000001,'deshield','orchard',100,'excluded-secret')");
  const conn=`host=${clusters[0].socket} port=5432 dbname=ask_logical_fixture user=ask_fixture_replicator application_name=ask_fixture`;
- await target.query(`CREATE SUBSCRIPTION ask_public_core_v1 CONNECTION '${conn.replaceAll("'","''")}' PUBLICATION ask_public_core_v1 WITH(copy_data=true,streaming=off)`);
+ await target.query(`CREATE SUBSCRIPTION ask_public_core_v1 CONNECTION '${conn.replaceAll("'","''")}' PUBLICATION ask_public_core_v1 WITH(copy_data=true,streaming=off,disable_on_error=true)`);
  reader=pool(clusters[1],'ask_public_reader');
  const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  const wait=async(fn)=>{const until=Date.now()+10000;while(Date.now()<until) {if(await fn()) return;await sleep(40);}throw new Error('Fixture replication deadline exceeded');};
@@ -231,6 +231,44 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
    await assert.rejects(ownerProbe.query('SELECT id FROM public.shielded_flows'),/permission/);
    await assert.rejects(ownerProbe.query('SELECT source_system_identifier FROM analytics_meta.sync_state'),/permission/);
   } finally {await ownerProbe.query('RESET ROLE');ownerProbe.release();}
+ });
+ await t.test('dedicated admission tracks actual native changes, rejects stale signals and quarantines broken history',async()=>{
+  const {refreshAdmission}=require('../../scripts/ask-core-admission');
+  const {CORE_GUARD,checkCoreGuard,createAnalytics}=require('../../v1/lib/ask-analytics');
+  const {compileCorePlan}=require('../../v1/lib/ask-core-catalogue');
+  await target.query(fs.readFileSync(path.join(__dirname,'../../../deploy/ask-analytics/admission-v1.sql'),'utf8'));
+  await source.query('BEGIN');await insertBlock(source,0,'parent');await source.query('COMMIT');
+  await source.query(`CREATE SCHEMA analytics_feed_meta; CREATE TABLE analytics_feed_meta.signal(singleton boolean PRIMARY KEY,generation uuid NOT NULL,system_identifier text NOT NULL,timeline integer NOT NULL,sampled_at timestamptz NOT NULL,tip_height bigint NOT NULL,tip_hash text NOT NULL,before_lsn pg_lsn NOT NULL); GRANT USAGE ON SCHEMA analytics_feed_meta TO ask_fixture_replicator; GRANT SELECT ON analytics_feed_meta.signal TO ask_fixture_replicator; ALTER PUBLICATION ask_public_core_v1 ADD TABLE analytics_feed_meta.signal`);
+  const signal=async()=>source.query(`INSERT INTO analytics_feed_meta.signal SELECT true,'00000000-0000-4000-8000-000000000001',$1,2,clock_timestamp(),height,hash,pg_current_wal_lsn() FROM blocks ORDER BY height DESC LIMIT 1 ON CONFLICT(singleton) DO UPDATE SET sampled_at=EXCLUDED.sampled_at,tip_height=EXCLUDED.tip_height,tip_hash=EXCLUDED.tip_hash,before_lsn=EXCLUDED.before_lsn`,[sourceSystem]);
+  await signal();await target.query('ALTER SUBSCRIPTION ask_public_core_v1 REFRESH PUBLICATION');
+  await wait(async()=>(await target.query("SELECT count(*) FROM pg_subscription_rel WHERE srsubstate='r'")).rows[0].count==='4');
+  const result=await refreshAdmission(target);assert.equal(result.state,'verified');
+  checkCoreGuard((await reader.query(CORE_GUARD)).rows[0]);
+  assert.equal((await reader.query('SELECT ready FROM analytics_public.coverage')).rows[0].ready,true);
+  for(const sql of ['SELECT * FROM analytics_feed_meta.signal','SELECT * FROM analytics_meta.dirty_heights','SELECT analytics_meta.is_admitted()','SELECT analytics_meta.track_change()'])await assert.rejects(reader.query(sql),/permission|trigger/i);
+  const plan={version:2,dataset:'transactions',start:'2023-11-14',end:'2023-11-14',bucket:'none',dimensions:[],filters:[],measures:[{field:'records',operation:'count',filters:[]}],calculations:[],order:{column:0,direction:'desc'},limit:5};
+  const compiled=compileCorePlan(plan);assert.equal((await reader.query(compiled.text,compiled.values)).rows[0].m0,'3.000000');
+  // Real source update, real logical apply, and replica-enabled dirty tracking.
+  await source.query("UPDATE transactions SET fee=43 WHERE txid='b1-tx'");
+  await wait(async()=>(await target.query("SELECT fee::text FROM public.transactions WHERE txid='b1-tx'")).rows[0].fee==='43');
+  assert.equal((await reader.query('SELECT ready FROM analytics_public.coverage')).rows[0].ready,false);
+  const analytics=createAnalytics({ASK_ANALYTICS_ENABLED:'true',ASK_ANALYTICS_DATABASE_URL:'peer-only',ASK_ANALYTICS_SOCKET:'/run/ask-public-db',ASK_ANALYTICS_STORE:'logical_public_core',ASK_ANALYTICS_DAILY_QUERY_LIMIT:'20'},{pool:reader});
+  const redis={isReady:true,eval:async()=>1,zRem:async()=>1};
+  await assert.rejects(analytics.execute(plan,{redis}),e=>e.askKind==='source');
+  assert.equal((await refreshAdmission(target)).state,'verified');
+  const evidence=await analytics.execute(plan,{redis});assert.equal(evidence.result.rows[0].m0.value,'3.000000');
+  await source.query("UPDATE analytics_feed_meta.signal SET sampled_at=clock_timestamp()-interval '121 seconds'");
+  await wait(async()=>(await target.query("SELECT sampled_at<clock_timestamp()-interval '120 seconds' AS stale FROM analytics_feed_meta.signal")).rows[0].stale);
+  assert.equal((await reader.query('SELECT ready FROM analytics_public.coverage')).rows[0].ready,false);
+  assert.equal((await refreshAdmission(target)).state,'stale');
+  await signal();await wait(async()=>(await target.query("SELECT sampled_at>clock_timestamp()-interval '120 seconds' AS fresh FROM analytics_feed_meta.signal")).rows[0].fresh);
+  assert.equal((await refreshAdmission(target)).state,'verified');
+  await source.query('UPDATE blocks SET transaction_count=3 WHERE height=1');
+  await wait(async()=>(await target.query('SELECT transaction_count FROM blocks WHERE height=1')).rows[0].transaction_count===3);
+  assert.equal((await refreshAdmission(target)).state,'quarantined');
+  await source.query('UPDATE blocks SET transaction_count=2 WHERE height=1');
+  await wait(async()=>(await target.query('SELECT transaction_count FROM blocks WHERE height=1')).rows[0].transaction_count===2);
+  assert.equal((await refreshAdmission(target)).state,'quarantined');
  });
  await target.query('DROP SUBSCRIPTION ask_public_core_v1');
  assert.equal((await source.query('SELECT count(*) FROM pg_replication_slots')).rows[0].count,'0');

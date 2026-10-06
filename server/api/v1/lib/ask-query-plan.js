@@ -11,8 +11,10 @@ const datasets = Object.freeze({
     swaps: { view: 'swaps_v2', time: 'timestamp', clock: 'timestamp', label: 'Tracked successful cross-chain swaps', topic: 'crosschain', fields: { direction: d('Direction'), chain: d('Counterparty chain'), token: d('Counterparty token'), usd: n('Reported counterparty value', 'USD') }, notes: 'Source: public.cross_chain_swaps (legacy-success-index, the currently serving public cross-chain source). Successful external swaps dated by creation time; direction derives from source/destination ZEC chains, ZEC-to-ZEC routes are excluded, and legacy zero USD sentinels become unavailable. Inflow uses source chain/token/USD; outflow uses destination chain/token/USD. Valuations are estimates; missing valuations remain null. This is not all exchange activity.' },
 });
 const { querySchema } = require('../../../../lib/ask/query-contract');
-function compileQuery(input, now = Date.now()) {
-    const plan = querySchema.parse(input), definition = datasets[plan.dataset];
+function compileQuery(input, now = Date.now(), definitions = datasets, schema = 'ask_public') {
+    if (!['ask_public','analytics_public'].includes(schema)) throw Error('Unknown compiler schema');
+    const plan = querySchema.parse(input), definition = definitions[plan.dataset];
+    if (!definition) throw Error('Dataset unavailable in this store');
     const days = (Date.parse(plan.end) - Date.parse(plan.start)) / 86400000 + 1;
     if (days < 1 || days > 366 || plan.end >= new Date(now).toISOString().slice(0, 10))
         throw Error('Invalid query window');
@@ -67,7 +69,7 @@ function compileQuery(input, now = Date.now()) {
     if (plan.order.column >= columns.length)
         throw Error('Invalid order column');
     const timeWhere = definition.clock === 'epoch' ? `${definition.time} >= EXTRACT(EPOCH FROM $1::date::timestamp AT TIME ZONE 'UTC')::bigint AND ${definition.time} < EXTRACT(EPOCH FROM ($2::date+1)::timestamp AT TIME ZONE 'UTC')::bigint` : definition.clock === 'timestamp' ? `${definition.time} >= $1::date::timestamp AT TIME ZONE 'UTC' AND ${definition.time} < ($2::date+1)::timestamp AT TIME ZONE 'UTC'` : 'date >= $1::date AND date <= $2::date';
-    const dims = expressions.map((e, i) => `${e} AS d${i}`), grouped = `SELECT ${[...dims, ...aggregate, ...missing].join(',')} FROM ask_public.${definition.view} WHERE ${timeWhere} AND ${where}${dims.length ? ` GROUP BY ${expressions.join(',')}` : ''}`;
+    const dims = expressions.map((e, i) => `${e} AS d${i}`), grouped = `SELECT ${[...dims, ...aggregate, ...missing].join(',')} FROM ${schema}.${definition.view} WHERE ${timeWhere} AND ${where}${dims.length ? ` GROUP BY ${expressions.join(',')}` : ''}`;
     const projection = columns.map(c => c.type === 'number' ? `pg_catalog.round(${c.key}::numeric,6)::text AS ${c.key}` : `${c.key}::text AS ${c.key}`).join(',') + plan.measures.map((m, i) => `,u${i}::text AS u${i}`).join(''), orderKey = columns[plan.order.column].key, limit = bind(plan.limit);
     return { plan, days, definition, columns, text: `WITH grouped AS (${grouped}), calculated AS (SELECT grouped.*${calculations.length ? ',' + calculations.join(',') : ''} FROM grouped) SELECT ${projection} FROM calculated ORDER BY calculated.${orderKey} ${plan.order.direction.toUpperCase()} NULLS LAST${columns.filter(c => c.key !== orderKey).map(c => `,calculated.${c.key} ASC NULLS LAST`).join('')} LIMIT ${limit}::int`, values };
 }

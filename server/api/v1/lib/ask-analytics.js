@@ -4,6 +4,7 @@ const { Pool } = require('pg');
 const { createHash, randomUUID } = require('node:crypto');
 const { compilePlan } = require('./ask-analytics-plan');
 const { catalogue, views } = require('./ask-query-plan');
+const { coreCatalogue, coreViews } = require('./ask-core-catalogue');
 const { queryEvidence } = require('./ask-query-evidence');
 const { askError } = require('./ask-errors');
 
@@ -32,6 +33,14 @@ const GUARD = `SELECT pg_catalog.pg_is_in_recovery() AS standby,
     AND pg_catalog.has_function_privilege(current_user, p.oid, 'EXECUTE')) AS no_definers
   FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`;
 
+const CORE_GUARD=GUARD.replace("pg_catalog.pg_is_in_recovery() AS standby", "NOT pg_catalog.pg_is_in_recovery() AND current_database()='ask_analytics' AS dedicated")
+ .replaceAll("ask_analytics_reader", "ask_public_reader")
+ .replace(/EXTRACT\(EPOCH FROM \(pg_catalog.clock_timestamp\(\) - pg_catalog.pg_last_xact_replay_timestamp\(\)\)\) AS replay_age/,"true AS source_guard")
+ .replace("n.nspname = 'ask_public'", "n.nspname = 'analytics_public'")
+ .replace(views.map(name=>`'${name}'`).join(','),coreViews.map(name=>`'${name}'`).join(','))
+ .replace("AND pg_catalog.has_function_privilege(current_user, p.oid, 'EXECUTE')) AS no_definers", "AND pg_catalog.has_function_privilege(current_user, p.oid, 'EXECUTE') AND NOT (n.nspname='analytics_meta' AND p.proname='is_admitted' AND p.pronargs=0 AND p.prorettype='boolean'::regtype AND p.proowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='analytics_owner') AND p.proconfig=ARRAY['search_path=pg_catalog'])) AS no_definers");
+function checkCoreGuard(row){if(!row || !['dedicated','identity','restricted','disk_bounded','no_memberships','no_create','only_public_view','no_sequences','no_definers'].every(key=>row[key]===true))throw askError('source');}
+
 const ADMIT_QUERY = `
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
 if redis.call('ZCARD', KEYS[1]) >= 2 or tonumber(redis.call('GET', KEYS[2]) or '0') >= tonumber(ARGV[4]) then return 0 end
@@ -41,6 +50,11 @@ return 1`;
 function analyticsConfig(env) {
   const daily = Number(env.ASK_ANALYTICS_DAILY_QUERY_LIMIT);
   if (env.ASK_ANALYTICS_ENABLED !== 'true' || !env.ASK_ANALYTICS_DATABASE_URL || !Number.isInteger(daily) || daily < 1 || daily > 10000) return null;
+  if(env.ASK_ANALYTICS_STORE==='logical_public_core') {
+    if(env.ASK_ANALYTICS_SOCKET!=='/run/ask-public-db' || env.ASK_ANALYTICS_DATABASE_URL!=='peer-only')return null;
+    return {profile:'logical_public_core',daily,connection:{host:env.ASK_ANALYTICS_SOCKET,user:'ask_public_reader',database:'ask_analytics'}};
+  }
+  if(env.ASK_ANALYTICS_STORE && env.ASK_ANALYTICS_STORE!=='standby_v2')return null;
   try {
     const url = new URL(env.ASK_ANALYTICS_DATABASE_URL);
     // Dedicated login, no DSN options/search_path/SSL overrides from a URL.
@@ -91,13 +105,13 @@ function evidenceFor(compiled, rows, coverage, retrievedAt) {
 function createAnalytics(env, dependencies = {}) {
   const config = analyticsConfig(env);
   if (!config) return null;
-  const pool = dependencies.pool || new Pool({ connectionString: config.connectionString, max: 2, connectionTimeoutMillis: 1500, idleTimeoutMillis: 10000,
+  const pool = dependencies.pool || new Pool({ ...(config.connection || {connectionString:config.connectionString}), max: 2, connectionTimeoutMillis: 1500, idleTimeoutMillis: 10000,
     statement_timeout: 3000, query_timeout: 3500, application_name: 'zecblock-ask-analytics', options: '-c default_transaction_read_only=on -c search_path=pg_catalog' });
   pool.on?.('error', () => {}); // Never log connection strings or raw SQL errors.
   let active = 0;
   return {
     async execute(input, { redis, signal, now = Date.now() } = {}) {
-      const compiled = compilePlan(input, now); // Validate before quota or pool access.
+      const compiled = compilePlan(input, now, config.profile); // Validate before quota or pool access.
       if (!redis?.isReady) throw askError('unavailable');
       if (active >= 2) { const error = askError('quota'); error.quota = true; throw error; }
       active++;
@@ -115,8 +129,16 @@ function createAnalytics(env, dependencies = {}) {
         deadline.throwIfAborted();
         await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
         await client.query("SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='500ms'; SET LOCAL idle_in_transaction_session_timeout='5s'; SET LOCAL work_mem='1MB'; SET LOCAL search_path=pg_catalog; SET LOCAL timezone='UTC'; SET LOCAL max_parallel_workers_per_gather=0; SET LOCAL jit=off");
-        checkGuard((await client.query(GUARD)).rows[0]);
-        const coverage = (await client.query(compiled.plan.version === 2
+        if(config.profile==='logical_public_core')checkCoreGuard((await client.query(CORE_GUARD)).rows[0]);
+        else checkGuard((await client.query(GUARD)).rows[0]);
+        let coverage;
+        if(config.profile==='logical_public_core'){
+          const verified=(await client.query('SELECT * FROM analytics_public.coverage')).rows;
+          if(verified.length!==1 || verified[0].schema_version!==1 || verified[0].authority!=='logical_public_core' || verified[0].network!=='mainnet' || verified[0].ready!==true)throw askError('source');
+          coverage=(await client.query('SELECT NULL::int AS observed_days,pg_catalog.to_timestamp(timestamp)::text AS indexed_through FROM analytics_public.blocks ORDER BY height DESC LIMIT 1')).rows[0];
+          if(!coverage)throw askError('source');
+          coverage.consistency='verified-canonical-core';
+        } else coverage = (await client.query(compiled.plan.version === 2
           ? `SELECT ${compiled.plan.dataset === 'daily' ? '(SELECT count(*)::int FROM ask_public.daily_v2 WHERE date >= $1::date AND date <= $2::date)' : 'NULL::int'} AS observed_days, (SELECT pg_catalog.to_timestamp(timestamp)::text FROM ask_public.blocks_v2 ORDER BY height DESC LIMIT 1) AS indexed_through`
           : 'SELECT count(*)::int AS observed_days FROM ask_public.daily_v1 WHERE date >= $1::date AND date <= $2::date', compiled.plan.version === 1 || compiled.plan.dataset === 'daily' ? compiled.values.slice(0,2) : [])).rows[0];
         const rows = (await client.query(compiled.text, compiled.values)).rows;
@@ -138,7 +160,7 @@ function createAnalytics(env, dependencies = {}) {
       }
     },
     close: () => pool.end(),
-    catalogue,
+    catalogue:config.profile==='logical_public_core'?coreCatalogue:catalogue,
   };
 }
-module.exports = { createAnalytics, analyticsConfig, checkGuard, evidenceFor, ADMIT_QUERY, GUARD };
+module.exports = { createAnalytics, analyticsConfig, checkGuard, evidenceFor, ADMIT_QUERY, GUARD, CORE_GUARD, checkCoreGuard };

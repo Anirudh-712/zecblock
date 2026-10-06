@@ -18,13 +18,13 @@ function createWorker(env, { analytics, redis } = {}) {
     next();
   });
   app.post('/query', express.json({ limit:'8kb' }), async (req, res) => {
-    try { compilePlan(req.body); } catch { return res.status(400).json({error:'invalid-plan'}); }
+    try { compilePlan(req.body,undefined,env.ASK_ANALYTICS_STORE); } catch { return res.status(400).json({error:'invalid-plan'}); }
     const controller = new AbortController();
     const abort = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', abort);
     try {
       const evidence = await analytics.execute(req.body, {redis, signal:controller.signal});
-      if (!controller.signal.aborted) res.json({ rows: evidence.result.plan.version === 2 ? evidence.result.rows.map(row => Object.fromEntries(Object.entries(row).flatMap(([key,cell]) => [[key,cell.value], ...(/^m[0-3]$/.test(key) ? [['u'+key.slice(1),String(cell.missing)]] : [])]))) : evidence.result.rows.map(row => ({bucket:row.date,value:row.value,observed_days:row.observedDays,observed_through:row.observedThrough})), observedDays:evidence.result.coverage.observedDays, indexedThrough:evidence.result.coverage.indexedThrough, retrievedAt:evidence.result.retrievedAt });
+      if (!controller.signal.aborted) res.json({ rows: evidence.result.plan.version === 2 ? evidence.result.rows.map(row => Object.fromEntries(Object.entries(row).flatMap(([key,cell]) => [[key,cell.value], ...(/^m[0-3]$/.test(key) ? [['u'+key.slice(1),String(cell.missing)]] : [])]))) : evidence.result.rows.map(row => ({bucket:row.date,value:row.value,observed_days:row.observedDays,observed_through:row.observedThrough})), consistency:env.ASK_ANALYTICS_STORE==='logical_public_core'?'verified-canonical-core':null, observedDays:evidence.result.coverage.observedDays, indexedThrough:evidence.result.coverage.indexedThrough, retrievedAt:evidence.result.retrievedAt });
     } catch (error) {
       if (!controller.signal.aborted) res.status(error?.quota ? 429 : 503).json({error:error?.quota ? 'allowance' : 'unavailable'});
     } finally { res.off('close', abort); }

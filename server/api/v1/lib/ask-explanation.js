@@ -21,12 +21,13 @@ const explanationTask = {
 
 // Literal ranges keep provider decoding and the final Unicode-aware renderer
 // consistent. The provider does not accept Unicode property escapes. Include
-// every numeric category (decimal digits, superscripts, Roman numerals, etc.),
+// every numeric category (decimal digits, superscripts, Roman numerals, etc.)
+// and decorative Other-Symbol characters,
 // rather than allowing a model to evade the rule by changing numeral scripts.
 const numericRanges = (() => {
   const ranges = []; let start = null;
   for (let point = 0; point <= 0x110000; point++) {
-    const numeric = point < 0x110000 && /\p{N}/u.test(String.fromCodePoint(point));
+    const numeric = point < 0x110000 && /[\p{N}\p{So}]/u.test(String.fromCodePoint(point));
     if (numeric && start === null) start = point;
     if (!numeric && start !== null) {
       const end = point - 1;
@@ -85,7 +86,7 @@ function renderExplanation(raw, facts) {
       if (!Object.hasOwn(facts, id)) throw new Error('Unknown evidence reference');
       return '';
     });
-    if (/[\p{N}{}<>]|https?:|www\./iu.test(remainder)) throw new Error('Unvalidated numerical claim or markup');
+    if (/[\p{N}\p{So}{}<>]|https?:|www\./iu.test(remainder)) throw new Error('Unvalidated numerical claim or markup');
     return text.replace(/\{\{([a-z_]+)\}\}/g, (_, id) => facts[id]);
   }
   return { summary: render(parsed.summary), observations: parsed.observations.map(render), limitation: render(parsed.limitation) };

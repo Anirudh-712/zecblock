@@ -24,7 +24,8 @@ function validatePlan(input, now = Date.now()) {
   if (days < 1 || days > 366 || plan.end >= new Date(now).toISOString().slice(0, 10)) throw new Error('Invalid analytics window');
   return { plan, days, definition: metrics[plan.metric] };
 }
-function compilePlan(input, now) {
+function compilePlan(input, now, profile) {
+  if(profile==='logical_public_core') return require('./ask-core-catalogue').compileCorePlan(input,now);
   if (input?.version === 2) return compileQuery(input, now);
   const { plan, days, definition } = validatePlan(input, now);
   // Every identifier/expression originates here. User/model values are bound
