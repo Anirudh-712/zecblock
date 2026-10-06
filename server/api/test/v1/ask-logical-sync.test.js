@@ -185,7 +185,9 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
    await attacker.query('SET default_transaction_read_only=off');
    assert.equal((await attacker.query('SHOW default_transaction_read_only')).rows[0].default_transaction_read_only,'off');
    for(const attack of ['SELECT * FROM public.transactions','DELETE FROM public.blocks','SELECT * FROM analytics_meta.sync_state',"UPDATE analytics_meta.sync_state SET state='ready'",'SELECT id FROM public.shielded_flows','SET ROLE analytics_owner','SET ROLE ask_public_view_owner','DROP VIEW analytics_public.blocks','CREATE TABLE public.attack(x int)','CREATE ROLE attack','SELECT subconninfo FROM pg_subscription','DELETE FROM analytics_public.blocks','CREATE TEMP TABLE attack(x int)',
-    "SELECT pg_read_file('/etc/passwd')",'SET ROLE ask_fixture_admin','ALTER SUBSCRIPTION ask_public_core_v1 DISABLE']) await assert.rejects(attacker.query(attack),/permission|must be|not permitted|cannot delete from view/i,attack);
+    "SELECT pg_read_file('/etc/passwd')",'SET ROLE ask_fixture_admin','ALTER SUBSCRIPTION ask_public_core_v1 DISABLE',
+    "COPY (SELECT height FROM analytics_public.blocks) TO PROGRAM 'id'",
+    "COPY (SELECT height FROM analytics_public.blocks) TO '/tmp/ask-forbidden-output'"]) await assert.rejects(attacker.query(attack),/permission|must be|not permitted|cannot delete from view/i,attack);
    assert.equal((await attacker.query("SELECT has_table_privilege(current_user,'analytics_public.coverage','UPDATE') AS allowed")).rows[0].allowed,false);
   } finally {attacker.release();}
   const replicator=pool(clusters[0],'ask_fixture_replicator');
@@ -232,7 +234,7 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
    await assert.rejects(ownerProbe.query('SELECT source_system_identifier FROM analytics_meta.sync_state'),/permission/);
   } finally {await ownerProbe.query('RESET ROLE');ownerProbe.release();}
  });
- await t.test('dedicated admission tracks actual native changes, rejects stale signals and quarantines broken history',async()=>{
+ await t.test('dedicated admission tracks actual native changes, rejects stale signals and quarantines broken history',async admission=>{
   const {refreshAdmission}=require('../../scripts/ask-core-admission');
   const {CORE_GUARD,checkCoreGuard,createAnalytics}=require('../../v1/lib/ask-analytics');
   const {compileCorePlan}=require('../../v1/lib/ask-core-catalogue');
@@ -250,6 +252,67 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
   const compiled=compileCorePlan(plan);assert.equal((await reader.query(compiled.text,compiled.values)).rows[0].m0,'3.000000');
   const research=await require('../../v1/lib/ask-research-sql').compileResearchSQL({version:3,limit:5,sql:'WITH totals AS(SELECT height,sum(fees)::numeric AS fees FROM transactions GROUP BY height) SELECT totals.height,totals.fees,9007199254740993::numeric AS exact,rank() OVER(ORDER BY totals.fees DESC) AS ranking FROM totals JOIN blocks b ON b.height=totals.height ORDER BY totals.height'});
   const researchClient=await reader.connect();try{await researchClient.query('BEGIN READ ONLY');await researchClient.query("SET LOCAL search_path=pg_catalog;SET LOCAL timezone='UTC'");const raw=await researchClient.query({text:research.text,values:research.values,rowMode:'array',types:{getTypeParser:()=>v=>v}});const result=require('../../v1/lib/ask-research-sql').researchEvidence(research,raw.rows,raw.fields,{indexed_through:'2026-10-06T00:00:00Z'},'2026-10-06T00:00:01Z');assert.deepEqual(result.rows,[['0','7','9007199254740993','2'],['1','42','9007199254740993','1'],['2','7','9007199254740993','2']]);}finally{await researchClient.query('ROLLBACK');researchClient.release();}
+  const executeResearch=async sql=>{
+   const compiled=await require('../../v1/lib/ask-research-sql').compileResearchSQL({version:3,limit:10,sql});
+   const client=await reader.connect();
+   try {
+    await client.query('BEGIN READ ONLY');
+    await client.query("SET LOCAL search_path=pg_catalog;SET LOCAL timezone='UTC'");
+    return (await client.query({text:compiled.text,values:compiled.values,rowMode:'array',types:{getTypeParser:()=>v=>v}})).rows;
+   } finally {await client.query('ROLLBACK');client.release();}
+  };
+  await admission.test('three-table research preserves exact net flows and prevents fee multiplication',async()=>{
+   // Fixture source only: two flow rows for one transaction expose join fanout.
+   await source.query(`INSERT INTO shielded_flows VALUES
+    (10,'b1-tx',1,1700000001,'shield','orchard',9007199254740993,'excluded-secret'),
+    (11,'b1-tx',1,1700000001,'deshield','sapling',100,'excluded-secret'),
+    (20,'replacement-b2-tx',2,1700000002,'shield','ironwood',5,'excluded-secret')`);
+   await wait(async()=>(await target.query('SELECT count(*) FROM public.shielded_flows')).rows[0].count==='4');
+   await signal();
+   await wait(async()=>(await target.query("SELECT sampled_at FROM analytics_feed_meta.signal")).rows[0].sampled_at.getTime()===
+    (await source.query("SELECT sampled_at FROM analytics_feed_meta.signal")).rows[0].sampled_at.getTime());
+   assert.equal((await refreshAdmission(target)).state,'verified');
+   const rows=await executeResearch(`WITH flow_totals AS (
+    SELECT txid,count(*) AS flow_records,
+     sum(CASE WHEN direction='shield' THEN amount ELSE 0 END)::numeric AS shielding,
+     sum(CASE WHEN direction='deshield' THEN amount ELSE 0 END)::numeric AS deshielding
+    FROM flows WHERE height>=1 GROUP BY txid
+   ), per_block AS (
+    SELECT b.height,sum(t.fees)::numeric AS fees,sum(f.shielding) AS shielding,
+     sum(f.deshielding) AS deshielding,sum(f.flow_records) AS flow_records
+    FROM blocks b JOIN transactions t ON t.height=b.height
+    JOIN flow_totals f ON f.txid=t.txid WHERE b.height>=1 GROUP BY b.height
+   ) SELECT height,fees,shielding,deshielding,shielding-deshielding AS net,
+    flow_records,dense_rank() OVER(ORDER BY shielding-deshielding DESC) AS ranking
+    FROM per_block ORDER BY height`);
+   assert.deepEqual(rows,[['1','42','9007199254740993','100','9007199254740893','2','1'],['2','7','5','0','5','1','2']]);
+   assert.equal(rows.reduce((sum,row)=>sum+BigInt(row[1]),0n),49n);
+  });
+  await admission.test('rolling averages, lag, filtered aggregates and nested queries execute on native PG16',async()=>{
+   const rows=await executeResearch(`WITH fees_by_height AS (
+    SELECT height,sum(fees)::numeric AS fees,count(*) FILTER(WHERE shielded) AS shielded_transactions
+    FROM transactions GROUP BY height
+   ) SELECT height,fees,shielded_transactions,
+    round(avg(fees) OVER(ORDER BY height ROWS BETWEEN 1 PRECEDING AND CURRENT ROW),2) AS rolling_average,
+    lag(fees) OVER(ORDER BY height) AS previous_fees
+    FROM fees_by_height WHERE height<=(SELECT max(height) FROM blocks) ORDER BY height`);
+   assert.deepEqual(rows,[['0','7','1','7.00',null],['1','42','1','24.50','7'],['2','7','1','24.50','42']]);
+  });
+  await admission.test('PostgreSQL cancels overlong work independently of SQL validation',async()=>{
+   const client=await reader.connect();
+   try {
+    // Deliberately bypass parser only in disposable fixture to test the DB layer.
+    await client.query('BEGIN READ ONLY');await client.query("SET LOCAL statement_timeout='50ms'");
+    await assert.rejects(client.query('SELECT pg_sleep(1)'),e=>e.code==='57014');
+    await client.query('ROLLBACK');
+    // A policy-valid SELECT can still consume work despite its output limit.
+    const costly=await require('../../v1/lib/ask-research-sql').compileResearchSQL({version:3,limit:1,
+     sql:'SELECT count(*) FROM '+Array.from({length:14},(_,i)=>`blocks b${i}`).join(' CROSS JOIN ')});
+    await client.query('BEGIN READ ONLY');await client.query("SET LOCAL statement_timeout='50ms'");
+    await assert.rejects(client.query(costly.text,costly.values),e=>e.code==='57014');
+   } finally {await client.query('ROLLBACK');client.release();}
+   assert.equal((await reader.query('SELECT ready FROM analytics_public.coverage')).rows[0].ready,true);
+  });
   // Real source update, real logical apply, and replica-enabled dirty tracking.
   await source.query("UPDATE transactions SET fee=43 WHERE txid='b1-tx'");
   await wait(async()=>(await target.query("SELECT fee::text FROM public.transactions WHERE txid='b1-tx'")).rows[0].fee==='43');

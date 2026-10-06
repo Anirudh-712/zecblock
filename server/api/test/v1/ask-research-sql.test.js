@@ -29,6 +29,15 @@ const bad=[
  'SELECT * FROM blocks TABLESAMPLE SYSTEM(1)', 'SELECT * FROM blocks,LATERAL(SELECT height FROM transactions) t','SELECT * FROM unnest(ARRAY[1,2])','SELECT height OPERATOR(public.+) 1 FROM blocks',
  "SELECT repeat('x',1000000000) FROM blocks",'SELECT power(2,9999999) FROM blocks','SELECT 2^9999999 FROM blocks',"WITH a AS(SELECT hash FROM blocks) SELECT hash||hash FROM a",
  'SELECT $1 FROM blocks', 'SELECT * FROM blocks WHERE height = ANY(ARRAY[1,2])',"SELECT json_build_object('secret',height) FROM blocks", 'SELECT XMLPARSE(DOCUMENT hash) FROM blocks',
+ 'WITH hidden AS (SELECT subconninfo FROM pg_subscription) SELECT height FROM blocks UNION SELECT subconninfo FROM hidden',
+ 'SELECT height FROM blocks WHERE EXISTS(SELECT rolpassword FROM pg_authid)',
+ "SELECT pg_catalog.pg_read_binary_file($file$/etc/passwd$file$) FROM blocks",
+ "SELECT lo_export(1,'/tmp/ask-forbidden-output') FROM blocks",
+ "SELECT pg_advisory_lock(1) FROM blocks",
+ "SELECT pg_terminate_backend(1) FROM blocks",
+ "SELECT query_to_xml('DELETE FROM public.blocks',true,false,'') FROM blocks",
+ 'SELECT pg_catalog.pg_authid.rolpassword FROM blocks',
+ 'WITH hidden AS (SELECT height FROM blocks) SELECT height FROM hidden; RESET ROLE',
  'SELECT height AS "<script>" FROM blocks','SELECT 1','SELECT height FROM blocks ORDER BY height USING OPERATOR(public.>)','SELECT * FROM blocks AS "invalid alias"', 'SELECT pg_temp.pg_read_file(hash) FROM blocks'
 ];
 for(const sql of bad)for(const decorate of [s=>s,s=>'/* untrusted comment; SELECT is not authority */ '+s,s=>s.replace(/SELECT/g,'SeLeCt')])test('denies: '+decorate(sql).slice(0,90),async()=>{await assert.rejects(compileResearchSQL(request(decorate(sql))));});
