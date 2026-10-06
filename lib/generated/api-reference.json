@@ -480,6 +480,31 @@
           ],
           "additionalProperties": false
         },
+        "currentResearch": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 3
+            },
+            "sql": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          "required": [
+            "version",
+            "sql",
+            "limit"
+          ],
+          "additionalProperties": false
+        },
         "challenge": {
           "type": "string",
           "maxLength": 2048
@@ -603,6 +628,87 @@
       "required": [
         "spec",
         "evidenceKey"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/v1/ask/research/plan",
+    "description": "Feature-gated mainnet research: draft reviewed read-only PostgreSQL over three public datasets. Requires AI, challenge and shared spend admission. Returns validated SQL; execute=true runs it through the same isolated read-only worker in one admitted request.",
+    "category": "ask",
+    "query": [],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": null,
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [],
+    "requestBody": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "challenge": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "execute": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "question",
+        "challenge",
+        "execute"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/v1/ask/research/query",
+    "description": "Feature-gated mainnet research: validated SELECT with joins, nonrecursive CTEs and windows over blocks, transactions and public flows. Challenge/IP and worker quotas apply; manual execution does not call AI. Exact decimal strings, 200 rows and 256 KiB maximum. No writes, private tables or arbitrary functions.",
+    "category": "ask",
+    "query": [],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": null,
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [],
+    "requestBody": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 3
+        },
+        "sql": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "challenge": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "version",
+        "sql",
+        "limit",
+        "challenge"
       ],
       "additionalProperties": false
     }

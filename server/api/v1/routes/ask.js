@@ -16,6 +16,11 @@ const { createRateLimiter } = require('../lib/rate-limit');
 const { explainRequestSchema, explanationTaskFor, loadExplanationEvidence, renderExplanation } = require('../lib/ask-explanation');
 const { createAnalyticsClient } = require('../lib/ask-analytics-client');
 
+const {compileResearchSQL}=require('../lib/ask-research-sql');
+const {sqlQuerySchema}=require('../../../../lib/ask/research-contract');
+const researchPlanSchema=z.object({sql:z.string().max(8192).nullable()}).strict();
+const researchPlanTask={name:'research_sql',validator:researchPlanSchema,schema:z.toJSONSchema(researchPlanSchema),instruction:require('../lib/ask-research-sql').researchInstructions};
+delete researchPlanTask.schema.$schema;
 const outputSchema = z.object({ spec: analysisSchema.nullable() }).strict();
 const jsonSchema = z.toJSONSchema(outputSchema);
 delete jsonSchema.$schema;
@@ -80,7 +85,9 @@ async function interpret(config, input, signal, fetchImpl = fetch, task = { name
 function createAskRouter(env = process.env, dependencies = {}) {
   const router = express.Router();
   const config = providerConfig(env);
-  const analytics = config ? dependencies.analytics || createAnalyticsClient(env) : null;
+  const analytics = dependencies.analytics || createAnalyticsClient(env);
+  if(analytics)analytics.researchEnabled=env.ASK_RESEARCH_ENABLED==='true'&&env.ASK_ANALYTICS_STORE==='logical_public_core';
+  const researchConfig=env.ASK_RESEARCH_ENABLED==='true'&&env.ASK_ANALYTICS_STORE==='logical_public_core'&&analytics?budgetConfig(env):null;
   const limiter = createRateLimiter({ max: 10, windowMs: 60000, key: 'ask' });
   router.use((req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
@@ -91,17 +98,17 @@ function createAskRouter(env = process.env, dependencies = {}) {
   const redisFor = req => dependencies.redis || req.app.locals.redisClient;
   router.get('/', (req, res) => {
     const ready = config && redisFor(req)?.isReady;
-    sendSuccess(res, { mode: ready ? 'ai' : 'guided', provider: ready ? config.provider === 'anthropic' ? 'Anthropic' : 'OpenAI' : null, siteKey: ready ? config.siteKey : null });
+    sendSuccess(res, { mode: ready ? 'ai' : 'guided', provider: ready ? config.provider === 'anthropic' ? 'Anthropic' : 'OpenAI' : null, siteKey: ready ? config.siteKey : researchConfig?.siteKey || null, researchEnabled:!!(researchConfig&&redisFor(req)?.isReady) });
   });
-  async function limited(req, res, operation) {
+  async function limited(req, res, operation, manual=false) {
     const redis = redisFor(req);
-    if (!config || !redis?.isReady) return sendProblem(res, 'upstream-error', { status: 503, detail: 'Free-form AI is unavailable. Starter analyses remain available.' });
+    if (!(manual?researchConfig:config) || !redis?.isReady) return sendProblem(res, 'upstream-error', { status: 503, detail: 'Free-form AI is unavailable. Starter analyses remain available.' });
     try {
-      await admit(redis, config, req, dependencies.challengeFetch || fetch);
+      await admit(redis, manual?researchConfig:config, req, dependencies.challengeFetch || fetch);
       const signal = AbortSignal.any([req.v1.abortSignal, AbortSignal.timeout(35000)]);
       const run = (input, task) => askStage('answer', () => interpret(config, input, AbortSignal.any([signal, AbortSignal.timeout(15000)]), dependencies.fetch || fetch, task, body => askStage('unavailable', () => reserve(redis, config, body))));
       const result = await operation(signal, run);
-      if (!req.v1.abortSignal.aborted) sendSuccess(res, { ...result, mode: 'ai' });
+      if (!req.v1.abortSignal.aborted) sendSuccess(res, { ...result, mode: manual?'research':'ai' });
     } catch (error) {
       // Never log questions, provider bodies, credentials or conversation state.
       if (!req.v1.abortSignal.aborted) {
@@ -113,6 +120,26 @@ function createAskRouter(env = process.env, dependencies = {}) {
       }
     }
   }
+  router.post('/research/plan', limiter, async(req,res)=>{
+    if(!researchConfig)return sendProblem(res,'upstream-error',{status:503,detail:'Research is unavailable.'});
+    const parsed=z.object({question:z.string().trim().min(1).max(1000),challenge:z.string().max(2048),execute:z.boolean().optional().default(false)}).strict().safeParse(req.body);
+    if(!parsed.success)return sendProblem(res,'validation-error');
+    return limited(req,res,async(signal,run)=>{
+      const planned=await run({question:parsed.data.question,todayUTC:new Date().toISOString().slice(0,10)},researchPlanTask);
+      if(planned.sql===null)return {query:null};
+      let query;
+      try{query=(await compileResearchSQL({version:3,sql:planned.sql,limit:100})).request;}
+      catch{throw askError('answer');}
+      return parsed.data.execute?{query,...await analytics.execute(query,{signal})}:{query};
+    });
+  });
+  router.post('/research/query', limiter,async(req,res)=>{
+    const parsed=sqlQuerySchema.extend({challenge:z.string().min(1).max(2048)}).strict().safeParse(req.body);
+    if(!parsed.success)return sendProblem(res,'validation-error');
+    const query={version:parsed.data.version,sql:parsed.data.sql,limit:parsed.data.limit};
+    try{await compileResearchSQL(query);}catch{return sendProblem(res,'validation-error',{detail:'Use one SELECT over blocks, transactions or flows with supported functions, joins, CTEs and windows.'});}
+    return limited(req,res,async(signal)=>analytics.execute(query,{signal}),true);
+  });
   router.post('/chat', limiter, async (req, res) => {
     const parsed = chatRequestSchema.safeParse(req.body);
     if (!parsed.success) return sendProblem(res, 'validation-error', { detail: 'Provide a supported page, bounded question/history, locale and analysis context.' });
@@ -130,6 +157,10 @@ function createAskRouter(env = process.env, dependencies = {}) {
       const guided = guidedReply(parsed.data);
       if (guided) return sendSuccess(res, guided);
       return sendProblem(res, 'upstream-error', { status: 503, detail: 'Contextual AI is not connected. Reviewed page guides and starter charts remain available.' });
+    }
+    if(parsed.data.currentResearch){
+      if(!analytics?.researchEnabled||parsed.data.page!=='ask')return sendProblem(res,'validation-error');
+      try{await compileResearchSQL(parsed.data.currentResearch);}catch{return sendProblem(res,'validation-error');}
     }
     return limited(req, res, (signal, run) => chat(parsed.data, run, dependencies.internalClient, signal, instruction, { redis: redisFor(req), model: [config.provider, config.model, config.reasoningEffort] }, analytics));
   });
@@ -161,7 +192,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
       return { explanation: renderExplanation(raw, evidence.facts), evidenceKey: evidence.evidenceKey };
     });
   });
-  router.stop = () => { limiter._stop(); return analytics?.close(); };
+  router.stop = () => { limiter._stop(); return analytics?.close?.(); };
   return router;
 }
 

@@ -957,6 +957,31 @@
                     ],
                     "additionalProperties": false
                   },
+                  "currentResearch": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "const": 3
+                      },
+                      "sql": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 8192
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 200
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "sql",
+                      "limit"
+                    ],
+                    "additionalProperties": false
+                  },
                   "challenge": {
                     "type": "string",
                     "maxLength": 2048
@@ -1242,6 +1267,385 @@
         "responses": {
           "200": {
             "description": "Explain a mainnet analysis using server-fetched public evidence. Requires configured AI and an exact fingerprint match with the chart observations. Private, no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "data": {
+                      "oneOf": [
+                        {
+                          "type": "object"
+                        },
+                        {
+                          "type": "array",
+                          "items": {}
+                        }
+                      ]
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Preview or endpoint authentication required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required. Protocol challenges remain in Payment-Required / WWW-Authenticate; the original challenge is also in problem.paymentRequired.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or ownership authorization denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON body exceeds 1 MB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Per-IP, shared daily or concurrent request limit reached.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (legacy API) error.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "AI not configured, shared limiter unavailable, or provider failure. Guided analyses remain available.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Upstream (legacy API) timeout.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ask/research/plan": {
+      "post": {
+        "operationId": "post_ask_Research_Plan",
+        "summary": "Feature-gated mainnet research: draft reviewed read-only PostgreSQL over three public datasets. Requires AI, challenge and shared spend admission. Returns validated SQL; execute=true runs it through the same isolated read-only worker in one admitted request.",
+        "tags": [
+          "ask"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "challenge": {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "execute": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "question",
+                  "challenge",
+                  "execute"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-cipherscan-legacy-path": null,
+        "x-cipherscan-legacy-method": "POST",
+        "x-cipherscan-classification": "public",
+        "x-cipherscan-v1-status": "native",
+        "responses": {
+          "200": {
+            "description": "Feature-gated mainnet research: draft reviewed read-only PostgreSQL over three public datasets. Requires AI, challenge and shared spend admission. Returns validated SQL; execute=true runs it through the same isolated read-only worker in one admitted request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "data": {
+                      "oneOf": [
+                        {
+                          "type": "object"
+                        },
+                        {
+                          "type": "array",
+                          "items": {}
+                        }
+                      ]
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Preview or endpoint authentication required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required. Protocol challenges remain in Payment-Required / WWW-Authenticate; the original challenge is also in problem.paymentRequired.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or ownership authorization denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON body exceeds 1 MB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Per-IP, shared daily or concurrent request limit reached.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (legacy API) error.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "AI not configured, shared limiter unavailable, or provider failure. Guided analyses remain available.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Upstream (legacy API) timeout.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ask/research/query": {
+      "post": {
+        "operationId": "post_ask_Research_Query",
+        "summary": "Feature-gated mainnet research: validated SELECT with joins, nonrecursive CTEs and windows over blocks, transactions and public flows. Challenge/IP and worker quotas apply; manual execution does not call AI. Exact decimal strings, 200 rows and 256 KiB maximum. No writes, private tables or arbitrary functions.",
+        "tags": [
+          "ask"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "number",
+                    "const": 3
+                  },
+                  "sql": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200
+                  },
+                  "challenge": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "version",
+                  "sql",
+                  "limit",
+                  "challenge"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-cipherscan-legacy-path": null,
+        "x-cipherscan-legacy-method": "POST",
+        "x-cipherscan-classification": "public",
+        "x-cipherscan-v1-status": "native",
+        "responses": {
+          "200": {
+            "description": "Feature-gated mainnet research: validated SELECT with joins, nonrecursive CTEs and windows over blocks, transactions and public flows. Challenge/IP and worker quotas apply; manual execution does not call AI. Exact decimal strings, 200 rows and 256 KiB maximum. No writes, private tables or arbitrary functions.",
             "content": {
               "application/json": {
                 "schema": {

@@ -142,5 +142,7 @@
   "GET /v1/network/block-time": "network-block-time",
   "GET /v1/network/accounting/history": "network-accounting-history",
   "GET /v1/crosschain/analytics": "crosschain-analytics",
-  "GET /v1/crosschain/swaps": "crosschain-swaps"
+  "GET /v1/crosschain/swaps": "crosschain-swaps",
+  "POST /v1/ask/research/plan": "ask-research-plan",
+  "POST /v1/ask/research/query": "ask-research-query"
 }

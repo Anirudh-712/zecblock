@@ -3,6 +3,8 @@ const { compilePlan } = require('./ask-analytics-plan');
 const { evidenceFor } = require('./ask-analytics');
 const { catalogue } = require('./ask-query-plan');
 const { coreCatalogue } = require('./ask-core-catalogue');
+const {compileResearchSQL}=require('./ask-research-sql');
+const {researchResultSchema}=require('../../../../lib/ask/research-contract');
 const { askError } = require('./ask-errors');
 
 function createAnalyticsClient(env, fetchImpl = fetch) {
@@ -16,21 +18,30 @@ function createAnalyticsClient(env, fetchImpl = fetch) {
     catalogue:env.ASK_ANALYTICS_STORE==='logical_public_core'?coreCatalogue:catalogue,
     close: async () => {},
     async execute(input, { signal } = {}) {
-      const compiled = compilePlan(input,undefined,env.ASK_ANALYTICS_STORE);
+      const research=input?.version===3;
+      if(research&&(env.ASK_RESEARCH_ENABLED!=='true'||env.ASK_ANALYTICS_STORE!=='logical_public_core'))throw askError('source');
+      const compiled = research?await compileResearchSQL(input):compilePlan(input,undefined,env.ASK_ANALYTICS_STORE);
       const response = await fetchImpl(new URL('/query', url), { method: 'POST', redirect: 'error',
         signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(12000)]),
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.ASK_ANALYTICS_SERVICE_KEY}` }, body: JSON.stringify(compiled.plan) });
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.ASK_ANALYTICS_SERVICE_KEY}` }, body: JSON.stringify(research?compiled.request:compiled.plan) });
       if (!response.ok) {
         await response.body?.cancel();
+        if(research&&response.status===400)throw askError('query');
+        if(response.status===504)throw askError('timeout');
         if (response.status === 429) { const error = askError('quota'); error.quota = true; throw error; }
         throw askError('source');
       }
       const reader = response.body.getReader(); const chunks = []; let bytes = 0;
       try {
         while (true) { const { done, value } = await reader.read(); if (done) break;
-          bytes += value.length; if (bytes > 65536) throw askError('source'); chunks.push(Buffer.from(value)); }
+          bytes += value.length; if (bytes > (research?270000:65536)) throw askError('source'); chunks.push(Buffer.from(value)); }
       } finally { await reader.cancel(); }
       const wire = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if(research){
+        const result=researchResultSchema.parse(wire.research);
+        if(result.query.sql!==compiled.request.sql||result.query.limit!==compiled.request.limit||result.fingerprint!==compiled.fingerprint||JSON.stringify(result.datasets)!==JSON.stringify(compiled.datasets))throw askError('source');
+        return {result};
+      }
       if (!Array.isArray(wire.rows) || typeof wire.retrievedAt !== 'string' || !Number.isFinite(Date.parse(wire.retrievedAt))) throw askError('source');
       if(env.ASK_ANALYTICS_STORE==='logical_public_core' && wire.consistency!=='verified-canonical-core')throw askError('source');
       // Recompute facts locally; never trust worker-supplied narrative or facts.

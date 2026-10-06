@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { buildPageMetadata, getBaseUrl, getNetwork } from '@/lib/seo';
-import { AskWorkspace } from './AskWorkspace';
+import { AskExperience } from './AskExperience';
 import styles from './ask.module.css';
 
 const description = 'Explore Zcash mainnet analytics and reviewed wallet and node guides. Inspect pool balances, tracked swaps and Network Pulse alerts with source links and charts.';
@@ -21,6 +21,6 @@ export default function AskPage() {
         <p className="mt-2 max-w-2xl text-sm text-secondary">Explore Zcash mainnet data, understand the metrics, and find reviewed wallet and node guides.</p></div>
       <span className="flex items-center gap-2 text-caption font-mono text-muted pt-2"><span className="h-1.5 w-1.5 bg-brand-gold" aria-hidden="true" />MAINNET DATA</span>
     </header>
-    {network === 'mainnet' ? <AskWorkspace /> : <div className="py-16"><h2 className="text-xl text-primary">Ask is available on mainnet</h2><p className="mt-3 text-secondary">This preview explores Zcash mainnet data. It does not query this network.</p><Link href="https://zecblock.com/ask" className="inline-block mt-6 text-cipher-gold hover:underline">Open Ask on mainnet →</Link></div>}
+    {network === 'mainnet' ? <AskExperience /> : <div className="py-16"><h2 className="text-xl text-primary">Ask is available on mainnet</h2><p className="mt-3 text-secondary">This preview explores Zcash mainnet data. It does not query this network.</p><Link href="https://zecblock.com/ask" className="inline-block mt-6 text-cipher-gold hover:underline">Open Ask on mainnet →</Link></div>}
   </div>;
 }

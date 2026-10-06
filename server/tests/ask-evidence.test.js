@@ -137,7 +137,7 @@ test('Ask server rendering and metadata enforce the mainnet-only page policy', (
     });
     const page = load('app/ask/page.tsx', {
       '@/lib/seo': seo, './ask.module.css': { page: 'ask-page' },
-      './AskWorkspace': { AskWorkspace: () => React.createElement('div', null, 'Interactive workspace') },
+      './AskExperience': { AskExperience: () => React.createElement('div', null, 'Interactive workspace') },
       'next/link': ({ children, ...props }) => React.createElement('a', props, children),
     });
     assert.equal(page.metadata.robots.index, network === 'mainnet');

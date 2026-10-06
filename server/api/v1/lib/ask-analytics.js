@@ -6,6 +6,7 @@ const { compilePlan } = require('./ask-analytics-plan');
 const { catalogue, views } = require('./ask-query-plan');
 const { coreCatalogue, coreViews } = require('./ask-core-catalogue');
 const { queryEvidence } = require('./ask-query-evidence');
+const {compileResearchSQL,researchEvidence}=require('./ask-research-sql');
 const { askError } = require('./ask-errors');
 
 // Separate connection and credentials. Never import the explorer's read router:
@@ -111,7 +112,9 @@ function createAnalytics(env, dependencies = {}) {
   let active = 0;
   return {
     async execute(input, { redis, signal, now = Date.now() } = {}) {
-      const compiled = compilePlan(input, now, config.profile); // Validate before quota or pool access.
+      const research=input?.version===3;
+      if(research && (env.ASK_RESEARCH_ENABLED!=='true'||config.profile!=='logical_public_core'))throw askError('source');
+      const compiled = research ? await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'}) : compilePlan(input, now, config.profile); // Validate before quota or pool access.
       if (!redis?.isReady) throw askError('unavailable');
       if (active >= 2) { const error = askError('quota'); error.quota = true; throw error; }
       active++;
@@ -141,9 +144,10 @@ function createAnalytics(env, dependencies = {}) {
         } else coverage = (await client.query(compiled.plan.version === 2
           ? `SELECT ${compiled.plan.dataset === 'daily' ? '(SELECT count(*)::int FROM ask_public.daily_v2 WHERE date >= $1::date AND date <= $2::date)' : 'NULL::int'} AS observed_days, (SELECT pg_catalog.to_timestamp(timestamp)::text FROM ask_public.blocks_v2 ORDER BY height DESC LIMIT 1) AS indexed_through`
           : 'SELECT count(*)::int AS observed_days FROM ask_public.daily_v1 WHERE date >= $1::date AND date <= $2::date', compiled.plan.version === 1 || compiled.plan.dataset === 'daily' ? compiled.values.slice(0,2) : [])).rows[0];
-        const rows = (await client.query(compiled.text, compiled.values)).rows;
+        const raw = research ? await client.query({text:compiled.text,values:compiled.values,rowMode:'array',types:{getTypeParser:()=>value=>value}}) : await client.query(compiled.text, compiled.values);
+        const rows=raw.rows;
         deadline.throwIfAborted();
-        const evidence = evidenceFor(compiled, rows, coverage, new Date(now).toISOString());
+        const evidence = research ? {result:researchEvidence(compiled,rows,raw.fields,coverage,new Date(now).toISOString())} : evidenceFor(compiled, rows, coverage, new Date(now).toISOString());
         await client.query('ROLLBACK');
         client.release(); released = true;
         return evidence;
@@ -152,6 +156,9 @@ function createAnalytics(env, dependencies = {}) {
         destroy();
         if (deadline.aborted) throw deadline.reason;
         if (error?.quota || error?.askKind) throw error;
+        // Fixed categories only: never forward PostgreSQL messages, SQL or connection details.
+        if(research&&error?.code==='57014'){const safe=askError('timeout');safe.code='57014';throw safe;}
+        if(research&&['42601','42703','42883','42804','22012','22003','42P01'].includes(error?.code)){const safe=askError('query');safe.code=error.code;throw safe;}
         throw askError('source');
       } finally {
         deadline.removeEventListener('abort', destroy);

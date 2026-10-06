@@ -14,15 +14,15 @@ export function askErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === 'TimeoutError') return 'The request took too long. Please try again.';
   return 'Ask is temporarily unavailable. Please try again or choose a starter chart.';
 }
-export interface AskCapability { mode: 'guided' | 'ai'; provider: string | null; siteKey?: string | null }
+export interface AskCapability { mode: 'guided' | 'ai'; provider: string | null; siteKey?: string | null; researchEnabled?: boolean }
 export async function askCapability(signal: AbortSignal): Promise<AskCapability> {
   const response = await fetch(`${getApiUrl()}/v1/ask`, { signal, cache: 'no-store' });
   const { data, meta } = await readApiResponse<AskCapability>(response);
   if (meta.network !== 'mainnet') throw new Error('Wrong network');
   return data;
 }
-export async function askChat(question: string, page: string, context: AnalysisSpec | null, locale: AskLocale, history: string[], challenge: string, signal: AbortSignal, block?: string, transaction?: string, currentAnalytics?: import('./chat').QueryPlan): Promise<AskReply> {
-  const response = await fetch(`${getApiUrl()}/v1/ask/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal, body: JSON.stringify({ question, page, context, locale, currentAnalytics, history: history.slice(-4), challenge, block, transaction }) });
+export async function askChat(question: string, page: string, context: AnalysisSpec | null, locale: AskLocale, history: string[], challenge: string, signal: AbortSignal, block?: string, transaction?: string, currentAnalytics?: import('./chat').QueryPlan, currentResearch?: import('./research-contract').ResearchQuery): Promise<AskReply> {
+  const response = await fetch(`${getApiUrl()}/v1/ask/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal, body: JSON.stringify({ question, page, context, locale, currentAnalytics, currentResearch, history: history.slice(-4), challenge, block, transaction }) });
   const { data, meta } = await readApiResponse<AskReply>(response);
   if (meta.network !== 'mainnet') throw new Error('Wrong network');
   return data;

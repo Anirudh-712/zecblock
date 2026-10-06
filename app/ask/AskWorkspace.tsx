@@ -10,6 +10,10 @@ import { readApiResponse } from '@/lib/api-client';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getChartColors } from '@/lib/chart-theme';
 import styles from './ask.module.css';
+import { useResearchTools, ResearchLibrary, ResearchEditor, ResearchPanel, ResearchDashboard } from './ResearchWorkbench';
+import type { ResearchDocument, ResearchResult } from '@/lib/ask/research-contract';
+import { runResearch } from '@/lib/ask/research-client';
+import { researchResultSchema } from '@/lib/ask/research-contract';
 import { AskChallenge } from '@/components/ask/AskChallenge';
 import { AskTransactions } from '@/components/ask/AskTransactions';
 import { AskBlocks } from '@/components/ask/AskBlocks';
@@ -22,9 +26,9 @@ import { describeMetric, formatChain } from '@/lib/ask/data';
 
 const AskChart = dynamic(() => import('./AskChart'), { ssr: false, loading: () => <div className="h-80 grid place-items-center text-sm text-muted" role="status">Loading chart…</div> });
 const categories = ['Featured', 'Pools', 'Ironwood', 'Cross-chain', 'Network'];
-type Message = { analytics?: AskReply['analytics']; transactions?: AskReply['transactions']; blocks?: AskReply['blocks']; dataContext?: AskReply['dataContext']; id: number; question: string; answer: string; spec?: AnalysisSpec; sources?: AskSource[]; transfers?: AskReply['transfers']; locale?: string; scope?: string };
+type Message = { research?: ResearchResult; analytics?: AskReply['analytics']; transactions?: AskReply['transactions']; blocks?: AskReply['blocks']; dataContext?: AskReply['dataContext']; id: number; question: string; answer: string; spec?: AnalysisSpec; sources?: AskSource[]; transfers?: AskReply['transfers']; locale?: string; scope?: string };
 type Session = { transaction?: string; block?: string; id: number; title: string; messages: Message[]; spec: AnalysisSpec | null; page?: string };
-type Capability = { mode: 'guided' | 'ai'; provider: string | null; siteKey?: string | null };
+type Capability = { mode: 'guided' | 'ai'; provider: string | null; siteKey?: string | null; researchEnabled?: boolean };
 const initialSession: Session = { id: 0, title: 'New analysis', messages: [], spec: null };
 const viewKey = (spec: AnalysisSpec | null) => spec ? JSON.stringify([spec.metric, spec.period, spec.pool, spec.view, spec.start, spec.end]) : '';
 
@@ -36,7 +40,8 @@ export function AskWorkspace() {
   const [handoff] = useState(peekAskHandoff);
   const [token, setToken] = useState('');
   const [challengeReset, setChallengeReset] = useState(0);
-  const [sessions, setSessions] = useState<Session[]>(() => handoff?.turns.length ? [{ id: 0, title: handoff.turns[0].question, spec: handoff.spec, page: handoff.page, block: handoff.block, transaction: handoff.transaction, messages: handoff.turns.map((turn, i) => ({ id: i + 1, question: turn.question, answer: turn.answer, sources: turn.sources, transfers: turn.transfers, blocks: turn.blocks, transactions: turn.transactions, analytics: turn.analytics, locale: turn.locale, scope: turn.scope, dataContext: turn.dataContext, spec: turn.spec || undefined })) }] : [initialSession]);
+  const [sessions, setSessions] = useState<Session[]>(() => handoff?.turns.length ? [{ id: 0, title: handoff.turns[0].question, spec: handoff.spec, page: handoff.page, block: handoff.block, transaction: handoff.transaction, messages: handoff.turns.map((turn, i) => ({ id: i + 1, question: turn.question, answer: turn.answer, sources: turn.sources, transfers: turn.transfers, blocks: turn.blocks, transactions: turn.transactions, analytics: turn.analytics, research: turn.research, locale: turn.locale, scope: turn.scope, dataContext: turn.dataContext, spec: turn.spec || undefined })) }] : [initialSession]);
+  const tools = useResearchTools(handoff?.turns.at(-1)?.research, handoff?.turns.at(-1)?.question);
   const [activeId, setActiveId] = useState(0);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
@@ -68,11 +73,12 @@ export function AskWorkspace() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
   const hasMessages = session.messages.length > 0;
-  const latestRecords = !spec ? session.messages.filter(message => message.analytics || message.transfers || message.blocks || message.transactions).at(-1) : undefined;
+  const latestRecords = !spec ? session.messages.filter(message => message.research || message.analytics || message.transfers || message.blocks || message.transactions).at(-1) : undefined;
   const transfers = latestRecords?.transfers;
   const blocks = latestRecords?.blocks;
   const transactions = latestRecords?.transactions;
   const analytics = latestRecords?.analytics;
+  const research = latestRecords?.research;
   const summary = evidence && spec ? summarizeEvidence(evidence, spec, start, end) : null;
   const invalidDates = Boolean(start && end && start > end);
 
@@ -111,10 +117,14 @@ export function AskWorkspace() {
   }
 
   function switchSession(id: number) {
-    request.current?.abort(); request.current = null; setBusy(false); setChatError(''); setActiveId(id); setQuestion(''); setSourcesOpen(false); setEvidence(null);
+    request.current?.abort(); request.current = null; setBusy(false); setChatError(''); setActiveId(id); setQuestion('');
+    const saved = sessions.find(item => item.id === id)?.messages.filter(message => message.research).at(-1);
+    const doc = saved?.research ? tools.library.documents.find(item => item.result?.fingerprint === saved.research?.fingerprint) : undefined;
+    if (doc) tools.open(doc); else if(saved?.research)tools.accept(saved.research,saved.question);else tools.reset(); setSourcesOpen(false); setEvidence(null);
   }
 
   function newSession() {
+    tools.reset();
     if (!hasMessages) { input.current?.focus(); return; }
     const id = ++serial.current;
     setSessions(all => [{ id, title: 'New analysis', messages: [], spec: null }, ...all].slice(0, 12));
@@ -131,18 +141,19 @@ export function AskWorkspace() {
     request.current = controller;
     const timeout = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), 45000);
     const id = ++serial.current;
-    const append = (answer: string, next?: AnalysisSpec, sources?: AskSource[], answerLocale?: string, scope?: string, transfers?: AskReply['transfers'], dataContext?: AskReply['dataContext'], blocks?: AskReply['blocks'], transactions?: AskReply['transactions'], analytics?: AskReply['analytics']) => setSessions(all => all.map(item => item.id === activeId ? {
+    const append = (answer: string, next?: AnalysisSpec, sources?: AskSource[], answerLocale?: string, scope?: string, transfers?: AskReply['transfers'], dataContext?: AskReply['dataContext'], blocks?: AskReply['blocks'], transactions?: AskReply['transactions'], analytics?: AskReply['analytics'], research?: ResearchResult) => setSessions(all => all.map(item => item.id === activeId ? {
       ...item, title: item.messages.length ? item.title : trimmed,
-      messages: [...item.messages, { id, question: trimmed, answer, spec: next, sources, transfers, blocks, transactions, analytics, dataContext, locale: answerLocale, scope }].slice(-30),
+      messages: [...item.messages, { id, question: trimmed, answer, spec: next, sources, transfers, blocks, transactions, analytics, research, dataContext, locale: answerLocale, scope }].slice(-30),
       block: blocks?.rows[0]?.hash || item.block,
       transaction: transactions ? transactions.query.txid || transactions.rows[0]?.txid : item.transaction,
-      spec: analytics || transfers || blocks || transactions ? null : next ?? item.spec,
+      spec: research || analytics || transfers || blocks || transactions ? null : next ?? item.spec,
     } : item));
     try {
       if (!next || capability.mode === 'ai' && token) {
-        const reply = await askChat(trimmed, session.page || 'ask', spec, 'auto', session.messages.map(message => message.question), token, controller.signal, session.block, session.transaction, analytics?.plan.version === 2 ? analytics.plan : undefined);
+        const reply = await askChat(trimmed, session.page || 'ask', spec, 'auto', session.messages.map(message => message.question), token, controller.signal, session.block, session.transaction, analytics?.plan.version === 2 ? analytics.plan : undefined, capability.researchEnabled ? research?.query : undefined);
         if (controller.signal.aborted) return;
-        append(reply.answer, reply.spec ? analysisSchema.parse(reply.spec) : undefined, reply.sources, reply.locale, reply.scope, reply.transfers, reply.dataContext, reply.blocks, reply.transactions, reply.analytics);
+        append(reply.answer, reply.spec ? analysisSchema.parse(reply.spec) : undefined, reply.sources, reply.locale, reply.scope, reply.transfers, reply.dataContext, reply.blocks, reply.transactions, reply.analytics, reply.research ? researchResultSchema.parse(reply.research) : undefined);
+        if(reply.research)tools.accept(researchResultSchema.parse(reply.research),trimmed);
       } else {
         append(`Opened ${describeMetric(next.metric).title.toLowerCase()} for ${next.period === '1y' ? 'the past year' : `the past ${next.period.slice(0, -1)} days`}${next.pool === 'all' ? '' : `, filtered to ${next.pool}`}. The analysis shows the source observations and updates as you change the controls.`, next);
       }
@@ -169,6 +180,26 @@ export function AskWorkspace() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function openSaved(doc: ResearchDocument) {
+    if(busy||tools.importing)return;
+    tools.open(doc);const id=++serial.current;
+    setSessions(all=>[{id,title:doc.title,spec:null,messages:[{id,question:doc.title,answer:doc.result?'Opened your saved analysis. These are saved results; run its SQL to refresh them.':'Opened your saved query. Open SQL & data to run it.',research:doc.result||undefined}]},...all].slice(0,12));
+    setActiveId(id);setQuestion('');setChatError('');setEvidence(null);
+  }
+  async function runSQL() {
+    if(busy||tools.importing)return;
+    if(!token){setChatError('Verification is still loading. Retry verification before running SQL.');return;}
+    setBusy(true);setChatError('');const controller=new AbortController();request.current=controller;
+    try{
+      const result=await runResearch({version:3,sql:tools.sql,limit:tools.limit},token,AbortSignal.any([controller.signal,AbortSignal.timeout(20000)]));
+      if (request.current !== controller || controller.signal.aborted) return;
+      const id=++serial.current;const title=tools.title;
+      tools.accept(result,title,false);
+      setSessions(all=>all.map(item=>item.id===activeId?{...item,title: item.messages.length?item.title:title,spec:null,messages:[...item.messages,{id,question:title,answer:`Your query returned ${result.rows.length} records. The results are shown alongside this conversation.`,research:result}].slice(-30)}:item));
+    }catch(error){if(!controller.signal.aborted)setChatError(askErrorMessage(error));}
+    finally{if(request.current===controller){setBusy(false);setToken('');setChallengeReset(value=>value+1);request.current=null;}}
+  }
+  const researchEditor=capability.researchEnabled?<ResearchEditor tools={tools} enabled={!!capability.researchEnabled} busy={busy} onRun={()=>void runSQL()} onOpen={openSaved}/>:null;
   const composer = <div><form onSubmit={event => { event.preventDefault(); void ask(question); }} className={styles.composer}>
     <label htmlFor="ask-question" className="sr-only">Ask a question about Zcash</label>
     <textarea ref={input} id="ask-question" value={question} onChange={event => setQuestion(event.target.value)} rows={hasMessages ? 2 : 3} maxLength={1000}
@@ -182,10 +213,11 @@ export function AskWorkspace() {
 
   return <div className={styles.workspace} ref={workspace}>
     <aside className={styles.sidebar} aria-label="Ask workspace navigation">
-      <button type="button" onClick={newSession} className={styles.newButton}><span aria-hidden="true">＋</span> New analysis</button>
+      <button type="button" onClick={newSession} className={styles.newButton} disabled={busy || tools.importing}><span aria-hidden="true">＋</span> New analysis</button>
       {sessions.some(item => item.messages.length) ? <label className={styles.mobileSessions}><span className="sr-only">Recent analyses</span><select aria-label="Recent analyses" value={activeId} onChange={event => switchSession(Number(event.target.value))}>{sessions.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label> : null}
       <div className={styles.sidebarContent}><p className="text-caption font-mono text-muted mt-8 mb-3">THIS SESSION</p>
         {sessions.some(item => item.messages.length) ? sessions.filter(item => item.messages.length).map(item => <button key={item.id} className={`${styles.session} ${activeId === item.id ? styles.selectedSession : ''}`} aria-current={activeId === item.id ? 'true' : undefined} onClick={() => switchSession(item.id)} title={item.title}>{item.title}</button>) : <p className="text-xs leading-relaxed text-muted">Your analyses will appear here.</p>}
+        {capability.researchEnabled || tools.library.documents.length ? <ResearchLibrary tools={tools} busy={busy} onOpen={openSaved}/> : null}
         <p className="text-caption font-mono text-muted mt-9 mb-3">EXPLORE THE DATA</p>
         <Link href="/pools" className={styles.sourceLink}>Shielded pools <span>↗</span></Link>
         <Link href="/ironwood" className={styles.sourceLink}>Ironwood <span>↗</span></Link>
@@ -195,14 +227,14 @@ export function AskWorkspace() {
         <Link href="/privacy" className={styles.sourceLink}>Privacy score <span>↗</span></Link>
         <Link href="/charts" className={styles.sourceLink}>Chart library <span>↗</span></Link>
       </div>
-      <div className={styles.sessionNote}><span className="text-secondary">A temporary workspace</span><p className="mt-2">Conversations stay in memory. Reloading clears them. Never include wallet secrets.</p></div>
+      <div className={styles.sessionNote}><span className="text-secondary">A temporary workspace</span><p className="mt-2">Conversations stay in memory. Saved analyses stay in this browser; download a copy to keep them elsewhere. Never include wallet secrets.</p></div>
     </aside>
 
-    <div className={`${styles.main} ${hasMessages ? styles.active : ''}`}>
-      {!hasMessages ? <div className={styles.welcome}>
+    <div className={`${styles.main} ${hasMessages && !tools.boardId ? styles.active : ''}`}>
+      {tools.boardId ? <ResearchDashboard tools={tools} busy={busy} onOpen={openSaved}/> : !hasMessages ? <div className={styles.welcome}>
         <AskMark /><h2 className="text-3xl sm:text-4xl font-medium tracking-tight text-primary mt-6">Follow your curiosity.</h2>
         <p className="mt-3 mb-8 text-secondary text-sm sm:text-base leading-relaxed">Ask a question. Find the signal.<br className="sm:hidden" /> Make the data your own.</p>
-        {composer}
+        {composer}{researchEditor}
         <div className="flex flex-wrap gap-2 mt-6" role="group" aria-label="Example question categories">{categories.map(category => <button type="button" key={category} aria-pressed={exampleCategory === category} onClick={() => setExampleCategory(category)} className={`${styles.followup} ${exampleCategory === category ? styles.selectedCategory : ''}`}>{category}</button>)}</div>
         <div className={styles.starters}>{examples.map((starter, index) => <button key={starter.id} onClick={() => void ask(starter.title)} className={styles.starter}>
           <span className="flex justify-between items-center text-caption font-mono text-muted"><span>{starter.category}</span><span aria-hidden="true">0{index + 1}</span></span>
@@ -222,14 +254,14 @@ export function AskWorkspace() {
             {busy ? <p className="text-sm text-muted py-3" role="status">Reading public sources and preparing your answer…</p> : null}
           </div>
           <div className={styles.conversationFooter}>
-            <div className="flex flex-wrap gap-2 mb-3">{(spec ? ranking ? ['Show as a bar chart', 'Show as a table'] : ['Show 90 days', poolMetric ? spec.pool === 'ironwood' ? 'Just Orchard' : 'Just Ironwood' : 'Show as a line chart', 'Show as a table'] : transactions ? ['Show the latest 5 transactions', 'Explain this transaction'] : blocks ? ['Tell me about the latest block', 'Explain this block'] : starters.slice(0, 2).map(item => item.title)).map(text => <button key={text} disabled={busy} onClick={() => void ask(text)} className={styles.followup}>{text}</button>)}</div>
-            {composer}<p className="mt-3 text-caption text-muted leading-relaxed">{capability.mode === 'ai' ? `Questions are sent to ${capability.provider}. Use public information only.` : 'Guided preview · No AI provider connected.'}</p>
+            <div className="flex flex-wrap gap-2 mb-3">{(spec ? ranking ? ['Show as a bar chart', 'Show as a table'] : ['Show 90 days', poolMetric ? spec.pool === 'ironwood' ? 'Just Orchard' : 'Just Ironwood' : 'Show as a line chart', 'Show as a table'] : transactions ? ['Show the latest 5 transactions', 'Explain this transaction'] : blocks ? ['Tell me about the latest block', 'Explain this block'] : research ? ['Compare the leading results', 'Group these results by day'] : starters.slice(0, 2).map(item => item.title)).map(text => <button key={text} disabled={busy} onClick={() => void ask(text)} className={styles.followup}>{text}</button>)}</div>
+            {composer}{researchEditor}<p className="mt-3 text-caption text-muted leading-relaxed">{capability.mode === 'ai' ? `Questions are sent to ${capability.provider}. Use public information only.` : 'Guided preview · No AI provider connected.'}</p>
           </div>
         </section>
 
         <section className={styles.analysis} aria-label="Current analysis" aria-busy={loadingData}>
-          <div className="flex justify-between items-center gap-3 border-b border-cipher-border px-5 py-4"><span className="text-caption font-mono text-muted">{blocks ? 'BLOCKS' : transfers || transactions ? 'TRANSACTIONS' : 'ANALYSIS'}</span>{!analytics && !transfers && !blocks && !transactions ? <div className="flex gap-4"><button className="text-caption text-muted hover:text-primary disabled:opacity-40" onClick={() => setRefresh(value => value + 1)} disabled={!spec || loadingData}>Refresh</button><button className="text-caption text-muted hover:text-primary disabled:opacity-40" onClick={exportCsv} disabled={!summary?.points.length || invalidDates}>Export CSV ↗</button></div> : null}</div>
-          {analytics ? <div className="p-4 sm:p-5"><AskAnalytics result={analytics} /></div> : transactions ? <div className="p-4 sm:p-5"><h2 className="text-xl font-medium">{transactions.query.mode === 'latest' ? 'Latest indexed transactions' : 'Transaction lookup'}</h2><AskTransactions result={transactions} expanded /></div> : blocks ? <div className="p-4 sm:p-5"><h2 className="text-xl font-medium">{blocks.query.mode === 'recent' ? 'Latest indexed blocks' : 'Block lookup'}</h2><AskBlocks result={blocks} expanded /></div> : transfers ? <div className="p-4 sm:p-5"><h2 className="text-xl font-medium">Public {transfers.direction === 'deshield' ? 'deshielding' : 'shielding'} transactions</h2><AskTransfers result={transfers} /></div> : !spec ? <div className="p-8 text-sm text-muted leading-relaxed">Choose a starter question to open an analysis here. Its chart, controls and source data will stay alongside your conversation.</div> : <div className="p-4 sm:p-5">
+          <div className="flex justify-between items-center gap-3 border-b border-cipher-border px-5 py-4"><span className="text-caption font-mono text-muted">{blocks ? 'BLOCKS' : transfers || transactions ? 'TRANSACTIONS' : 'ANALYSIS'}</span>{!research && !analytics && !transfers && !blocks && !transactions ? <div className="flex gap-4"><button className="text-caption text-muted hover:text-primary disabled:opacity-40" onClick={() => setRefresh(value => value + 1)} disabled={!spec || loadingData}>Refresh</button><button className="text-caption text-muted hover:text-primary disabled:opacity-40" onClick={exportCsv} disabled={!summary?.points.length || invalidDates}>Export CSV ↗</button></div> : null}</div>
+          {research ? <ResearchPanel tools={tools} result={research} busy={busy}/> : analytics ? <div className="p-4 sm:p-5"><AskAnalytics result={analytics} /></div> : transactions ? <div className="p-4 sm:p-5"><h2 className="text-xl font-medium">{transactions.query.mode === 'latest' ? 'Latest indexed transactions' : 'Transaction lookup'}</h2><AskTransactions result={transactions} expanded /></div> : blocks ? <div className="p-4 sm:p-5"><h2 className="text-xl font-medium">{blocks.query.mode === 'recent' ? 'Latest indexed blocks' : 'Block lookup'}</h2><AskBlocks result={blocks} expanded /></div> : transfers ? <div className="p-4 sm:p-5"><h2 className="text-xl font-medium">Public {transfers.direction === 'deshield' ? 'deshielding' : 'shielding'} transactions</h2><AskTransfers result={transfers} /></div> : !spec ? <div className="p-8 text-sm text-muted leading-relaxed">Choose a starter question to open an analysis here. Its chart, controls and source data will stay alongside your conversation.</div> : <div className="p-4 sm:p-5">
             <h2 className="text-xl text-primary font-medium tracking-tight">{info?.title}</h2>
             <p className="mt-2 text-caption font-mono text-muted">MAINNET · {ranking ? 'LAST 30 DAYS · BY CHAIN' : 'DAILY'} · {spec.metric === 'activity' ? 'FLOW RECORDS' : info?.unit.toUpperCase()}</p>
             <div className={`${styles.controls} ${!poolMetric ? styles.twoControls : ''}`}>
