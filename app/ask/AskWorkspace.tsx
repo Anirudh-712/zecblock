@@ -85,10 +85,27 @@ export function AskWorkspace() {
   useEffect(() => {
     clearAskHandoff();
     const controller = new AbortController();
-    fetch(`${getApiUrl()}/v1/ask`, { signal: controller.signal, cache: 'no-store' }).then(res => readApiResponse<Capability>(res)).then(({ data, meta }) => {
-      if (meta.network === 'mainnet' && ['guided', 'ai'].includes(data.mode)) setCapability(data);
-    }).catch(() => {}).finally(() => { if (!controller.signal.aborted) setCapabilityReady(true); });
-    return () => { controller.abort(); request.current?.abort(); };
+    let pending = false;
+    const refreshCapability = () => {
+      if (pending || controller.signal.aborted) return;
+      pending = true;
+      fetch(`${getApiUrl()}/v1/ask`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]), cache: 'no-store' })
+        .then(res => readApiResponse<Capability>(res))
+        .then(({ data, meta }) => {
+          if (!controller.signal.aborted && meta.network === 'mainnet' && ['guided', 'ai'].includes(data.mode)) setCapability(data);
+        })
+        .catch(() => {})
+        .finally(() => { pending = false; if (!controller.signal.aborted) setCapabilityReady(true); });
+    };
+    refreshCapability();
+    const refreshVisible = () => { if (document.visibilityState === 'visible') refreshCapability(); };
+    const interval = setInterval(refreshVisible, 30000);
+    window.addEventListener('online', refreshCapability);
+    window.addEventListener('focus', refreshVisible);
+    return () => {
+      clearInterval(interval); window.removeEventListener('online', refreshCapability); window.removeEventListener('focus', refreshVisible);
+      controller.abort(); request.current?.abort();
+    };
   }, []);
 
   const metric = spec?.metric;
