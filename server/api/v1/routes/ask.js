@@ -17,6 +17,9 @@ const { explainRequestSchema, explanationTaskFor, loadExplanationEvidence, rende
 const { createAnalyticsClient } = require('../lib/ask-analytics-client');
 
 const {compileResearchSQL}=require('../lib/ask-research-sql');
+const {jobTicketSchema}=require('../../../../lib/ask/research-job-contract');
+const {researchReply}=require('../lib/ask-research-reply');
+const {answerTaskFor}=require('../lib/ask-chat');
 const {sqlQuerySchema}=require('../../../../lib/ask/research-contract');
 const researchPlanSchema=z.object({sql:z.string().max(8192).nullable()}).strict();
 const researchPlanTask={name:'research_sql',validator:researchPlanSchema,schema:z.toJSONSchema(researchPlanSchema),instruction:require('../lib/ask-research-sql').researchInstructions};
@@ -88,9 +91,10 @@ function createAskRouter(env = process.env, dependencies = {}) {
   const analytics = dependencies.analytics || createAnalyticsClient(env);
   if(analytics)analytics.researchEnabled=env.ASK_RESEARCH_ENABLED==='true'&&env.ASK_ANALYTICS_STORE==='logical_public_core';
   const researchConfig=env.ASK_RESEARCH_ENABLED==='true'&&env.ASK_ANALYTICS_STORE==='logical_public_core'&&analytics?budgetConfig(env):null;
+  const pollingLimiter=createRateLimiter({max:90,windowMs:60000,key:'ask-jobs'});
   const limiter = createRateLimiter({ max: 10, windowMs: 60000, key: 'ask' });
   router.use((req, res, next) => {
-    res.set('Cache-Control', 'private, no-store');
+    res.set('Cache-Control', 'private, no-store');res.set('X-Robots-Tag','noindex, nofollow');
     if (req.v1.network !== 'mainnet') return sendProblem(res, 'not-found', { detail: 'Ask is available on mainnet only.' });
     if (Object.keys(req.query).length) return sendProblem(res, 'validation-error', { detail: 'Ask does not accept query parameters. Send questions in the POST body.' });
     next();
@@ -98,7 +102,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
   const redisFor = req => dependencies.redis || req.app.locals.redisClient;
   router.get('/', (req, res) => {
     const ready = config && redisFor(req)?.isReady;
-    sendSuccess(res, { mode: ready ? 'ai' : 'guided', provider: ready ? config.provider === 'anthropic' ? 'Anthropic' : 'OpenAI' : null, siteKey: ready ? config.siteKey : researchConfig?.siteKey || null, researchEnabled:!!(researchConfig&&redisFor(req)?.isReady) });
+    sendSuccess(res, { mode: ready ? 'ai' : 'guided', provider: ready ? config.provider === 'anthropic' ? 'Anthropic' : 'OpenAI' : null, siteKey: ready ? config.siteKey : researchConfig?.siteKey || null, researchEnabled:!!(researchConfig&&redisFor(req)?.isReady), ...(analytics?.jobsEnabled&&researchConfig&&redisFor(req)?.isReady?{jobsEnabled:true}:{}) });
   });
   async function limited(req, res, operation, manual=false) {
     const redis = redisFor(req);
@@ -120,6 +124,43 @@ function createAskRouter(env = process.env, dependencies = {}) {
       }
     }
   }
+  const jobFailure=(res,error)=>{const failure=classifyFailure(error);return sendProblem(res,failure.type,{status:failure.status,detail:failure.detail,extra:{code:failure.code}});};
+  for(const operation of ['status','cancel'])router.post('/research/jobs/'+operation,pollingLimiter,async(req,res)=>{
+    if(!researchConfig||!analytics.jobsEnabled||!redisFor(req)?.isReady)return jobFailure(res,askError('source'));
+    const parsed=jobTicketSchema.safeParse(req.body);if(!parsed.success)return sendProblem(res,'validation-error');
+    try{sendSuccess(res,await analytics[operation](parsed.data,{signal:req.v1.abortSignal}));}catch(error){jobFailure(res,error);}
+  });
+  router.post('/research/jobs',limiter,async(req,res)=>{
+    const parsed=sqlQuerySchema.extend({challenge:z.string().min(1).max(2048)}).strict().safeParse(req.body);
+    if(!parsed.success)return sendProblem(res,'validation-error');
+    if(!researchConfig||!analytics.jobsEnabled)return jobFailure(res,askError('source'));
+    let query;try{const {challenge,...input}=parsed.data;void challenge;query=(await compileResearchSQL(input)).request;}catch{return sendProblem(res,'validation-error');}
+    return limited(req,res,async(signal)=>({job:await analytics.submit(query,{signal})}),true);
+  });
+  // Completion reuses the already-admitted job capability. Polling and an AI
+  // explanation must not charge another CAPTCHA/IP submission. Paid model
+  // reservations still apply; at most one explanation is generated per job.
+  router.post('/research/jobs/explain',pollingLimiter,async(req,res)=>{
+    const parsed=jobTicketSchema.extend({question:z.string().trim().min(1).max(1000),locale:z.enum(['auto','en','fr','es','de','pt','ja','zh','ko','ar','ru']).default('auto')}).strict().safeParse(req.body);
+    if(!parsed.success)return sendProblem(res,'validation-error');
+    const redis=redisFor(req);
+    if(!config||!researchConfig||!analytics.jobsEnabled||!redis?.isReady)return jobFailure(res,askError('source'));
+    const {id,token,question,locale}=parsed.data,ticket={id,token};
+    const base='ask:{mainnet}:job-explanation:'+createHash('sha256').update(id+token).digest('hex');
+    let locked=false;
+    try{
+      const status=await analytics.status(ticket,{signal:req.v1.abortSignal});
+      if(status.state!=='succeeded'||!status.result)throw askError('job');
+      const cached=await redis.get(base);if(cached)return sendSuccess(res,JSON.parse(cached));
+      // Retain the attempt key even after failure; retries cannot repeatedly
+      // spend on the same bearer ticket. The SQL result stays available.
+      locked=await redis.set(base+':attempt','1',{NX:true,EX:3600});if(!locked)throw askError('answer');
+      const signal=AbortSignal.any([req.v1.abortSignal,AbortSignal.timeout(20000)]);
+      const run=(input,task)=>askStage('answer',()=>interpret(config,input,signal,dependencies.fetch||fetch,task,body=>reserve(redis,config,body)));
+      const reply={...await researchReply(status.result,{question},run,locale==='auto'?'en':locale,answerTaskFor),mode:'ai'};
+      await redis.set(base,JSON.stringify(reply),{EX:3600});sendSuccess(res,reply);
+    }catch(error){jobFailure(res,error);}
+  });
   router.post('/research/plan', limiter, async(req,res)=>{
     if(!researchConfig)return sendProblem(res,'upstream-error',{status:503,detail:'Research is unavailable.'});
     const parsed=z.object({question:z.string().trim().min(1).max(1000),challenge:z.string().max(2048),execute:z.boolean().optional().default(false)}).strict().safeParse(req.body);
@@ -192,7 +233,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
       return { explanation: renderExplanation(raw, evidence.facts), evidenceKey: evidence.evidenceKey };
     });
   });
-  router.stop = () => { limiter._stop(); return analytics?.close?.(); };
+  router.stop = () => { limiter._stop(); pollingLimiter._stop(); return analytics?.close?.(); };
   return router;
 }
 

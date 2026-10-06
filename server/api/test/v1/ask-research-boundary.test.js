@@ -50,7 +50,7 @@ test('natural language executes only a validated draft, with one challenge and o
 
 test('research SQL reports fixed timeout/validation categories without leaking PostgreSQL diagnostics',async()=>{
  const {createAnalytics,CORE_GUARD}=require('../../v1/lib/ask-analytics');
- for(const [code,kind]of [['57014','timeout'],['42703','query'],['XX000','source']]){
+ for(const [code,kind]of [['57014','timeout'],['53400','resource'],['42703','query'],['XX000','source']]){
   const releases=[];
   const client={release:value=>releases.push(value),query:async statement=>{
    if(statement===CORE_GUARD)return{rows:[Object.fromEntries(['dedicated','identity','restricted','disk_bounded','no_memberships','no_create','only_public_view','no_sequences','no_definers'].map(key=>[key,true]))]};

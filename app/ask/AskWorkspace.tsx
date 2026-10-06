@@ -12,7 +12,9 @@ import { getChartColors } from '@/lib/chart-theme';
 import styles from './ask.module.css';
 import { useResearchTools, ResearchLibrary, ResearchEditor, ResearchPanel, ResearchDashboard } from './ResearchWorkbench';
 import type { ResearchDocument, ResearchResult } from '@/lib/ask/research-contract';
-import { runResearch } from '@/lib/ask/research-client';
+import type {ResearchJobStatus} from '@/lib/ask/research-job-contract';
+import {jobTicketSchema} from '@/lib/ask/research-job-contract';
+import { runResearch, submitResearch, waitResearch, explainResearch } from '@/lib/ask/research-client';
 import { researchResultSchema } from '@/lib/ask/research-contract';
 import { AskChallenge } from '@/components/ask/AskChallenge';
 import { AskTransactions } from '@/components/ask/AskTransactions';
@@ -28,7 +30,7 @@ const AskChart = dynamic(() => import('./AskChart'), { ssr: false, loading: () =
 const categories = ['Featured', 'Pools', 'Ironwood', 'Cross-chain', 'Network'];
 type Message = { research?: ResearchResult; analytics?: AskReply['analytics']; transactions?: AskReply['transactions']; blocks?: AskReply['blocks']; dataContext?: AskReply['dataContext']; id: number; question: string; answer: string; spec?: AnalysisSpec; sources?: AskSource[]; transfers?: AskReply['transfers']; locale?: string; scope?: string };
 type Session = { transaction?: string; block?: string; id: number; title: string; messages: Message[]; spec: AnalysisSpec | null; page?: string };
-type Capability = { mode: 'guided' | 'ai'; provider: string | null; siteKey?: string | null; researchEnabled?: boolean };
+type Capability = { mode: 'guided' | 'ai'; provider: string | null; siteKey?: string | null; researchEnabled?: boolean; jobsEnabled?: boolean };
 const initialSession: Session = { id: 0, title: 'New analysis', messages: [], spec: null };
 const viewKey = (spec: AnalysisSpec | null) => spec ? JSON.stringify([spec.metric, spec.period, spec.pool, spec.view, spec.start, spec.end]) : '';
 
@@ -45,6 +47,8 @@ export function AskWorkspace() {
   const [activeId, setActiveId] = useState(0);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
+  const [jobStatus,setJobStatus]=useState<ResearchJobStatus|null>(null);
+  const [jobClock,setJobClock]=useState(()=>Date.now());
   const [capability, setCapability] = useState<Capability>({ mode: 'guided', provider: null });
   const [capabilityReady, setCapabilityReady] = useState(false);
   const [fetchedEvidence, setEvidence] = useState<Evidence | null>(null);
@@ -81,6 +85,12 @@ export function AskWorkspace() {
   const research = latestRecords?.research;
   const summary = evidence && spec ? summarizeEvidence(evidence, spec, start, end) : null;
   const invalidDates = Boolean(start && end && start > end);
+
+  useEffect(() => {
+    if(jobStatus?.state!=='running'||!jobStatus.startedAt)return;
+    const timer=setInterval(()=>setJobClock(Date.now()),1000);
+    return ()=>clearInterval(timer);
+  },[jobStatus?.state,jobStatus?.startedAt]);
 
   useEffect(() => {
     clearAskHandoff();
@@ -156,7 +166,7 @@ export function AskWorkspace() {
     setQuestion(''); setBusy(true); setChatError(''); setCopied(false);
     const controller = new AbortController();
     request.current = controller;
-    const timeout = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), 45000);
+    const timeout = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), 300000);
     const id = ++serial.current;
     const append = (answer: string, next?: AnalysisSpec, sources?: AskSource[], answerLocale?: string, scope?: string, transfers?: AskReply['transfers'], dataContext?: AskReply['dataContext'], blocks?: AskReply['blocks'], transactions?: AskReply['transactions'], analytics?: AskReply['analytics'], research?: ResearchResult) => setSessions(all => all.map(item => item.id === activeId ? {
       ...item, title: item.messages.length ? item.title : trimmed,
@@ -167,7 +177,14 @@ export function AskWorkspace() {
     } : item));
     try {
       if (!next || capability.mode === 'ai' && token) {
-        const reply = await askChat(trimmed, session.page || 'ask', spec, 'auto', session.messages.map(message => message.question), token, controller.signal, session.block, session.transaction, analytics?.plan.version === 2 ? analytics.plan : undefined, capability.researchEnabled ? research?.query : undefined);
+        let reply = await askChat(trimmed, session.page || 'ask', spec, 'auto', session.messages.map(message => message.question), token, controller.signal, session.block, session.transaction, analytics?.plan.version === 2 ? analytics.plan : undefined, capability.researchEnabled ? research?.query : undefined);
+        if(reply.job){
+          const ticket=jobTicketSchema.parse(reply.job);
+          const result=await waitResearch(ticket,controller.signal,setJobStatus);
+          // Display validated data even if a paid explanation is unavailable.
+          try{reply=await explainResearch(ticket,trimmed,reply.locale,controller.signal);}
+          catch(cause){if(controller.signal.aborted)throw cause;reply={answer:'Your query is complete. The results are shown alongside this conversation; an AI explanation is temporarily unavailable.',sources:[],spec:null,locale:reply.locale,mode:'ai',research:result};}
+        }
         if (controller.signal.aborted) return;
         append(reply.answer, reply.spec ? analysisSchema.parse(reply.spec) : undefined, reply.sources, reply.locale, reply.scope, reply.transfers, reply.dataContext, reply.blocks, reply.transactions, reply.analytics, reply.research ? researchResultSchema.parse(reply.research) : undefined);
         if(reply.research)tools.accept(researchResultSchema.parse(reply.research),trimmed);
@@ -185,7 +202,7 @@ export function AskWorkspace() {
       }
     } finally {
       clearTimeout(timeout);
-      if (request.current === controller) { request.current = null; setBusy(false); setToken(''); setChallengeReset(value => value + 1); }
+      if (request.current === controller) { request.current = null; setBusy(false); setToken(''); setChallengeReset(value => value + 1); setJobStatus(null); }
     }
   }
 
@@ -208,13 +225,15 @@ export function AskWorkspace() {
     if(!token){setChatError('Verification is still loading. Retry verification before running SQL.');return;}
     setBusy(true);setChatError('');const controller=new AbortController();request.current=controller;
     try{
-      const result=await runResearch({version:3,sql:tools.sql,limit:tools.limit},token,AbortSignal.any([controller.signal,AbortSignal.timeout(20000)]));
+      const query={version:3 as const,sql:tools.sql,limit:tools.limit};
+      const signal=AbortSignal.any([controller.signal,AbortSignal.timeout(300000)]);
+      const result=capability.jobsEnabled?await waitResearch(await submitResearch(query,token,signal),signal,setJobStatus):await runResearch(query,token,AbortSignal.any([signal,AbortSignal.timeout(20000)]));
       if (request.current !== controller || controller.signal.aborted) return;
       const id=++serial.current;const title=tools.title;
       tools.accept(result,title,false);
       setSessions(all=>all.map(item=>item.id===activeId?{...item,title: item.messages.length?item.title:title,spec:null,messages:[...item.messages,{id,question:title,answer:`Your query returned ${result.rows.length} records. The results are shown alongside this conversation.`,research:result}].slice(-30)}:item));
     }catch(error){if(!controller.signal.aborted)setChatError(askErrorMessage(error));}
-    finally{if(request.current===controller){setBusy(false);setToken('');setChallengeReset(value=>value+1);request.current=null;}}
+    finally{if(request.current===controller){setBusy(false);setToken('');setChallengeReset(value=>value+1);request.current=null;setJobStatus(null);}}
   }
   const researchEditor=capability.researchEnabled?<ResearchEditor tools={tools} enabled={!!capability.researchEnabled} busy={busy} onRun={()=>void runSQL()} onOpen={openSaved}/>:null;
   const composer = <div><form onSubmit={event => { event.preventDefault(); void ask(question); }} className={styles.composer}>
@@ -226,7 +245,7 @@ export function AskWorkspace() {
       {busy ? <button type="button" className={styles.submit} onClick={() => request.current?.abort()} aria-label="Stop response">■</button>
         : <button type="submit" className={styles.submit} disabled={!question.trim() || (!capabilityReady || capability.mode === 'ai' && !token) && !resolveShortcut(question, spec)} aria-label="Send question">↑</button>}
     </div>
-  </form><AskChallenge siteKey={capability.siteKey} onToken={setToken} reset={challengeReset} />{chatError ? <p role="alert" className="mt-3 text-sm text-warning">{chatError}</p> : null}</div>;
+  </form>{busy&&jobStatus?<div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-cipher-border bg-cipher-surface px-4 py-3"><p role="status" className="text-sm text-muted">{jobStatus.state==='queued'?`Research queued · ${jobStatus.queuePosition>1?`${jobStatus.queuePosition-1} ahead`:'waiting for a worker'}`:jobStatus.state==='succeeded'?'Query complete · preparing your explanation…':`Running your query · ${Math.max(0,Math.floor((jobClock-Date.parse(jobStatus.startedAt||new Date(jobClock).toISOString()))/1000))}s elapsed · 30s limit`}</p><button type="button" onClick={()=>request.current?.abort()} className="text-sm text-muted hover:text-primary">Cancel</button></div>:null}<AskChallenge siteKey={capability.siteKey} onToken={setToken} reset={challengeReset} />{chatError ? <p role="alert" className="mt-3 text-sm text-warning">{chatError}</p> : null}</div>;
 
   return <div className={styles.workspace} ref={workspace}>
     <aside className={styles.sidebar} aria-label="Ask workspace navigation">
@@ -268,7 +287,7 @@ export function AskWorkspace() {
               </div></div>
             </div>)}
             {evidence && spec && summary?.points.length && !invalidDates && capability.mode === 'ai' ? <button type="button" onClick={() => void ask('Explain this view')} disabled={busy || !token} className="text-sm text-cipher-gold hover:underline disabled:opacity-40">Explain this view →</button> : null}
-            {busy ? <p className="text-sm text-muted py-3" role="status">Reading public sources and preparing your answer…</p> : null}
+            {busy&&!jobStatus ? <p className="text-sm text-muted py-3" role="status">Reading public sources and preparing your answer…</p> : null}
           </div>
           <div className={styles.conversationFooter}>
             <div className="flex flex-wrap gap-2 mb-3">{(spec ? ranking ? ['Show as a bar chart', 'Show as a table'] : ['Show 90 days', poolMetric ? spec.pool === 'ironwood' ? 'Just Orchard' : 'Just Ironwood' : 'Show as a line chart', 'Show as a table'] : transactions ? ['Show the latest 5 transactions', 'Explain this transaction'] : blocks ? ['Tell me about the latest block', 'Explain this block'] : research ? ['Compare the leading results', 'Group these results by day'] : starters.slice(0, 2).map(item => item.title)).map(text => <button key={text} disabled={busy} onClick={() => void ask(text)} className={styles.followup}>{text}</button>)}</div>

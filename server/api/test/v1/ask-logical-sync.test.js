@@ -298,6 +298,24 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
     FROM fees_by_height WHERE height<=(SELECT max(height) FROM blocks) ORDER BY height`);
    assert.deepEqual(rows,[['0','7','1','7.00',null],['1','42','1','24.50','7'],['2','7','1','24.50','42']]);
   });
+  await admission.test('protocol cancellation stops a CPU-bound read before its thirty-second timeout',async()=>{
+   const {Client}=require('pg');
+   const client=await reader.connect();
+   try{
+    await client.query('BEGIN READ ONLY');await client.query("SET LOCAL statement_timeout='30s'");
+    const compiled=await require('../../v1/lib/ask-research-sql').compileResearchSQL({version:3,sql:'SELECT count(*) FROM '+Array.from({length:14},(_,i)=>'blocks b'+i).join(' CROSS JOIN '),limit:1});
+    const started=Date.now();
+    const pending=client.query({text:compiled.text,values:compiled.values});
+    // Attach the rejection observer before sending cancellation.
+    const cancelled=assert.rejects(pending,e=>e.code==='57014');
+    await new Promise(resolve=>setTimeout(resolve,100));
+    assert.ok(client.activeQuery);
+    const cancel=new Client({host:clusters.find(c=>c.name==='target').socket,port:5432,user:'ask_public_reader',database:'ask_analytics',ssl:false});
+    cancel.on('error',()=>{});cancel.cancel(client,client.activeQuery);
+    await cancelled;assert.ok(Date.now()-started<3000);
+    await client.query('ROLLBACK');assert.equal((await client.query('SELECT count(*) FROM analytics_public.blocks')).rows[0].count,'3');
+   }finally{await client.query('ROLLBACK');client.release();}
+  });
   await admission.test('PostgreSQL cancels overlong work independently of SQL validation',async()=>{
    const client=await reader.connect();
    try {

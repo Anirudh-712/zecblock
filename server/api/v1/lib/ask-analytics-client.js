@@ -5,6 +5,7 @@ const { catalogue } = require('./ask-query-plan');
 const { coreCatalogue } = require('./ask-core-catalogue');
 const {compileResearchSQL}=require('./ask-research-sql');
 const {researchResultSchema}=require('../../../../lib/ask/research-contract');
+const {jobTicketSchema,jobStatusSchema}=require('../../../../lib/ask/research-job-contract');
 const { askError } = require('./ask-errors');
 
 function createAnalyticsClient(env, fetchImpl = fetch) {
@@ -14,7 +15,24 @@ function createAnalyticsClient(env, fetchImpl = fetch) {
     url = new URL(env.ASK_ANALYTICS_SERVICE_URL);
     if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.pathname !== '/' || url.search || url.hash || url.username || url.password) return null;
   } catch { return null; }
+  async function jobRPC(operation,input,signal){
+    if(env.ASK_RESEARCH_JOBS_ENABLED!=='true'||env.ASK_RESEARCH_ENABLED!=='true'||env.ASK_ANALYTICS_STORE!=='logical_public_core')throw askError('source');
+    const body=operation==='submit'?(await compileResearchSQL(input)).request:jobTicketSchema.parse(input);
+    const response=await fetchImpl(new URL('/jobs/'+operation,url),{method:'POST',redirect:'error',signal:AbortSignal.any([...(signal?[signal]:[]),AbortSignal.timeout(5000)]),headers:{'Content-Type':'application/json',Authorization:`Bearer ${env.ASK_ANALYTICS_SERVICE_KEY}`},body:JSON.stringify(body)});
+    if(!response.ok){await response.body?.cancel();throw askError(response.status===404?'job':response.status===429?'quota':'source');}
+    const reader=response.body.getReader(),chunks=[];let bytes=0;
+    try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>270000)throw askError('source');chunks.push(Buffer.from(value));}}finally{await reader.cancel();}
+    const value=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const parsed=(operation==='submit'?jobTicketSchema:jobStatusSchema).parse(value);
+    if(operation!=='submit'&&parsed.id!==input.id)throw askError('source');
+    if(parsed.result){const verified=await compileResearchSQL(parsed.result.query);if(parsed.result.fingerprint!==verified.fingerprint||parsed.result.query.sql!==verified.request.sql||JSON.stringify(parsed.result.datasets)!==JSON.stringify(verified.datasets))throw askError('source');}
+    return parsed;
+  }
   return {
+    jobsEnabled:env.ASK_RESEARCH_JOBS_ENABLED==='true'&&env.ASK_RESEARCH_ENABLED==='true'&&env.ASK_ANALYTICS_STORE==='logical_public_core',
+    submit:(query,{signal}={})=>jobRPC('submit',query,signal),
+    status:(ticket,{signal}={})=>jobRPC('status',ticket,signal),
+    cancel:(ticket,{signal}={})=>jobRPC('cancel',ticket,signal),
     catalogue:env.ASK_ANALYTICS_STORE==='logical_public_core'?coreCatalogue:catalogue,
     close: async () => {},
     async execute(input, { signal } = {}) {
@@ -27,6 +45,7 @@ function createAnalyticsClient(env, fetchImpl = fetch) {
       if (!response.ok) {
         await response.body?.cancel();
         if(research&&response.status===400)throw askError('query');
+        if(response.status===422)throw askError('resource');
         if(response.status===504)throw askError('timeout');
         if (response.status === 429) { const error = askError('quota'); error.quota = true; throw error; }
         throw askError('source');

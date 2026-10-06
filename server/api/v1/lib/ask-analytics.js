@@ -1,6 +1,7 @@
 'use strict';
 
-const { Pool } = require('pg');
+const {cacheKey,readCached,saveCached}=require('./ask-research-cache');
+const { Pool, Client } = require('pg');
 const { createHash, randomUUID } = require('node:crypto');
 const { compilePlan } = require('./ask-analytics-plan');
 const { catalogue, views } = require('./ask-query-plan');
@@ -107,49 +108,69 @@ function createAnalytics(env, dependencies = {}) {
   const config = analyticsConfig(env);
   if (!config) return null;
   const pool = dependencies.pool || new Pool({ ...(config.connection || {connectionString:config.connectionString}), max: 2, connectionTimeoutMillis: 1500, idleTimeoutMillis: 10000,
-    statement_timeout: 3000, query_timeout: 3500, application_name: 'zecblock-ask-analytics', options: '-c default_transaction_read_only=on -c search_path=pg_catalog' });
+    statement_timeout: 3000, query_timeout: env.ASK_RESEARCH_JOBS_ENABLED==='true'?35000:3500, application_name: 'zecblock-ask-analytics', options: '-c default_transaction_read_only=on -c search_path=pg_catalog' });
   pool.on?.('error', () => {}); // Never log connection strings or raw SQL errors.
   let active = 0;
   return {
-    async execute(input, { redis, signal, now = Date.now() } = {}) {
+    async execute(input, { redis, signal, now = Date.now(), execution = 'interactive' } = {}) {
       const research=input?.version===3;
+      const background=research&&execution==='background'&&env.ASK_RESEARCH_JOBS_ENABLED==='true';
       if(research && (env.ASK_RESEARCH_ENABLED!=='true'||config.profile!=='logical_public_core'))throw askError('source');
       const compiled = research ? await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'}) : compilePlan(input, now, config.profile); // Validate before quota or pool access.
       if (!redis?.isReady) throw askError('unavailable');
       if (active >= 2) { const error = askError('quota'); error.quota = true; throw error; }
       active++;
-      const deadline = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(10000)]);
+      const deadline = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(background?35000:10000)]);
       const lease = randomUUID(); let admitted = false; let client; let released = false;
-      const destroy = () => { if (client && !released) { released = true; client.release(true); } };
+      const destroy = () => { if (client && !released) {
+        // A protocol CancelRequest targets this backend only. Closing its data
+        // socket alone can leave a CPU-bound query running until timeout.
+        if(client.activeQuery&&Number.isInteger(client.processID))try{
+          const cancel=new Client(config.connection||{connectionString:config.connectionString});
+          cancel.on('error',()=>{});cancel.cancel(client,client.activeQuery);
+          const timer=setTimeout(()=>cancel.connection.stream.destroy(),1000);timer.unref();
+          cancel.connection.once('end',()=>clearTimeout(timer));
+        }catch{/* statement_timeout remains the independent final bound */}
+        released = true; client.release(true);
+      } };
       deadline.addEventListener('abort', destroy, { once: true });
       try {
         deadline.throwIfAborted();
-        const accepted = await bounded(redis.eval(ADMIT_QUERY, { keys: ['ask:{mainnet}:analytics:active', `ask:{mainnet}:analytics:queries:${new Date(now).toISOString().slice(0,10)}`], arguments: [String(now), String(now + 30000), lease, String(config.daily)] }), deadline);
+        const accepted = await bounded(redis.eval(ADMIT_QUERY, { keys: ['ask:{mainnet}:analytics:active', `ask:{mainnet}:analytics:queries:${new Date(now).toISOString().slice(0,10)}`], arguments: [String(now), String(now + (background?45000:30000)), lease, String(config.daily)] }), deadline);
         admitted = Number(accepted) === 1;
         deadline.throwIfAborted();
         if (!admitted) { const error = askError('quota'); error.quota = true; throw error; }
         client = await bounded(pool.connect().then(connection => { if (deadline.aborted) { connection.release(true); throw deadline.reason; } return connection; }), deadline);
         deadline.throwIfAborted();
         await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-        await client.query("SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='500ms'; SET LOCAL idle_in_transaction_session_timeout='5s'; SET LOCAL work_mem='1MB'; SET LOCAL search_path=pg_catalog; SET LOCAL timezone='UTC'; SET LOCAL max_parallel_workers_per_gather=0; SET LOCAL jit=off");
+        await client.query(`SET LOCAL statement_timeout='${background?'30s':'3s'}'; SET LOCAL lock_timeout='500ms'; SET LOCAL idle_in_transaction_session_timeout='5s'; SET LOCAL work_mem='1MB'; SET LOCAL search_path=pg_catalog; SET LOCAL timezone='UTC'; SET LOCAL max_parallel_workers_per_gather=0; SET LOCAL jit=off`);
         if(config.profile==='logical_public_core')checkCoreGuard((await client.query(CORE_GUARD)).rows[0]);
         else checkGuard((await client.query(GUARD)).rows[0]);
-        let coverage;
+        let coverage,checkpoint;
         if(config.profile==='logical_public_core'){
           const verified=(await client.query('SELECT * FROM analytics_public.coverage')).rows;
           if(verified.length!==1 || verified[0].schema_version!==1 || verified[0].authority!=='logical_public_core' || verified[0].network!=='mainnet' || verified[0].ready!==true)throw askError('source');
+          checkpoint=verified[0];
           coverage=(await client.query('SELECT NULL::int AS observed_days,pg_catalog.to_timestamp(timestamp)::text AS indexed_through FROM analytics_public.blocks ORDER BY height DESC LIMIT 1')).rows[0];
           if(!coverage)throw askError('source');
           coverage.consistency='verified-canonical-core';
         } else coverage = (await client.query(compiled.plan.version === 2
           ? `SELECT ${compiled.plan.dataset === 'daily' ? '(SELECT count(*)::int FROM ask_public.daily_v2 WHERE date >= $1::date AND date <= $2::date)' : 'NULL::int'} AS observed_days, (SELECT pg_catalog.to_timestamp(timestamp)::text FROM ask_public.blocks_v2 ORDER BY height DESC LIMIT 1) AS indexed_through`
           : 'SELECT count(*)::int AS observed_days FROM ask_public.daily_v1 WHERE date >= $1::date AND date <= $2::date', compiled.plan.version === 1 || compiled.plan.dataset === 'daily' ? compiled.values.slice(0,2) : [])).rows[0];
+        // Read admission in this transaction BEFORE any cache lookup. A stale
+        // feed or changed checkpoint never reuses an old canonical result.
+        const key=research&&env.ASK_RESEARCH_CACHE_ENABLED==='true'?cacheKey(compiled,checkpoint):null;
+        const cached=key?await bounded(readCached(redis,key,compiled),deadline):null;
+        if(cached){await client.query('ROLLBACK');client.release();released=true;return {result:cached};}
         const raw = research ? await client.query({text:compiled.text,values:compiled.values,rowMode:'array',types:{getTypeParser:()=>value=>value}}) : await client.query(compiled.text, compiled.values);
         const rows=raw.rows;
         deadline.throwIfAborted();
         const evidence = research ? {result:researchEvidence(compiled,rows,raw.fields,coverage,new Date(now).toISOString())} : evidenceFor(compiled, rows, coverage, new Date(now).toISOString());
         await client.query('ROLLBACK');
         client.release(); released = true;
+        // Cache is only an optimization. Cache-write failures cannot turn a
+        // verified result into an unavailable source or trigger a SQL retry.
+        if(key)try{await bounded(saveCached(redis,key,evidence.result),deadline);}catch{/* no cache */}
         return evidence;
       } catch (error) {
         // Discard aborted/failed transactions; no session state can leak back.
@@ -157,6 +178,7 @@ function createAnalytics(env, dependencies = {}) {
         if (deadline.aborted) throw deadline.reason;
         if (error?.quota || error?.askKind) throw error;
         // Fixed categories only: never forward PostgreSQL messages, SQL or connection details.
+        if(research&&error?.code==='53400'){const safe=askError('resource');safe.code='53400';throw safe;}
         if(research&&error?.code==='57014'){const safe=askError('timeout');safe.code='57014';throw safe;}
         if(research&&['42601','42703','42883','42804','22012','22003','42P01'].includes(error?.code)){const safe=askError('query');safe.code=error.code;throw safe;}
         throw askError('source');

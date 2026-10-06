@@ -101,6 +101,7 @@ async function chat(input, run, internalClient, signal, analysisInstructions, ca
   if(selection.intent==='research'){
     if(!analytics?.researchEnabled||input.page!=='ask'||!selection.sql)throw askError('answer');
     let query;try{query=(await compileResearchSQL({version:3,sql:selection.sql,limit:100})).request;}catch{throw askError('answer');}
+    if(analytics.jobsEnabled)return {answer:'',sources:[],spec:null,locale,job:await analytics.submit(query,{signal})};
     const evidence=await askStage('source',()=>analytics.execute(query,{signal}));
     return researchReply(evidence.result,input,run,locale,answerTaskFor);
   }
