@@ -56,8 +56,28 @@
 .composerModes button { padding:5px 10px; border-radius:5px; color:var(--color-text-muted); font-size:12px; }
 .composerModes button[aria-pressed="true"] { color:var(--color-text-primary); background:var(--color-hover); }
 .composerModes button:disabled { opacity:.6; }
-.inputHint { margin-top:8px; font-size:11px; line-height:1.6; color:var(--color-text-muted); }
-.rowLimit { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--color-text-muted); }
+.inputHint { margin-top:8px; font-size:12px; line-height:1.6; color:var(--color-text-muted); }
+.rowLimit { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--color-text-muted); }
 .rowLimit select { border:1px solid var(--color-border); border-radius:4px; background:var(--color-surface); padding:4px; color:var(--color-text-secondary); }
 .runSQL { padding:7px 12px; border-radius:6px; background:var(--color-gold-accent); color:#171A20; font-size:12px; font-weight:500; }
 .runSQL:disabled { opacity:.35; }
+
+.threadMain {max-width:1100px;width:100%;margin:0 auto;}
+.threadTranscript {max-height:none;overflow:visible;padding:0;}
+.sentMessage {margin-left:clamp(16px,12%,100px);border:1px solid var(--color-border);background:var(--color-surface);border-radius:12px;padding:14px 18px;font-size:14px;line-height:1.7;color:var(--color-text-primary);overflow-wrap:anywhere;white-space:pre-wrap;}
+.sqlPreview {display:block;font-family:var(--font-geist-mono),monospace;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;}
+.sentSQL {margin-top:8px;font-size:12px;color:var(--color-text-muted);}
+.sentSQL summary {cursor:pointer;}
+.sentSQL pre {margin-top:12px;max-height:260px;overflow:auto;white-space:pre;font-family:var(--font-geist-mono),monospace;color:var(--color-text-secondary);}
+.resultCard {border:1px solid var(--color-border);border-radius:8px;min-width:0;margin-top:16px;}
+.resultActions {display:flex;justify-content:flex-end;gap:16px;padding:12px 20px;border-bottom:1px solid var(--color-border);font-size:12px;color:var(--color-text-secondary);}
+.resultActions button:hover {color:var(--color-gold);}
+.resultDialog {position:fixed;inset:16px;margin:auto;width:calc(100vw - 32px);max-width:none;height:calc(100dvh - 32px);max-height:none;border:1px solid var(--color-border);border-radius:10px;padding:0;background:var(--color-bg);color:var(--color-text-primary);overflow:auto;overscroll-behavior:contain;}
+.resultDialog::backdrop {background:rgb(0 0 0 / 70%);}
+.dialogHeader {position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 24px;background:var(--color-surface);border-bottom:1px solid var(--color-border);font-size:14px;}
+.dialogHeader button {padding:6px 10px;border:1px solid var(--color-border);border-radius:6px;font-size:12px;}
+.resultDialog :global(table) {min-width:100%;}
+.resultDialog :global(button):focus-visible,.sentSQL summary:focus-visible {outline:2px solid var(--color-gold);outline-offset:3px;}
+@media(max-width:640px){.resultDialog{inset:6px;width:calc(100vw - 12px);height:calc(100dvh - 12px)}.dialogHeader{padding:12px}.threadMain{padding-top:24px}.sentMessage{margin-left:16px}.resultActions{padding:10px 16px}.threadTranscript{max-height:none}}
+
+.resultDialog :global([aria-label="Scrollable query results"]) {max-height:none;}

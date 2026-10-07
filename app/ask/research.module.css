@@ -49,7 +49,7 @@
 .table td,.table th {text-align:left;border-bottom:1px solid var(--color-border);padding:12px;white-space:nowrap;font-weight:400;}
 .table th {color:var(--color-text-muted);font-size:12px;}
 .table td {color:var(--color-text-secondary);}
-.table td[data-numeric=true] {text-align:right;}
+.table td[data-numeric=true],.table th[data-numeric=true] {text-align:right;}
 .table tbody tr:hover {background:var(--color-hover);}
 .scroll {overflow:auto;max-height:420px;margin-top:12px;overscroll-behavior:contain;}
 .exactTable {margin-top:16px;}
@@ -64,3 +64,9 @@
 .mobileLibrary {display:none;}
 .advanced textarea:focus-visible,.panelBody input:focus-visible {outline:2px solid var(--color-gold);outline-offset:3px;}
 @media(max-width:640px){.mobileLibrary{display:block;margin-top:20px}.mobileLibrary .libraryContent{display:block}.toolbar{flex-wrap:wrap}.titleInput{flex:1;min-width:160px}.toolbar .button{flex-shrink:0}}
+
+.table th {white-space:normal;min-width:100px;max-width:200px;line-height:1.5;}
+.table td a:hover {color:var(--color-gold);text-decoration:underline;}
+.scroll:focus-visible,.panelBody button:focus-visible,.panelBody select:focus-visible,.table a:focus-visible {outline:2px solid var(--color-gold);outline-offset:3px;}
+
+.toolbar .button {flex-shrink:0;white-space:nowrap;}
