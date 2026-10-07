@@ -86,3 +86,29 @@ test('the Ask chat routes custom research and follow-ups through SQL without a s
   assert.equal(calls,1);assert.equal(executions,1);
  }
 });
+
+test('small daily results supply the whole bounded evidence table, not a misleading ten-row preview',async()=>{
+ const {researchReply}=require('../../v1/lib/ask-research-reply');
+ const {answerTaskFor}=require('../../v1/lib/ask-chat');
+ const result={query:{version:3,sql:'SELECT height FROM blocks',limit:100},columns:[{key:'c0',label:'day',type:'text'},{key:'c1',label:'count',type:'number'}],rows:Array.from({length:30},(_,i)=>['2026-09-'+String(i+1).padStart(2,'0'),String(i)]),truncated:false,datasets:['transactions'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-07T01:43:06Z',indexedThrough:'2026-10-07T01:43:05Z',coverage:'verified canonical records',units:'exact'};
+ let captured;
+ await researchReply(result,{question:'Daily counts',history:[]},async(input,task)=>{captured=input;assert.match(task.instruction,/preview refers only to the evidence/);return{summary:'The latest count is {{row_ad_b}}.',observations:[],limitation:''};},'en',answerTaskFor);
+ assert.equal(captured.evidence.rows.length,30);assert.equal(captured.evidence.preview.complete,true);assert.equal(captured.evidence.facts.row_ad_b,'29');
+ for(const rows of [Array.from({length:41},()=>['date','1']),Array.from({length:30},()=>['x'.repeat(1000),'1'])]){
+  await researchReply({...result,rows},{question:'Counts',history:[]},async(input)=>{captured=input;return{summary:'Returned {{returned_rows}} rows.',observations:[],limitation:''};},'en',answerTaskFor);
+  assert.equal(captured.evidence.rows.length,10);assert.equal(captured.evidence.preview.complete,false);
+ }
+});
+
+
+test('a fragmented prose table cannot replace a complete SQL result',async()=>{
+ const {researchReply}=require('../../v1/lib/ask-research-reply');
+ const {answerTaskFor}=require('../../v1/lib/ask-chat');
+ const result={query:{version:3,sql:'SELECT height FROM blocks',limit:100},columns:[{key:'c0',label:'height',type:'number'}],rows:[['100'],['101']],truncated:false,datasets:['blocks'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-07T01:43:06Z',indexedThrough:'2026-10-07T01:43:05Z',coverage:'verified canonical records',units:'exact'};
+ const reply=await researchReply(result,{question:'Show the table',history:[]},async()=>({summary:'Height | Count\n{{row_a_a}} |',observations:[],limitation:''}),'en',answerTaskFor);
+ assert.equal(reply.answer,'Your query returned 2 records. The results are available in the table below.');
+ assert.deepEqual(reply.research.rows,result.rows);
+ assert.equal(reply.evidenceKey,result.fingerprint);
+ // Numerical provenance remains mandatory, including on the fallback path.
+ await assert.rejects(researchReply(result,{question:'Show the table',history:[]},async()=>({summary:'Height | Count\n999 |',observations:[],limitation:''}),'en',answerTaskFor),/Unvalidated numerical claim/);
+});

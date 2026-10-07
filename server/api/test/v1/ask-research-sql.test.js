@@ -1,6 +1,6 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
-const {compileResearchSQL,researchEvidence}=require('../../v1/lib/ask-research-sql');
+const {compileResearchSQL,researchEvidence,researchInstructions}=require('../../v1/lib/ask-research-sql');
 const request=sql=>({version:3,sql,limit:10});
 const good=[
  'SELECT blocks.height,hash FROM blocks ORDER BY height DESC LIMIT 5',
@@ -43,3 +43,15 @@ const bad=[
 for(const sql of bad)for(const decorate of [s=>s,s=>'/* untrusted comment; SELECT is not authority */ '+s,s=>s.replace(/SELECT/g,'SeLeCt')])test('denies: '+decorate(sql).slice(0,90),async()=>{await assert.rejects(compileResearchSQL(request(decorate(sql))));});
 test('rejects unknown fields and complexity before execution',async()=>{for(const input of [{...request('SELECT height FROM blocks'),credentials:'secret'},{...request('SELECT height FROM blocks'),limit:201},{...request('SELECT height FROM blocks'),sql:'SELECT '+ 'x'.repeat(8193)}])await assert.rejects(compileResearchSQL(input));await assert.rejects(compileResearchSQL(request('SELECT '+Array.from({length:25},(_,i)=>`height AS h${i}`).join(',')+' FROM blocks')));});
 test('exact decimal/null/duplicate aliases and truncation are preserved',async()=>{const c=await compileResearchSQL({version:3,sql:'SELECT height,fees FROM blocks',limit:1});const e=researchEvidence(c,[['9007199254740993',null],['1','2']],[{name:'same',dataTypeID:20},{name:'same',dataTypeID:1700}],{indexed_through:'2026-10-06T00:00:00Z'},'2026-10-06T00:00:01Z');assert.equal(e.rows[0][0],'9007199254740993');assert.equal(e.rows[0][1],null);assert.equal(e.truncated,true);assert.equal(e.columns[1].key,'c1');for(const rows of [[['x'.repeat(2049),'2']],[['x\u0000','2']],[['1']]])assert.throws(()=>researchEvidence(c,rows,[{name:'height',dataTypeID:20},{name:'fees',dataTypeID:1700}],{indexed_through:'2026-10-06'},'2026-10-06'));});
+
+// Regression: a normal daily-activity question previously produced a reserved
+// CTE name and AT TIME ZONE, both correctly rejected by the unchanged policy.
+test('daily-activity drafting guidance matches the unchanged SQL policy',async()=>{
+ for(const name of ['blocks','transactions','flows','daily','swaps','addresses'])assert.match(researchInstructions,new RegExp('\\b'+name+'\\b'));
+ assert.match(researchInstructions,/CTE names must not be/);
+ assert.match(researchInstructions,/Do not use AT TIME ZONE or timezone/);
+ assert.match(researchInstructions,/transaction timezone to UTC/);
+ const accepted=await compileResearchSQL(request("WITH daily_activity AS (SELECT to_char(to_timestamp(timestamp), 'YYYY-MM-DD') AS day_utc, count(*) FILTER (WHERE shielded IS TRUE) AS shielded_transactions FROM transactions WHERE timestamp >= extract(epoch FROM DATE '2026-09-07') AND timestamp < extract(epoch FROM DATE '2026-10-07') GROUP BY 1) SELECT day_utc, shielded_transactions FROM daily_activity ORDER BY day_utc"));
+ assert.deepEqual(accepted.datasets,['transactions']);
+ for(const sql of ["WITH daily AS (SELECT height FROM blocks) SELECT height FROM daily", "SELECT to_timestamp(timestamp) AT TIME ZONE 'UTC' FROM transactions", "SELECT timezone('UTC',to_timestamp(timestamp)) FROM transactions"])await assert.rejects(compileResearchSQL(request(sql)));
+});
