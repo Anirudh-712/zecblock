@@ -16,6 +16,9 @@ const failures = {
 };
 function askError(kind) { const error = new Error('Ask operation failed'); error.askKind = kind; return error; }
 function classifyFailure(error) {
+  if (error?.quota && ['day','minute'].includes(error.askLimit) && Number.isInteger(error.retryAfter) && error.retryAfter > 0 && error.retryAfter <= 86400) {
+    return {...failures.quota, code:'ask-quota-'+error.askLimit, retryAfter:error.retryAfter, detail:error.askLimit === 'day' ? 'The daily connection allowance is exhausted. Ask and SQL share this allowance; it resets at midnight UTC.' : 'The per-minute connection allowance is exhausted. Ask and SQL share this allowance.'};
+  }
   const kind = error?.quota ? 'quota' : ['TimeoutError', 'AbortError'].includes(error?.name) ? 'timeout' : Object.hasOwn(failures, error?.askKind) ? error.askKind : 'unavailable';
   return failures[kind];
 }

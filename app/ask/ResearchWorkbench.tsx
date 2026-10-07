@@ -103,11 +103,11 @@ export function ResearchLibrary({ tools, busy, onOpen }: { tools: Tools; busy: b
   </div>;
 }
 
-export function ResearchEditor({ tools, enabled, busy, onRun, onOpen }: { tools: Tools; enabled: boolean; busy: boolean; onRun: () => void; onOpen: (doc: ResearchDocument) => void }) {
+export function ResearchEditor({ tools, busy, onOpen }: { tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void }) {
   return <details className={styles.disclosure}>
-    <summary>SQL & data</summary>
+    <summary>Data catalogue</summary>
     <div className={styles.advanced}>
-      <p className={styles.caption}>Write your own query, or edit the query behind your analysis.</p>
+      <p className={styles.caption}>Use SQL mode in the composer to write a query or edit the query behind your analysis.</p>
       <details className={styles.catalogue}><summary>Browse available data</summary>
         <h3 className={styles.dataset}>Blocks</h3><p className={styles.caption}>Canonical block heights, hashes, timestamps, miners, transaction counts, sizes and fees.</p>
         <h3 className={styles.dataset}>Transactions</h3><p className={styles.caption}>Confirmed transaction IDs, block heights, timestamps, pool participation, sizes and fees. Excludes coinbase.</p>
@@ -115,8 +115,6 @@ export function ResearchEditor({ tools, enabled, busy, onRun, onOpen }: { tools:
         <pre className={styles.schema} translate="no">{`blocks(height, hash, timestamp, miner, transactions, bytes, fees)\ntransactions(txid, height, timestamp, miner, shielded, orchard, ironwood, sapling, bytes, fees)\nflows(txid, height, timestamp, direction, pool, amount)`}</pre>
         <p className={styles.caption}>Timestamps: Unix seconds, UTC. Amounts/fees: zatoshis; divide by 100000000 for ZEC. Join transactions.height to blocks.height, flows.txid to transactions.txid. Aggregate flows before joining to avoid double counting. Blocks include coinbase. Missing measures remain unavailable. Flow-history completeness is unverified.</p>
       </details>
-      <label className={styles.field}>SQL<textarea name="sql" autoComplete="off" disabled={busy || tools.importing} spellCheck={false} className={`${styles.input} ${styles.sql}`} maxLength={8192} value={tools.sql} onChange={event => tools.setSQL(event.target.value)} /></label>
-      <div className={styles.actions}><label className={styles.limit}>Maximum rows<select className={styles.input} disabled={busy} value={tools.limit} onChange={event => tools.setLimit(Number(event.target.value))}>{[10, 50, 100, 200].map(value => <option key={value}>{value}</option>)}</select></label><button className={styles.button} disabled={!enabled || busy || tools.importing} onClick={onRun}>{busy ? 'Running…' : 'Run SQL'}</button></div>
       <details className={styles.mobileLibrary}><summary>Saved analyses & files</summary><ResearchLibrary tools={tools} busy={busy} onOpen={onOpen} /></details>
       <ResearchStatus tools={tools} />
     </div>

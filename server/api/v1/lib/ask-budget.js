@@ -18,7 +18,8 @@ redis.call('INCRBY', KEYS[4], ARGV[5]); redis.call('EXPIRE', KEYS[4], 3456000)
 redis.call('ZADD', KEYS[2], ARGV[2], ARGV[4]); redis.call('EXPIRE', KEYS[2], 60)
 return 1`;
 const ADMIT = `
-if tonumber(redis.call('GET', KEYS[1]) or '0') >= 5 or tonumber(redis.call('GET', KEYS[2]) or '0') >= 20 then return 0 end
+if tonumber(redis.call('GET', KEYS[2]) or '0') >= 20 then return -2 end
+if tonumber(redis.call('GET', KEYS[1]) or '0') >= 5 then return -1 end
 redis.call('INCR', KEYS[1]); redis.call('EXPIRE', KEYS[1], 120)
 redis.call('INCR', KEYS[2]); redis.call('EXPIRE', KEYS[2], 172800)
 return 1`;
@@ -56,8 +57,16 @@ async function admit(redis, config, req, fetchImpl = fetch) {
   const now = Date.now();
   const day = new Date(now).toISOString().slice(0, 10);
   const identity = createHmac('sha256', config.abuseSecret).update(`${day}:${req.ip || req.socket?.remoteAddress || 'unknown'}`).digest('hex');
-  const allowed = Number(await redis.eval(ADMIT, { keys: [`ask:{mainnet}:ip:${identity}:${Math.floor(now / 60000)}`, `ask:{mainnet}:ip:${identity}:day`], arguments: [] })) === 1;
-  if (!allowed) { const error = new Error('Request allowance reached'); error.quota = true; throw error; }
+  const admission = Number(await redis.eval(ADMIT, { keys: [`ask:{mainnet}:ip:${identity}:${Math.floor(now / 60000)}`, `ask:{mainnet}:ip:${identity}:day`], arguments: [] }));
+  if (admission !== 1) {
+    const error = new Error('Request allowance reached'); error.quota = true;
+    if (admission === -2 || admission === -1) {
+      error.askLimit = admission === -2 ? 'day' : 'minute';
+      const window = admission === -2 ? 86400000 : 60000;
+      error.retryAfter = Math.max(1, Math.ceil((window - now % window) / 1000));
+    }
+    throw error;
+  }
   const token = req.body?.challenge;
   if (typeof token !== 'string' || !token || token.length > 2048) throw askError('verification');
   const response = await askStage('verification', () => fetchImpl('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', redirect: 'error', signal: AbortSignal.any([req.v1.abortSignal, AbortSignal.timeout(5000)]), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: config.challengeSecret, response: token }) }));

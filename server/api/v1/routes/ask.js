@@ -117,14 +117,14 @@ function createAskRouter(env = process.env, dependencies = {}) {
       // Never log questions, provider bodies, credentials or conversation state.
       if (!req.v1.abortSignal.aborted) {
         const failure = classifyFailure(error);
-        if (failure.status === 429) res.set('Retry-After', '60');
+        if (failure.status === 429) res.set('Retry-After', String(failure.retryAfter || 60));
         // Code-only diagnostics: no question, path, history, raw errors or provider bodies.
         console.warn(JSON.stringify({ event: 'ask_failure', code: failure.code }));
         sendProblem(res, failure.type, { status: failure.status, detail: failure.detail, extra: { code: failure.code } });
       }
     }
   }
-  const jobFailure=(res,error)=>{const failure=classifyFailure(error);return sendProblem(res,failure.type,{status:failure.status,detail:failure.detail,extra:{code:failure.code}});};
+  const jobFailure=(res,error)=>{const failure=classifyFailure(error);if(failure.status===429)res.set('Retry-After',String(failure.retryAfter||60));return sendProblem(res,failure.type,{status:failure.status,detail:failure.detail,extra:{code:failure.code}});};
   for(const operation of ['status','cancel'])router.post('/research/jobs/'+operation,pollingLimiter,async(req,res)=>{
     if(!researchConfig||!analytics.jobsEnabled||!redisFor(req)?.isReady)return jobFailure(res,askError('source'));
     const parsed=jobTicketSchema.safeParse(req.body);if(!parsed.success)return sendProblem(res,'validation-error');

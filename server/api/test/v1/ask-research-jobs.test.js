@@ -185,3 +185,14 @@ test('cached SQL still checks current admission and consumes query allowance; st
  ready=false;await assert.rejects(service.execute(query,{redis}),e=>e.askKind==='source');assert.equal(rawQueries,1);assert.equal(cacheReads,2);
  ready=true;checkpoint.tip_hash='b'.repeat(64);await service.execute(query,{redis});assert.equal(rawQueries,2);assert.equal(admissions,4);await service.close();
 });
+
+test('real Redis admission retains 5/minute and 20/day caps and reports the exhausted window without incrementing denied requests',async t=>{
+ const redis=await fixture(t),{ADMIT}=require('../../v1/lib/ask-budget');
+ const keys=['ask:{fixture}:minute','ask:{fixture}:day'];
+ for(let i=0;i<5;i++)assert.equal(Number(await redis.eval(ADMIT,{keys,arguments:[]})),1);
+ assert.equal(Number(await redis.eval(ADMIT,{keys,arguments:[]})),-1);
+ assert.equal(await redis.get(keys[0]),'5');assert.equal(await redis.get(keys[1]),'5');
+ await redis.set(keys[1],'20');
+ assert.equal(Number(await redis.eval(ADMIT,{keys,arguments:[]})),-2);
+ assert.equal(await redis.get(keys[0]),'5');assert.equal(await redis.get(keys[1]),'20');
+});

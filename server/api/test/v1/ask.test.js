@@ -176,3 +176,15 @@ test('an explanation response contains only validated narrative for the exact ch
   assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'private, no-store');
   const body = await response.json(); assert.equal(body.data.explanation.summary, 'The observed Orchard balance was 1.00 ZEC.'); assert.equal(body.data.evidenceKey, evidence.evidenceKey);
 });
+
+
+test('connection admission reports its actual minute/day reset without reaching provider or relaxing limits', async t => {
+  const now = Date.parse('2026-10-06T23:42:32Z'); t.mock.method(Date, 'now', () => now);
+  let providerCalls=0;
+  for (const [denial,code,seconds] of [[-2,'ask-quota-day','1048'],[-1,'ask-quota-minute','28']]) {
+    const api=await serve(t,'mainnet',env,{redis:{isReady:true,eval:async script=>{assert.match(script,/return -2/);assert.match(script,/return -1/);return denial;}},fetch:async()=>{providerCalls++;}});
+    const response=await api.post({question:'Rank the latest blocks',context:null});
+    assert.equal(response.status,429);assert.equal(response.headers.get('retry-after'),seconds);assert.equal((await response.json()).code,code);
+  }
+  assert.equal(providerCalls,0);
+});
