@@ -38,9 +38,14 @@ function budgetConfig(env) {
 function maximumCost(config, body) {
   const bytes = Buffer.byteLength(body, 'utf8');
   if (bytes > 48000) throw new Error('Context too large');
+  let request;
+  try { request = JSON.parse(body); } catch { /* Legacy text callers reserve the default cap. */ }
+  const caps = [request?.max_completion_tokens, request?.max_tokens].filter(value => value !== undefined);
+  if (caps.some(value => !Number.isInteger(value) || value < 1 || value > 1500)) throw new Error('Invalid provider output allowance');
+  const outputTokens = Math.max(500, ...caps);
   // UTF-8 bytes conservatively bound text tokens; overhead covers provider
   // wrappers and schema handling. Output includes reasoning within token cap.
-  return Math.ceil((bytes + 4096) * config.inputRate + 500 * config.outputRate);
+  return Math.ceil((bytes + 4096) * config.inputRate + outputTokens * config.outputRate);
 }
 async function reserve(redis, config, body, now = Date.now()) {
   const day = new Date(now).toISOString().slice(0, 10);

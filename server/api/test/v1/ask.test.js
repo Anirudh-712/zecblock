@@ -188,3 +188,23 @@ test('connection admission reports its actual minute/day reset without reaching 
   }
   assert.equal(providerCalls,0);
 });
+
+test('SQL drafting gets a bounded larger output allowance reserved before either provider call',async()=>{
+ const {selectionTask}=require('../../v1/lib/ask-chat');
+ const {maximumCost}=require('../../v1/lib/ask-budget');
+ const {z}=require('zod');
+ const researchSelection=selectionTask('',{researchEnabled:true});
+ const selection={intent:'clarify_growth',sql:null,spec:null,blockQuery:null,transactionQuery:null,flowQuery:null,topics:[],locale:'en'};
+ const planValidator=z.object({sql:z.string().nullable()}).strict();
+ const draft={name:'research_sql',instruction:'Draft bounded SQL',schema:z.toJSONSchema(planValidator),validator:planValidator};
+ for(const provider of ['openai','anthropic'])for(const [task,result] of [[researchSelection,selection],[draft,{sql:'SELECT height FROM blocks LIMIT 1'}]]){
+  const config=providerConfig({...env,ASK_PROVIDER:provider});let reserved=false;
+  await interpret(config,{},new AbortController().signal,async(url,init)=>{
+   assert.equal(reserved,true);const body=JSON.parse(init.body);assert.equal(body.max_completion_tokens??body.max_tokens,1500);
+   return provider==='openai'?Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(result)}}]}):Response.json({stop_reason:'tool_use',content:[{type:'tool_use',name:task.name,input:result}]});
+  },task,async body=>{assert.equal(maximumCost(config,body),Math.ceil((Buffer.byteLength(body)+4096)*config.inputRate+1500*config.outputRate));reserved=true;return async()=>{};});
+ }
+ const config=providerConfig(env);
+ for(const cap of [0,1501,-1,'1500',1.5])assert.throws(()=>maximumCost(config,JSON.stringify({max_completion_tokens:cap})),/output allowance/);
+ assert.equal(maximumCost(config,JSON.stringify({max_tokens:1500,max_completion_tokens:500})),Math.ceil((Buffer.byteLength(JSON.stringify({max_tokens:1500,max_completion_tokens:500}))+4096)*config.inputRate+1500*config.outputRate));
+});

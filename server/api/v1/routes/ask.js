@@ -39,15 +39,22 @@ function providerConfig(env) {
   return { provider: env.ASK_PROVIDER, key: env.ASK_API_KEY, model: env.ASK_MODEL, dailyCalls, reasoningEffort, ...budget };
 }
 
+function outputTokenLimit(task) {
+  return task?.name === 'research_sql' || task?.name === 'contextual_intent' && task.schema?.properties?.sql ? 1500 : 500;
+}
+
 async function interpret(config, input, signal, fetchImpl = fetch, task = { name: 'select_analysis', schema: jsonSchema, instruction, validator: outputSchema }, beforeRequest) {
   const anthropic = config.provider === 'anthropic';
+  // SQL drafts need room for bounded CTEs, comparisons and result metadata.
+  // Only server-selected SQL tasks receive this allowance; prose stays compact.
+  const outputTokens = outputTokenLimit(task);
   const body = anthropic ? {
-    model: config.model, max_tokens: 500, system: task.instruction,
+    model: config.model, max_tokens: outputTokens, system: task.instruction,
     messages: [{ role: 'user', content: JSON.stringify(input) }],
     tools: [{ name: task.name, description: task.instruction, input_schema: task.schema }],
     tool_choice: { type: 'tool', name: task.name, disable_parallel_tool_use: true },
   } : {
-    model: config.model, max_completion_tokens: 500, store: false,
+    model: config.model, max_completion_tokens: outputTokens, store: false,
     ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
     messages: [{ role: 'system', content: task.instruction }, { role: 'user', content: JSON.stringify(input) }],
     response_format: { type: 'json_schema', json_schema: { name: task.name, strict: true, schema: task.schema } },
@@ -110,7 +117,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
     try {
       await admit(redis, manual?researchConfig:config, req, dependencies.challengeFetch || fetch);
       const signal = AbortSignal.any([req.v1.abortSignal, AbortSignal.timeout(35000)]);
-      const run = (input, task) => askStage('answer', () => interpret(config, input, AbortSignal.any([signal, AbortSignal.timeout(15000)]), dependencies.fetch || fetch, task, body => askStage('unavailable', () => reserve(redis, config, body))));
+      const run = (input, task) => askStage('answer', () => interpret(config, input, AbortSignal.any([signal, AbortSignal.timeout(outputTokenLimit(task) > 500 ? 30000 : 15000)]), dependencies.fetch || fetch, task, body => askStage('unavailable', () => reserve(redis, config, body))));
       const result = await operation(signal, run);
       if (!req.v1.abortSignal.aborted) sendSuccess(res, { ...result, mode: manual?'research':'ai' });
     } catch (error) {

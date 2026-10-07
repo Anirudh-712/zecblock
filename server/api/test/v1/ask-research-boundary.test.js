@@ -112,3 +112,40 @@ test('a fragmented prose table cannot replace a complete SQL result',async()=>{
  // Numerical provenance remains mandatory, including on the fallback path.
  await assert.rejects(researchReply(result,{question:'Show the table',history:[]},async()=>({summary:'Height | Count\n999 |',observations:[],limitation:''}),'en',answerTaskFor),/Unvalidated numerical claim/);
 });
+
+test('ambiguous growth discovery asks for measures and a baseline without querying data',async()=>{
+ const {chat,selectionTask}=require('../../v1/lib/ask-chat');
+ const {coreCatalogue}=require('../../v1/lib/ask-core-catalogue');
+ const input={question:'What is the fastest growing metrics for zcash in the past year?',page:'ask',context:null,locale:'auto',history:[]};
+ let selected=0,executed=0;
+ const analytics={researchEnabled:true,catalogue:coreCatalogue,execute:async()=>{executed++;throw Error('Clarification must not query data');}};
+ const clarification={intent:'clarify_growth',sql:null,spec:null,blockQuery:null,transactionQuery:null,flowQuery:null,topics:[],locale:'en'};
+ const reply=await chat(input,async(body,task)=>{selected++;assert.equal(body.question,input.question);assert.match(task.instruction,/explicit available metric are supported research/);assert.match(task.instruction,/measures and growth baseline unspecified/);return task.validator.parse(clarification);},null,new AbortController().signal,'',{},analytics);
+ assert.equal(selected,1);assert.equal(executed,0);assert.match(reply.answer,/transaction counts/);assert.match(reply.answer,/percentage changes/);assert.doesNotMatch(reply.answer,/Try a question about this page/);assert.deepEqual(reply.sources,[]);assert.equal(reply.spec,null);
+ for(const locale of ['fr','es','de','pt','ja','zh','ko','ar','ru']){
+  const translated=await chat({...input,locale},async(body,task)=>task.validator.parse({...clarification,locale}),null,new AbortController().signal,'',{},analytics);
+  assert.equal(translated.locale,locale);assert.ok(translated.answer);assert.notEqual(translated.answer,reply.answer);
+ }
+ // Even a clarification carrying SQL or a chart must fail before source access.
+ for(const invalid of [{sql:'DELETE FROM blocks'},{sql:'SELECT height FROM blocks'},{blockQuery:{mode:'latest',identifier:null}}])await assert.rejects(chat(input,async()=>({...clarification,...invalid}),null,new AbortController().signal,'',{},analytics),e=>e.askKind==='answer');
+ await assert.rejects(chat(input,async()=>clarification,null,new AbortController().signal,'',{},null),e=>e.askKind==='answer');
+ assert.equal(executed,0);
+ assert.equal(selectionTask('',null).validator.safeParse(clarification).success,false);
+});
+
+test('wide growth results preserve final values and percentages in bounded narrative evidence',async()=>{
+ const {researchReply}=require('../../v1/lib/ask-research-reply');const {answerTaskFor}=require('../../v1/lib/ask-chat');
+ const labels=['growth_rank','metric','baseline_start','baseline_end_exclusive','baseline_count','final_start','final_end_exclusive','final_count','growth_percent'];
+ const result={query:{version:3,sql:'SELECT height FROM blocks',limit:100},columns:labels.map((label,i)=>({key:'c'+i,label,type:[0,4,7,8].includes(i)?'number':'text'})),rows:[['1','Shielded transactions','2025-10-07','2025-11-06','55094','2026-09-07','2026-10-07','176694','220.71']],truncated:false,datasets:['transactions'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-07T01:43:06Z',indexedThrough:'2026-10-07T01:43:05Z',coverage:'verified canonical records',units:'exact'};
+ const reply=await researchReply(result,{question:'Compare yearly growth',history:[]},async(input,task)=>{
+  assert.equal(input.evidence.columns.length,9);assert.equal(input.evidence.preview.complete,true);
+  assert.equal(input.evidence.facts.row_a_h,'176,694');assert.equal(input.evidence.facts.row_a_i,'220.71');assert.match(task.instruction,/never use a date/);
+  return {summary:'Shielded transactions grew from {{row_a_e}} to {{row_a_h}}, a change of {{row_a_i}} percent.',observations:[],limitation:''};
+ },'en',answerTaskFor);
+ assert.match(reply.answer,/55,094 to 176,694/);assert.match(reply.answer,/220.71 percent/);assert.deepEqual(reply.research,result);
+ const wide={...result,columns:Array.from({length:24},(_,i)=>({key:'c'+i,label:'measure_'+i,type:'text'})),rows:Array.from({length:40},()=>Array(24).fill('x'.repeat(200)))};
+ await researchReply(wide,{question:'Explain results',history:[]},async(input)=>{
+  assert.equal(input.evidence.columns.length,24);assert.ok(Buffer.byteLength(JSON.stringify(input.evidence))<=20000);assert.equal(input.evidence.preview.complete,false);
+  return {summary:'Returned {{returned_rows}} rows.',observations:[],limitation:''};
+ },'en',answerTaskFor);
+});
