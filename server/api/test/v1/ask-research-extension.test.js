@@ -53,3 +53,9 @@ test('real research reply contract returns a dated pool finding without a second
  const reply=await researchReply(result,{question:'Compare pool snapshots'},async()=>{assert.fail('Checked pool finding should not call the model');},'en',()=>{assert.fail('No generated explanation needed');});
  assert.match(reply.answer,/Aug 31, 2026/);assert.match(reply.answer,/652,626.41 to 3,840,173.43/);assert.deepEqual(reply.research,result);assert.ok(reply.sources.length);
 });
+
+test('monthly pool rows never promote bucket dates to actual snapshot dates',()=>{
+ const {poolComparisonAnswer}=require('../../v1/lib/ask-research-comparison');
+ const result={datasets:['daily'],truncated:false,retrievedAt:'2026-10-07T16:00:00Z',query:{version:3,sql:'SELECT month FROM daily',limit:100},columns:[{label:'month',type:'text'},{label:'orchard_zec',type:'number'},{label:'ironwood_zec',type:'number'}],rows:[['2026-07-01','3097385.74932661','652626.41075424'],['2026-08-01','470512.11868503','3840173.43322017'],['2026-10-01','376843.04444626','4063861.48021676']]};
+ const answer=poolComparisonAnswer(result,'en');assert.match(answer,/first returned month with Ironwood ahead was Aug 2026/);assert.match(answer,/ongoing month/);assert.match(answer,/not the actual snapshot dates/);assert.doesNotMatch(answer,/Aug 1|snapshot with/);
+});
