@@ -9,6 +9,7 @@ import { researchDocumentSchema } from '@/lib/ask/research-contract';
 import { emptyLibrary, readLibrary, writeLibrary, readPortable, mergePortable, markdownReport, MAX_BYTES } from '@/lib/ask/research-library';
 import styles from './research.module.css';
 import askStyles from './ask.module.css';
+import {catalogueFor} from '../../lib/ask/research-catalogue';
 
 const Plot = dynamic(() => import('./ResearchPlot'), { loading: () => <p className={styles.caption}>Loading chart…</p> });
 const initialSQL = 'SELECT height, transactions, bytes, fees::numeric / 100000000 AS fees_zec\nFROM blocks\nORDER BY height DESC\nLIMIT 10';
@@ -105,17 +106,15 @@ export function ResearchLibrary({ tools, busy, onOpen }: { tools: Tools; busy: b
   </div>;
 }
 
-export function ResearchEditor({ tools, busy, onOpen }: { tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void }) {
+export function ResearchEditor({ tools, busy, onOpen, extended=false }: { extended?:boolean; tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void }) {
   return <details className={styles.disclosure}>
     <summary>Data catalogue</summary>
     <div className={styles.advanced}>
       <p className={styles.caption}>Use SQL mode in the composer to write a query or edit the query behind your analysis.</p>
       <details className={styles.catalogue}><summary>Browse available data</summary>
-        <h3 className={styles.dataset}>Blocks</h3><p className={styles.caption}>Canonical block heights, hashes, timestamps, miners, transaction counts, sizes and fees.</p>
-        <h3 className={styles.dataset}>Transactions</h3><p className={styles.caption}>Confirmed transaction IDs, block heights, timestamps, pool participation, sizes and fees. Excludes coinbase.</p>
-        <h3 className={styles.dataset}>Public pool flows</h3><p className={styles.caption}>Public shielding/deshielding amounts, transaction IDs, pool names and timestamps.</p>
-        <pre className={styles.schema} translate="no">{`blocks(height, hash, timestamp, miner, transactions, bytes, fees)\ntransactions(txid, height, timestamp, miner, shielded, orchard, ironwood, sapling, bytes, fees)\nflows(txid, height, timestamp, direction, pool, amount)`}</pre>
-        <p className={styles.caption}>Timestamps: Unix seconds, UTC. Amounts/fees: zatoshis; divide by 100000000 for ZEC. Join transactions.height to blocks.height, flows.txid to transactions.txid. Aggregate flows before joining to avoid double counting. Blocks include coinbase. Missing measures remain unavailable. Flow-history completeness is unverified.</p>
+        {catalogueFor(extended).map(dataset=><div key={dataset.id}><h3 className={styles.dataset}>{dataset.title}</h3><p className={styles.caption}>{dataset.description}</p><pre className={styles.schema} translate="no">{dataset.id+'('+dataset.columns+')'}</pre></div>)}
+        {extended?<p className={styles.caption}>Added datasets are checked for copy and refresh readiness on each query. An unfinished or stale source returns an error, never an empty history. Daily summaries cover completed UTC days.</p>:null}
+        <p className={styles.caption}>{extended ? 'Dates are UTC. Block, transaction and address timestamps use Unix seconds; swap timestamps are date/time values. Swap valuations use USD. ' : 'Timestamps: Unix seconds, UTC. '}Amounts/fees: zatoshis; divide by 100000000 for ZEC. Join transactions.height to blocks.height, flows.txid to transactions.txid. Aggregate flows before joining to avoid double counting. Blocks include coinbase. Missing measures remain unavailable. Flow-history completeness is unverified.</p>
       </details>
       <details className={styles.mobileLibrary}><summary>Saved analyses & files</summary><ResearchLibrary tools={tools} busy={busy} onOpen={onOpen} /></details>
       <ResearchStatus tools={tools} />

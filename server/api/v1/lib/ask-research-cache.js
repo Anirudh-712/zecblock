@@ -11,7 +11,7 @@ redis.call('EXPIRE',KEYS[1],30);return 1`;
 function cacheKey(compiled,checkpoint){
  // Never cache time-dependent SQL or a checkpoint missing canonical identity.
  if(/\b(?:current_date|current_timestamp|localtimestamp|now)\b/i.test(compiled.request.sql)||!/^([a-f0-9]{64})$/.test(checkpoint?.tip_hash||'')||!Number.isFinite(Date.parse(checkpoint?.verified_at))||checkpoint.covered_from==null||checkpoint.covered_through==null)return null;
- return PREFIX+createHash('sha256').update(JSON.stringify([compiled.fingerprint,compiled.request.limit,checkpoint.covered_from,checkpoint.covered_through,checkpoint.tip_hash,new Date(checkpoint.verified_at).toISOString()])).digest('hex');
+ return PREFIX+createHash('sha256').update(JSON.stringify([compiled.fingerprint,compiled.request.limit,checkpoint.covered_from,checkpoint.covered_through,checkpoint.tip_hash,new Date(checkpoint.verified_at).toISOString(),checkpoint.datasetCheckpoints||[]])).digest('hex');
 }
 async function readCached(redis,key,compiled){
  if(!key)return null;

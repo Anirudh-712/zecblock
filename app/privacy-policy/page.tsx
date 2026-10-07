@@ -10,7 +10,7 @@ export const metadata = buildPageMetadata({
 });
 
 export default function PrivacyPolicyPage() {
-  const updated = 'September 29, 2026';
+  const updated = 'October 8, 2026';
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16">
@@ -42,6 +42,7 @@ export default function PrivacyPolicyPage() {
             <li><strong className="text-primary">Requests and diagnostics:</strong> Our hosting, API and security services process connection information such as IP addresses, requested URLs and browser headers to deliver responses, limit abuse and diagnose failures. Infrastructure providers may retain operational logs; we do not promise that requests are unlogged.</li>
             <li><strong className="text-primary">Explorer lookups:</strong> Looking up an address, transaction or block sends that public identifier to our services. Public chain data and derived observations are indexed for the explorer. Shielded addresses, amounts and memos cannot be read from public chain data without the required keys or a voluntary disclosure.</li>
             <li><strong className="text-primary">Viewing keys:</strong> The memo and inbox tools process viewing keys in your browser. The application does not send those keys to our API. It requests blockchain data and matching transaction data, which can reveal requested ranges or transaction identifiers to the services supplying them. Keep viewing keys, recovery phrases and private keys out of search fields, Ask and support messages.</li>
+            <li><strong className="text-primary">Research counters:</strong> Where research is enabled, we count query outcomes, duration bands, public dataset names and query features in daily aggregates. These counters contain no questions, SQL, query fingerprints, addresses, IP addresses or user identifiers, and expire 30 days after their last update. They do not automatically train the AI. Queued SQL and results are temporary execution state with a one-hour expiry; result caches expire after 30 seconds. Analyses you choose to save stay in your browser or downloaded file.</li>
             <li><strong className="text-primary">Swaps and support:</strong> Swap providers process the addresses and transaction details you supply. If you contact us, the contact service receives the information you submit. Do not post private keys or other secrets in public issues or social messages.</li>
           </ul>
         </section>
@@ -60,7 +61,7 @@ export default function PrivacyPolicyPage() {
         <section>
           <h2 className="text-lg font-semibold text-primary mb-3">4. Cookies &amp; Tracking</h2>
           <p>
-            The app uses local or session storage for preferences such as theme, currency, feed layout, custom address labels and dismissed announcements. You can remove these through your browser’s site-data controls; doing so also removes saved preferences and labels. Vercel Web Analytics is cookieless. We disable our analytics integration when the browser sends Do Not Track or Global Privacy Control. External swap, purchase and security providers follow their own storage and privacy policies.
+            The app uses local or session storage for preferences such as theme, currency, feed layout, custom address labels and dismissed announcements. You can remove these through your browser’s site-data controls; doing so also removes saved preferences and labels. Vercel Web Analytics is cookieless. We disable Vercel Web Analytics when the browser sends Do Not Track or Global Privacy Control. External swap, purchase and security providers follow their own storage and privacy policies.
           </p>
         </section>
 

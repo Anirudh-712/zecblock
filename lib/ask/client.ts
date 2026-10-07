@@ -12,6 +12,7 @@ export function askErrorMessage(error: unknown): string {
     if (error.code === 'ask-query') return 'This SQL could not run. Check the column names and supported functions in the data catalogue.';
     if (error.code === 'ask-interrupted') return 'The research worker restarted. Run the query again; it was not retried automatically.';
     if (error.code === 'ask-job') return 'This research job has expired or is unavailable. Run the query again.';
+    if (error.code === 'ask-dataset') return 'A dataset needed by this query is still copying or refreshing. Your draft is kept; try again after it becomes available.';
     if (error.code === 'ask-source') return 'Source data is temporarily unavailable. Try again shortly; your current analysis is still available.';
     if (error.code === 'ask-answer') return 'Ask could not validate the answer. Try a more specific question or open the source chart.';
     if (error.code === 'ask-provider') return 'The AI provider is temporarily unavailable. Starter charts remain available.';
@@ -21,7 +22,7 @@ export function askErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === 'TimeoutError') return 'The request took too long. Please try again.';
   return 'Ask is temporarily unavailable. Please try again or choose a starter chart.';
 }
-export interface AskCapability { mode: 'guided' | 'ai'; provider: string | null; siteKey?: string | null; researchEnabled?: boolean; jobsEnabled?: boolean }
+export interface AskCapability { mode: 'guided' | 'ai'; provider: string | null; siteKey?: string | null; researchEnabled?: boolean; jobsEnabled?: boolean; researchExtended?: boolean }
 export async function askCapability(signal: AbortSignal): Promise<AskCapability> {
   const response = await fetch(`${getApiUrl()}/v1/ask`, { signal, cache: 'no-store' });
   const { data, meta } = await readApiResponse<AskCapability>(response);

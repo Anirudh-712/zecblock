@@ -346,6 +346,59 @@ test('isolated PG16: filtered initial copy, atomic CDC, pause/resume, restart an
   assert.equal((await refreshAdmission(target)).state,'stale');
   await signal();await wait(async()=>(await target.query("SELECT sampled_at>clock_timestamp()-interval '120 seconds' AS fresh FROM analytics_feed_meta.signal")).rows[0].fresh);
   assert.equal((await refreshAdmission(target)).state,'verified');
+  await admission.test('extended catalogue copies public columns, gates readiness, derives summaries and denies writes',async()=>{
+   const strip=text=>text.replace(/^\\set.*$/gm,'');
+   const migration=strip(fs.readFileSync(path.join(__dirname,'../../../deploy/ask-analytics/catalogue-destination-v1.sql'),'utf8'));
+   await target.query(migration);
+   assert.equal((await reader.query("SELECT count(*) FROM analytics_public.dataset_coverage WHERE ready")).rows[0].count,'0');
+   const sourceTables=[
+    "CREATE TABLE privacy_trends_daily(id integer PRIMARY KEY,date date,shielded_count bigint,transparent_count bigint,orchard_pool_size bigint,ironwood_pool_size bigint,sapling_pool_size bigint,sprout_pool_size bigint,private_marker text)",
+    "CREATE TABLE cross_chain_swaps(id integer PRIMARY KEY,status text,source_chain text,source_token text,source_amount_usd numeric,dest_chain text,dest_token text,dest_amount_usd numeric,swap_created_at timestamptz,private_marker text)",
+    "CREATE TABLE addresses(address text PRIMARY KEY,balance bigint,total_received bigint,total_sent bigint,tx_count integer,first_seen bigint,last_seen bigint,address_type text,private_marker text)",
+    "CREATE TABLE address_transactions(address text,txid text,block_height integer,tx_index integer,block_time bigint,is_input boolean,is_output boolean,value_in bigint,value_out bigint,private_marker text,PRIMARY KEY(address,block_height,tx_index,txid))"
+   ];for(const sql of sourceTables)await source.query(sql);
+   await source.query("INSERT INTO privacy_trends_daily VALUES(1,'2023-11-14',3,0,9007199254740993,100,0,0,'secret');INSERT INTO cross_chain_swaps VALUES(1,'SUCCESS','eth','eth',125.75,'zec','zec',120,'2023-11-14T12:00Z','secret'),(2,'SUCCESS','zec','zec',10,'btc','btc',0,'2023-11-14T12:00Z','secret'),(3,'FAILED','eth','eth',999,'zec','zec',999,'2023-11-14T12:00Z','secret');INSERT INTO addresses VALUES('t1fixture',100,150,50,1,1700000000,1700000001,'transparent','secret'),('zsprivate-fixture',100,150,50,1,1700000000,1700000001,'shielded','secret');INSERT INTO address_transactions VALUES('t1fixture','b1-tx',1,1,1700000001,false,true,0,150,'secret'),('zsprivate-fixture','b1-tx',1,1,1700000001,false,true,0,150,'secret')");
+   const sourceMigration=strip(fs.readFileSync(path.join(__dirname,'../../../deploy/ask-analytics/catalogue-source-v1.sql'),'utf8')).replaceAll("'zcash_explorer_mainnet'","'ask_logical_fixture'").replaceAll('ask_core_replicator','ask_fixture_replicator');
+   await source.query(sourceMigration);
+   await target.query('ALTER SUBSCRIPTION ask_public_core_v1 REFRESH PUBLICATION WITH(copy_data=true)');
+   await wait(async()=>(await target.query("SELECT count(*) FROM pg_subscription_rel WHERE srsubstate='r'")).rows[0].count==='8');
+   await signal();await wait(async()=>(await target.query("SELECT sampled_at>clock_timestamp()-interval '120 seconds' AS fresh FROM analytics_feed_meta.signal")).rows[0].fresh);
+   assert.equal((await refreshAdmission(target)).state,'verified');
+   assert.equal((await reader.query("SELECT count(*) FROM analytics_public.dataset_coverage WHERE ready")).rows[0].count,'4');
+   assert.deepEqual((await reader.query('SELECT orchard::text FROM analytics_public.daily_query')).rows,[{orchard:'9007199254740993'}]);
+   assert.deepEqual((await reader.query('SELECT usd::text FROM analytics_public.swaps_query ORDER BY direction')).rows,[{usd:'125.75'},{usd:null}]);
+   assert.equal((await reader.query('SELECT count(*) FROM analytics_public.address_activity_query')).rows[0].count,'1');
+   assert.equal((await target.query('SELECT count(*) FROM public.addresses')).rows[0].count,'1');
+   assert.equal((await target.query('SELECT count(*) FROM public.address_transactions')).rows[0].count,'1');
+   for(const sql of ['DELETE FROM public.addresses','UPDATE analytics_public.addresses_query SET balance=0','TRUNCATE public.cross_chain_swaps','SELECT * FROM analytics_meta.dataset_state','SELECT private_marker FROM public.addresses',"SELECT pg_read_file('/etc/passwd')"]){const attack=await reader.connect();try{await attack.query('SET default_transaction_read_only=off');await assert.rejects(attack.query(sql),e=>['42501','55000'].includes(e.code));}finally{attack.release(true);}}
+   const extendedAnalytics=createAnalytics({ASK_ANALYTICS_ENABLED:'true',ASK_ANALYTICS_DATABASE_URL:'peer-only',ASK_ANALYTICS_SOCKET:'/run/ask-public-db',ASK_ANALYTICS_STORE:'logical_public_core',ASK_ANALYTICS_DAILY_QUERY_LIMIT:'20',ASK_RESEARCH_ENABLED:'true',ASK_RESEARCH_EXTENDED:'true'},{pool:reader});
+   await assert.rejects(extendedAnalytics.execute({version:3,sql:'SELECT * FROM activity_daily',limit:10},{redis}),e=>e.askKind==='dataset');
+   const swapEvidence=await extendedAnalytics.execute({version:3,sql:'SELECT count(*) AS swaps FROM swaps',limit:1},{redis});
+   assert.equal(swapEvidence.result.rows[0][0],'2');
+   const {refreshSummaries}=require('../../scripts/refresh-ask-summaries');
+   assert.equal((await refreshSummaries(target)).state,'ready');
+   const summary=(await reader.query('SELECT transactions::text,shielded_transactions::text,fees::text FROM analytics_public.activity_daily_query')).rows[0];
+   assert.deepEqual(summary,{transactions:'3',shielded_transactions:'3',fees:'57'});
+   const flow=(await reader.query("SELECT sum(amount)::text AS amount FROM analytics_public.flow_daily_query WHERE direction='shield'")).rows[0];
+   assert.equal(flow.amount,'18014398509481991');
+   // A historical correction invalidates summaries immediately, before refresh.
+   await source.query("UPDATE transactions SET fee=44 WHERE txid='b1-tx'");
+   await wait(async()=>(await target.query("SELECT fee::text FROM transactions WHERE txid='b1-tx'")).rows[0].fee==='44');
+   assert.equal((await reader.query("SELECT ready FROM analytics_public.dataset_coverage WHERE dataset='activity_daily'")).rows[0].ready,false);
+   assert.equal((await refreshAdmission(target)).state,'verified');
+   assert.equal((await refreshSummaries(target)).state,'ready');
+   assert.equal((await reader.query('SELECT fees::text FROM analytics_public.activity_daily_query')).rows[0].fees,'58');
+   await source.query("UPDATE transactions SET fee=NULL WHERE txid='b1-tx'");
+   await wait(async()=>(await target.query("SELECT fee FROM transactions WHERE txid='b1-tx'")).rows[0].fee===null);
+   await refreshAdmission(target);await refreshSummaries(target);
+   assert.deepEqual((await reader.query('SELECT fees::text,missing_fees::text FROM analytics_public.activity_daily_query')).rows,[{fees:null,missing_fees:'1'}]);
+   await target.query("BEGIN;INSERT INTO analytics_meta.activity_daily(date) VALUES('2020-01-01');TRUNCATE public.shielded_flows");
+   assert.equal((await target.query("SELECT EXISTS(SELECT FROM analytics_meta.summary_dirty_days WHERE date='2020-01-01') AS dirty")).rows[0].dirty,true);
+   assert.equal((await reader.query("SELECT ready FROM analytics_public.dataset_coverage WHERE dataset='activity_daily'")).rows[0].ready,true);
+   await target.query('ROLLBACK');
+   // SQL publication text names no provider secrets/payload/address labels.
+   assert.doesNotMatch(sourceMigration,/deposit_address|senders|recipient|raw_origin_asset/);
+  });
   await source.query('UPDATE blocks SET transaction_count=3 WHERE height=1');
   await wait(async()=>(await target.query('SELECT transaction_count FROM blocks WHERE height=1')).rows[0].transaction_count===3);
   assert.equal((await refreshAdmission(target)).state,'quarantined');

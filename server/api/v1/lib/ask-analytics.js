@@ -157,6 +157,17 @@ function createAnalytics(env, dependencies = {}) {
         } else coverage = (await client.query(compiled.plan.version === 2
           ? `SELECT ${compiled.plan.dataset === 'daily' ? '(SELECT count(*)::int FROM ask_public.daily_v2 WHERE date >= $1::date AND date <= $2::date)' : 'NULL::int'} AS observed_days, (SELECT pg_catalog.to_timestamp(timestamp)::text FROM ask_public.blocks_v2 ORDER BY height DESC LIMIT 1) AS indexed_through`
           : 'SELECT count(*)::int AS observed_days FROM ask_public.daily_v1 WHERE date >= $1::date AND date <= $2::date', compiled.plan.version === 1 || compiled.plan.dataset === 'daily' ? compiled.values.slice(0,2) : [])).rows[0];
+        // Extended relation readiness precedes execution and cache lookup. A failed
+        // copy/refresh is never reported as an empty dataset.
+        let datasetCheckpoints=[];
+        if(research&&compiled.datasets.some(d=>!['blocks','transactions','flows'].includes(d))){
+          datasetCheckpoints=(await client.query('SELECT dataset,ready,generation,verified_at,source_through FROM analytics_public.dataset_coverage WHERE dataset=ANY($1::text[])',[compiled.datasets.filter(d=>!['blocks','transactions','flows'].includes(d))])).rows;
+          if(datasetCheckpoints.length!==compiled.datasets.filter(d=>!['blocks','transactions','flows'].includes(d)).length||datasetCheckpoints.some(d=>d.ready!==true))throw askError('dataset');
+          // Independent refresh generations invalidate cached joined research.
+          checkpoint={...checkpoint,datasetCheckpoints};
+          const times=datasetCheckpoints.map(d=>Date.parse(d.source_through)).filter(Number.isFinite);
+          if(times.length)coverage.indexed_through=new Date(Math.min(Date.parse(coverage.indexed_through),...times)).toISOString();
+        }
         // Read admission in this transaction BEFORE any cache lookup. A stale
         // feed or changed checkpoint never reuses an old canonical result.
         const key=research&&env.ASK_RESEARCH_CACHE_ENABLED==='true'?cacheKey(compiled,checkpoint):null;

@@ -86,15 +86,16 @@ function createResearchJobs(env,{analytics,redis}){
    // Losing Redis or ownership cancels PostgreSQL; it cannot continue unfenced.
    let checking=false;
    monitor=setInterval(async()=>{if(checking)return;checking=true;try{if(!Number(await evaluate(HEARTBEAT,[LOCK,PREFIX+id],[owner])))controller.abort();}catch{controller.abort();}finally{checking=false;}},500);monitor.unref();
-   let state='succeeded',error='',result='';
+   let state='succeeded',error='',result='',datasets=[],features=[];const executionStarted=Date.now();
    try{
-    const query=(await compileResearchSQL(JSON.parse(raw))).request;
+    const compiled=await compileResearchSQL(JSON.parse(raw),{extended:env.ASK_RESEARCH_EXTENDED==='true'});const query=compiled.request;datasets=compiled.datasets;features=compiled.features;
     const evidence=await analytics.execute(query,{redis,signal:controller.signal,execution:'background'});
     result=JSON.stringify(researchResultSchema.parse(evidence.result));
     if(Buffer.byteLength(result)>262144)throw askError('resource');
     controller.signal.throwIfAborted();
-   }catch(cause){state='failed';result='';error=stopped?'interrupted':cause?.askKind&&['timeout','resource','query','source','quota','unavailable'].includes(cause.askKind)?cause.askKind:['AbortError','TimeoutError'].includes(cause?.name)?'timeout':'source';}
+   }catch(cause){state='failed';result='';error=stopped?'interrupted':cause?.askKind&&['timeout','resource','query','source','dataset','quota','unavailable'].includes(cause.askKind)?cause.askKind:['AbortError','TimeoutError'].includes(cause?.name)?'timeout':'source';}
    clearInterval(monitor);monitor=null;
+   if(env.ASK_RESEARCH_METRICS_ENABLED==='true')await require('./ask-research-metrics').recordMetrics(redis,{outcome:controller.signal.aborted&&!stopped?'cancelled':state==='succeeded'?'success':error==='interrupted'?'unavailable':error,datasets,features,elapsedMs:Date.now()-executionStarted});
    await evaluate(FINISH,[LOCK,PREFIX+id],[owner,state,new Date().toISOString(),error,result]);
   }catch{/* No raw exceptions or SQL in logs. Lease expiry makes recovery safe. */}
   finally{clearInterval(monitor);current=null;ticking=false;}
@@ -102,7 +103,7 @@ function createResearchJobs(env,{analytics,redis}){
  return {
   async submit(input){
    if(stopped||!redis.isReady)throw askError('unavailable');
-   const query=(await compileResearchSQL(input)).request;
+   const query=(await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request;
    const ticket={id:randomUUID(),token:randomBytes(32).toString('hex')},now=Date.now();
    if(!Number(await evaluate(SUBMIT,[INDEX,PREFIX+ticket.id,PREFIX+'sequence'],[now,now+TTL*1000,hash(ticket.token),JSON.stringify(query),new Date(now).toISOString(),PREFIX,ticket.id])))throw askError('quota');
    return ticket;

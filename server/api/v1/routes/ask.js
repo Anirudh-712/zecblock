@@ -96,6 +96,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
   const router = express.Router();
   const config = providerConfig(env);
   const analytics = dependencies.analytics || createAnalyticsClient(env);
+  if(analytics)analytics.researchExtended=env.ASK_RESEARCH_EXTENDED==='true';
   if(analytics)analytics.researchEnabled=env.ASK_RESEARCH_ENABLED==='true'&&env.ASK_ANALYTICS_STORE==='logical_public_core';
   const researchConfig=env.ASK_RESEARCH_ENABLED==='true'&&env.ASK_ANALYTICS_STORE==='logical_public_core'&&analytics?budgetConfig(env):null;
   const pollingLimiter=createRateLimiter({max:90,windowMs:60000,key:'ask-jobs'});
@@ -109,7 +110,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
   const redisFor = req => dependencies.redis || req.app.locals.redisClient;
   router.get('/', (req, res) => {
     const ready = config && redisFor(req)?.isReady;
-    sendSuccess(res, { mode: ready ? 'ai' : 'guided', provider: ready ? config.provider === 'anthropic' ? 'Anthropic' : 'OpenAI' : null, siteKey: ready ? config.siteKey : researchConfig?.siteKey || null, researchEnabled:!!(researchConfig&&redisFor(req)?.isReady), ...(analytics?.jobsEnabled&&researchConfig&&redisFor(req)?.isReady?{jobsEnabled:true}:{}) });
+    sendSuccess(res, { mode: ready ? 'ai' : 'guided', provider: ready ? config.provider === 'anthropic' ? 'Anthropic' : 'OpenAI' : null, siteKey: ready ? config.siteKey : researchConfig?.siteKey || null, researchEnabled:!!(researchConfig&&redisFor(req)?.isReady), researchExtended:!!(researchConfig&&env.ASK_RESEARCH_EXTENDED==='true'), ...(analytics?.jobsEnabled&&researchConfig&&redisFor(req)?.isReady?{jobsEnabled:true}:{}) });
   });
   async function limited(req, res, operation, manual=false) {
     const redis = redisFor(req);
@@ -141,7 +142,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
     const parsed=sqlQuerySchema.extend({challenge:z.string().min(1).max(2048)}).strict().safeParse(req.body);
     if(!parsed.success)return sendProblem(res,'validation-error');
     if(!researchConfig||!analytics.jobsEnabled)return jobFailure(res,askError('source'));
-    let query;try{const {challenge,...input}=parsed.data;void challenge;query=(await compileResearchSQL(input)).request;}catch{return sendProblem(res,'validation-error');}
+    let query;try{const {challenge,...input}=parsed.data;void challenge;query=(await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request;}catch{return sendProblem(res,'validation-error');}
     return limited(req,res,async(signal)=>({job:await analytics.submit(query,{signal})}),true);
   });
   // Completion reuses the already-admitted job capability. Polling and an AI
@@ -173,10 +174,10 @@ function createAskRouter(env = process.env, dependencies = {}) {
     const parsed=z.object({question:z.string().trim().min(1).max(1000),challenge:z.string().max(2048),execute:z.boolean().optional().default(false)}).strict().safeParse(req.body);
     if(!parsed.success)return sendProblem(res,'validation-error');
     return limited(req,res,async(signal,run)=>{
-      const planned=await run({question:parsed.data.question,todayUTC:new Date().toISOString().slice(0,10)},researchPlanTask);
+      const planned=await run({question:parsed.data.question,todayUTC:new Date().toISOString().slice(0,10)},{...researchPlanTask,instruction:require('../lib/ask-research-sql').instructionsFor(env.ASK_RESEARCH_EXTENDED==='true')});
       if(planned.sql===null)return {query:null};
       let query;
-      try{query=(await compileResearchSQL({version:3,sql:planned.sql,limit:100})).request;}
+      try{query=(await compileResearchSQL({version:3,sql:planned.sql,limit:100},{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request;}
       catch{throw askError('answer');}
       return parsed.data.execute?{query,...await analytics.execute(query,{signal})}:{query};
     });
@@ -185,7 +186,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
     const parsed=sqlQuerySchema.extend({challenge:z.string().min(1).max(2048)}).strict().safeParse(req.body);
     if(!parsed.success)return sendProblem(res,'validation-error');
     const query={version:parsed.data.version,sql:parsed.data.sql,limit:parsed.data.limit};
-    try{await compileResearchSQL(query);}catch{return sendProblem(res,'validation-error',{detail:'Use one SELECT over blocks, transactions or flows with supported functions, joins, CTEs and windows.'});}
+    try{await compileResearchSQL(query,{extended:env.ASK_RESEARCH_EXTENDED==='true'});}catch{return sendProblem(res,'validation-error',{detail:'Use one SELECT over the published catalogue with supported functions, joins, CTEs and windows.'});}
     return limited(req,res,async(signal)=>analytics.execute(query,{signal}),true);
   });
   router.post('/chat', limiter, async (req, res) => {
@@ -208,7 +209,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
     }
     if(parsed.data.currentResearch){
       if(!analytics?.researchEnabled||parsed.data.page!=='ask')return sendProblem(res,'validation-error');
-      try{await compileResearchSQL(parsed.data.currentResearch);}catch{return sendProblem(res,'validation-error');}
+      try{await compileResearchSQL(parsed.data.currentResearch,{extended:env.ASK_RESEARCH_EXTENDED==='true'});}catch{return sendProblem(res,'validation-error');}
     }
     return limited(req, res, (signal, run) => chat(parsed.data, run, dependencies.internalClient, signal, instruction, { redis: redisFor(req), model: [config.provider, config.model, config.reasoningEffort] }, analytics));
   });
