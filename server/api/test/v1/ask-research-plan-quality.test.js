@@ -35,6 +35,8 @@ test('research summaries retain complete sentences without treating decimal poin
  assert.equal(completeSummary('観測値が増加しました。 表は'), '観測値が増加しました。');
  assert.equal(completeSummary('A finding. Values are a; b; c; d. A useful interpretation.'),'A finding. A useful interpretation.');
  assert.equal(completeSummary('A finding. Its meaning. An unrelated third sentence.'),'A finding. Its meaning.');
+ assert.equal(completeSummary('Seven dates met both conditions. On Sep of the returned dates, flows rose.','Seven dates met both conditions. On Sep of the returned dates, flows rose.'),'Seven dates met both conditions.');
+ assert.equal(completeSummary('On Sep 3, 2026, flows rose.','On {{row_a_a}}, flows rose.'),'On Sep 3, 2026, flows rose.');
 });
 
 test('swap time filters must not compare timestamptz to numeric Unix bounds',async()=>{
