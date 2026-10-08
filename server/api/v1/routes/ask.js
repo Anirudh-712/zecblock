@@ -17,6 +17,7 @@ const { explainRequestSchema, explanationTaskFor, loadExplanationEvidence, rende
 const { createAnalyticsClient } = require('../lib/ask-analytics-client');
 
 const {compileResearchSQL}=require('../lib/ask-research-sql');
+const {compileResearchDraft}=require('../lib/ask-research-plan-quality');
 const {jobTicketSchema}=require('../../../../lib/ask/research-job-contract');
 const {researchReply}=require('../lib/ask-research-reply');
 const {answerTaskFor}=require('../lib/ask-chat');
@@ -177,7 +178,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
       const planned=await run({question:parsed.data.question,todayUTC:new Date().toISOString().slice(0,10)},{...researchPlanTask,instruction:require('../lib/ask-research-sql').instructionsFor(env.ASK_RESEARCH_EXTENDED==='true')});
       if(planned.sql===null)return {query:null};
       let query;
-      try{query=(await compileResearchSQL({version:3,sql:planned.sql,limit:100},{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request;}
+      try{query=await compileResearchDraft(planned.sql,parsed.data,run,{extended:env.ASK_RESEARCH_EXTENDED==='true'});}
       catch{throw askError('answer');}
       return parsed.data.execute?{query,...await analytics.execute(query,{signal})}:{query};
     });

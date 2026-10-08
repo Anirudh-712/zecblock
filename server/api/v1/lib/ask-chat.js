@@ -14,8 +14,9 @@ const { analysisGuidance } = require('./ask-insights');
 const { analysisFollowUps } = require('../../../../lib/ask/follow-ups');
 const { planSchema, compilePlan } = require('./ask-analytics-plan');
 const { queryReply } = require('./ask-query-reply');
-const {compileResearchSQL,instructionsFor}=require('./ask-research-sql');
+const {instructionsFor}=require('./ask-research-sql');
 const {researchReply}=require('./ask-research-reply');
+const {compileResearchDraft}=require('./ask-research-plan-quality');
 const { analyticsPeriod, formatAnalyticsDate, formatAnalyticsRange } = require('../../../../lib/ask/analytics-presentation');
 
 function task(name, validator, instruction) {
@@ -47,7 +48,7 @@ const answerTask = task('contextual_answer', answerSchema, `Answer the user's sp
 function answerTaskFor(facts, records, hasAnalysis = false, compact = false) {
   const prose = evidenceProse(facts);
   return task(answerTask.name, z.object({
-    summary: prose.min(1).max(compact ? 350 : 700),
+    summary: prose.min(1).max(700),
     observations: z.array(prose.min(1).max(500)).max(compact ? 0 : 2),
     limitation: prose.max(500),
     sources: z.array(z.enum(records.map(record => record.id))).min(1).max(4),
@@ -120,7 +121,7 @@ async function chat(input, run, internalClient, signal, analysisInstructions, ca
   if (selection.intent === 'analysis' && !selection.spec || selection.intent === 'analytics' && !selection.analyticsPlan) throw askError('answer');
   if(selection.intent==='research'){
     if(!analytics?.researchEnabled||input.page!=='ask'||!selection.sql)throw askError('answer');
-    let query;try{query=(await compileResearchSQL({version:3,sql:selection.sql,limit:100},{extended:analytics.researchExtended===true})).request;}catch{throw askError('answer');}
+    let query;try{query=await compileResearchDraft(selection.sql,input,run,{extended:analytics.researchExtended===true});}catch{throw askError('answer');}
     if(analytics.jobsEnabled)return {answer:'',sources:[],spec:null,locale,job:await analytics.submit(query,{signal})};
     const evidence=await askStage('source',()=>analytics.execute(query,{signal}));
     return researchReply(evidence.result,input,run,locale,answerTaskFor);
