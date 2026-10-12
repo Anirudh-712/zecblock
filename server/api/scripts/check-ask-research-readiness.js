@@ -13,7 +13,9 @@ function options(args,env){
  return {concurrency,rounds,cases,url};
 }
 function percentile(values,p){const sorted=[...values].sort((a,b)=>a-b);return sorted.length?sorted[Math.max(0,Math.ceil(sorted.length*p)-1)]:null;}
-async function run(args,env,{request=fetch,emit=record=>console.log(JSON.stringify(record)),pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=Date.now}={}){
+async function run(args,env,{request,emit=record=>console.log(JSON.stringify(record)),pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=Date.now}={}){
+ const transport=request?null:require('../v1/lib/ask-worker-transport').createWorkerTransport();
+ request ||= transport.fetch;
  const config=options(args,env),work=Array.from({length:config.rounds},(_,round)=>config.cases.map(item=>({item,round:round+1}))).flat(),results=[];let next=0;
  async function post(path,body){const response=await request(new URL(path,config.url),{method:'POST',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+env.ASK_ANALYTICS_SERVICE_KEY},body:JSON.stringify(body),signal:AbortSignal.timeout(40000)});if(!response.ok)throw Object.assign(Error('Private request refused'),{kind:response.status===429?'quota':response.status===401?'authentication':response.status===400?'policy':'unavailable',status:response.status});return response.json();}
  async function execute({item,round}){
@@ -30,7 +32,7 @@ async function run(args,env,{request=fetch,emit=record=>console.log(JSON.stringi
    results.push(record);emit(record);
   }catch(error){if(ticket)try{await post('/jobs/cancel',ticket);}catch{/* No raw response/token is logged. */}const record={case:item.id,round,state:'unavailable',error:['quota','authentication','poll-timeout','policy'].includes(error.kind)?error.kind:'unavailable',httpStatus:Number.isInteger(error.status)?error.status:null,networkCode:['UND_ERR_SOCKET','ECONNRESET','ETIMEDOUT','EPIPE'].includes(error.cause?.code)?error.cause.code:null,failureType:['ZodError','TypeError','SyntaxError','TimeoutError','AbortError'].includes(error.name)?error.name:null,elapsedMs:now()-started};results.push(record);emit(record);}
  }
- await Promise.all(Array.from({length:Math.min(config.concurrency,work.length)},async()=>{while(next<work.length){const index=next++;await execute(work[index]);}}));
+ try{await Promise.all(Array.from({length:Math.min(config.concurrency,work.length)},async()=>{while(next<work.length){const index=next++;await execute(work[index]);}}));}finally{transport?.close();}
  const successful=results.filter(record=>record.state==='succeeded');
  const summary={kind:'reviewed-research-readiness',observedAt:new Date(now()).toISOString(),concurrency:config.concurrency,samples:results.length,succeeded:successful.length,failed:results.length-successful.length,endToEndP50Ms:percentile(successful.map(record=>record.elapsedMs),.5),endToEndP95Ms:percentile(successful.map(record=>record.elapsedMs),.95),executionP95Ms:percentile(successful.map(record=>record.executionMs).filter(value=>value!==null),.95),meaning:'Fixed private workload sample, including transport/queue; not a capacity or universal query guarantee.'};emit(summary);return summary;
 }

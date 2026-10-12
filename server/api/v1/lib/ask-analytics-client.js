@@ -8,13 +8,15 @@ const {researchResultSchema}=require('../../../../lib/ask/research-contract');
 const {jobTicketSchema,jobStatusSchema}=require('../../../../lib/ask/research-job-contract');
 const { askError } = require('./ask-errors');
 
-function createAnalyticsClient(env, fetchImpl = fetch) {
+function createAnalyticsClient(env, fetchImpl) {
   if (env.ASK_ANALYTICS_ENABLED !== 'true' || !env.ASK_ANALYTICS_SERVICE_KEY || env.ASK_ANALYTICS_SERVICE_KEY.length < 32) return null;
   let url;
   try {
     url = new URL(env.ASK_ANALYTICS_SERVICE_URL);
     if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.pathname !== '/' || url.search || url.hash || url.username || url.password) return null;
   } catch { return null; }
+  const transport=fetchImpl?null:require('./ask-worker-transport').createWorkerTransport();
+  fetchImpl ||= transport.fetch;
   async function jobRPC(operation,input,signal){
     if(env.ASK_RESEARCH_JOBS_ENABLED!=='true'||env.ASK_RESEARCH_ENABLED!=='true'||env.ASK_ANALYTICS_STORE!=='logical_public_core')throw askError('source');
     const body=operation==='submit'?(await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request:jobTicketSchema.parse(input);
@@ -34,7 +36,7 @@ function createAnalyticsClient(env, fetchImpl = fetch) {
     status:(ticket,{signal}={})=>jobRPC('status',ticket,signal),
     cancel:(ticket,{signal}={})=>jobRPC('cancel',ticket,signal),
     catalogue:env.ASK_ANALYTICS_STORE==='logical_public_core'?coreCatalogue:catalogue,
-    close: async () => {},
+    close: async () => { transport?.close(); },
     async execute(input, { signal } = {}) {
       const research=input?.version===3;
       if(research&&(env.ASK_RESEARCH_ENABLED!=='true'||env.ASK_ANALYTICS_STORE!=='logical_public_core'))throw askError('source');
