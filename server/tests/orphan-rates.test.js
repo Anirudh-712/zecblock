@@ -74,6 +74,8 @@ test('real PostgreSQL filters restored hashes, external reports, invalid archive
   t.after(async () => { await db.query('ROLLBACK'); await db.end(); });
   await db.query(`BEGIN;
     CREATE TEMP TABLE blocks(height bigint, hash text UNIQUE, timestamp bigint, miner_address text, coinbase_hex text);
+    CREATE TEMP TABLE captured_blocks(hash text PRIMARY KEY, height bigint, timestamp bigint, miner_address text, coinbase_hex text);
+    CREATE TEMP TABLE block_capture_observers(collection_started_at timestamptz, heartbeat_at timestamptz, stream_connected boolean, pending_records integer);
     CREATE TEMP TABLE orphaned_blocks(hash text UNIQUE, timestamp bigint, miner_address text, coinbase_hex text, source text, consensus_valid boolean);
     INSERT INTO blocks(height,hash,timestamp,miner_address) SELECT i, 'canonical-'||i,
       floor(extract(epoch FROM now()))::bigint + seconds, '${viaBTC}'
@@ -89,6 +91,23 @@ test('real PostgreSQL filters restored hashes, external reports, invalid archive
   assert.deepEqual(data.periods.map(p => p.canonicalBlocks), [2, 4, 5]);
   assert.deepEqual(data.periods.map(p => p.orphanedBlocks), [2, 3, 4]);
   assert.deepEqual(data.periods.map(p => p.rate), [2 / 4, 3 / 7, 4 / 9]);
+  assert.equal(data.method, 'observed-block-capture-v2');
+  assert.equal(data.capture.status, 'unavailable');
+  await db.query(`INSERT INTO captured_blocks VALUES
+    ('observed',1,floor(extract(epoch FROM now()))::bigint-10,null,null),
+    ('new-competitor',1,floor(extract(epoch FROM now()))::bigint-10,null,null),
+    ('canonical-1',1,floor(extract(epoch FROM now()))::bigint-100,null,null),
+    ('ahead',999999,floor(extract(epoch FROM now()))::bigint-10,null,null);
+    INSERT INTO block_capture_observers VALUES (now()-interval '1 hour',now(),true,0)`);
+  const captured = await orphanRates(db);
+  assert.equal(captured.periods[0].orphanedBlocks, 3, 'new competitor counted, duplicate/canonical/ahead excluded');
+  assert.equal(captured.capture.status, 'collecting');
+  await db.query(`UPDATE blocks SET hash='new-competitor' WHERE height=1`);
+  const switched = await orphanRates(db);
+  assert.equal(switched.periods[0].orphanedBlocks, 3, 'old canonical capture replaces newly canonical competitor');
+  await db.query(`UPDATE blocks SET hash='canonical-1' WHERE height=1; DELETE FROM captured_blocks;
+    UPDATE block_capture_observers SET heartbeat_at=now()-interval '1 minute'`);
+  assert.equal((await orphanRates(db)).capture.status, 'unavailable');
   // A hash becoming canonical again must disappear from both network and pool losses.
   await db.query(`INSERT INTO blocks VALUES(8,'observed',floor(extract(epoch FROM now()))::bigint-10,null,null)`);
   const restored = await orphanRates(db);
