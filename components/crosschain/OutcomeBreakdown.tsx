@@ -17,11 +17,6 @@ const OUTCOMES = [
     color: "var(--color-cipher-gold)",
   },
   {
-    status: "PENDING_DEPOSIT",
-    label: "Awaiting deposit",
-    color: "var(--color-text-muted)",
-  },
-  {
     status: "INCOMPLETE_DEPOSIT",
     label: "Incomplete deposit",
     color: "var(--color-text-secondary)",
@@ -29,12 +24,13 @@ const OUTCOMES = [
 ];
 export function OutcomeBreakdown({ data }: { data: Analytics }) {
   const [all, setAll] = useState(false);
+  const outcomes = (data.chainOutcomes || []).filter((r) => r.status !== "PENDING_DEPOSIT");
   const chains = Array.from(
-    new Set((data.chainOutcomes || []).map((r) => r.chain)),
+    new Set(outcomes.map((r) => r.chain)),
   )
     .map((chain) => {
       const counts = new Map(
-        (data.chainOutcomes || [])
+        outcomes
           .filter((r) => r.chain === chain)
           .map((r) => [r.status, r.count]),
       );

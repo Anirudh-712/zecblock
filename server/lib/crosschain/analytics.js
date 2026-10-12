@@ -316,18 +316,38 @@ async function readAnalytics(pool, q, { v2 = false, now = new Date() } = {}) {
         params,
       )
     ).rows;
-    const routes = (
+    const rankedRoutes = (
       await db.query(
-        `${base} SELECT source_chain,source_token,dest_chain,dest_token,direction,
+        `${base}, route_totals AS (SELECT source_chain,source_token,dest_chain,dest_token,direction,
       payload->>'originAsset' AS source_asset,payload->>'destinationAsset' AS dest_asset,
-      count(*)::int AS swaps,sum(source_amount_usd)::text AS volume_usd,sum(zec_amount)::text AS volume_zec,
+      count(*)::int AS swaps,sum(source_amount_usd) AS volume_usd,sum(zec_amount) AS volume_zec,
       percentile_cont(0.5) WITHIN GROUP (ORDER BY source_amount_usd)::text AS median_usd,
       percentile_cont(0.5) WITHIN GROUP (ORDER BY zec_amount)::text AS median_zec
       FROM successful GROUP BY source_chain,source_token,dest_chain,dest_token,direction,payload->>'originAsset',payload->>'destinationAsset'
-      ORDER BY count(*) DESC,source_chain,source_token,dest_chain,dest_token LIMIT 100`,
+      ), ranked AS (SELECT *,
+      row_number() OVER (ORDER BY swaps DESC,source_chain,source_token,dest_chain,dest_token,source_asset,dest_asset) AS rank_swaps,
+      row_number() OVER (ORDER BY volume_usd DESC NULLS LAST,swaps DESC,source_chain,source_token,dest_chain,dest_token,source_asset,dest_asset) AS rank_usd,
+      row_number() OVER (ORDER BY volume_zec DESC NULLS LAST,swaps DESC,source_chain,source_token,dest_chain,dest_token,source_asset,dest_asset) AS rank_zec
+      FROM route_totals)
+      SELECT *,volume_usd::text AS volume_usd,volume_zec::text AS volume_zec FROM ranked
+      WHERE rank_swaps<=100 OR rank_usd<=100 OR rank_zec<=100`,
         params,
       )
     ).rows;
+    // Rank before limiting: a rare, high-value pair must survive the count cap.
+    const routeRankings = Object.fromEntries(["swaps", "usd", "zec"].map((metric) => [
+      metric,
+      rankedRoutes.filter((r) => Number(r[`rank_${metric}`]) <= 100)
+        .sort((a, b) => Number(a[`rank_${metric}`]) - Number(b[`rank_${metric}`]))
+        .map((r) => {
+          const route = { ...r };
+          delete route.rank_swaps;
+          delete route.rank_usd;
+          delete route.rank_zec;
+          return route;
+        }),
+    ]));
+    const routes = routeRankings.swaps;
     const latency = (
       await db.query(
         `${base}, observations AS (
@@ -366,6 +386,7 @@ async function readAnalytics(pool, q, { v2 = false, now = new Date() } = {}) {
       trends,
       distribution,
       routes,
+      routeRankings,
       flows,
       tokenFlows,
       chainHistory,

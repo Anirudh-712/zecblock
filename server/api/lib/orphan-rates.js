@@ -16,6 +16,29 @@ WITH clock AS (
   SELECT height, hash, timestamp FROM blocks ORDER BY height DESC LIMIT 1
 ), history AS (
   SELECT min(timestamp) AS history_start FROM blocks
+), capture AS (
+  SELECT min(collection_started_at) AS capture_start, max(heartbeat_at) AS capture_heartbeat,
+    count(*) FILTER (WHERE stream_connected AND heartbeat_at > now() - interval '45 seconds' AND pending_records=0)::integer AS healthy_observers,
+    count(*)::integer AS observers
+  FROM block_capture_observers
+), observed AS (
+  -- Prefer the established archive's attribution when both sources saw a hash.
+  SELECT DISTINCT ON (hash) hash, timestamp, miner_address, coinbase_hex
+  FROM (
+    SELECT ob.hash, ob.timestamp, ob.miner_address, ob.coinbase_hex, 0 AS priority
+    FROM orphaned_blocks ob
+    WHERE ob.source='indexer' AND ob.consensus_valid IS DISTINCT FROM false
+      AND ob.timestamp >= (SELECT min(window_start) FROM windows)
+      AND ob.timestamp < (SELECT max(window_end) FROM windows)
+    UNION ALL
+    SELECT c.hash, c.timestamp, c.miner_address, c.coinbase_hex, 1 AS priority
+    FROM captured_blocks c JOIN blocks replacement ON replacement.height=c.height
+    WHERE replacement.hash <> c.hash
+      AND c.timestamp >= (SELECT min(window_start) FROM windows)
+      AND c.timestamp < (SELECT max(window_end) FROM windows)
+  ) evidence
+  WHERE NOT EXISTS (SELECT 1 FROM blocks canonical WHERE canonical.hash=evidence.hash)
+  ORDER BY hash, priority
 ), counts AS (
   SELECT w.period, b.miner_address, ${getPoolTagSql('b.coinbase_hex')} AS tag,
          count(*)::bigint AS canonical_blocks, 0::bigint AS orphaned_blocks
@@ -24,16 +47,14 @@ WITH clock AS (
   UNION ALL
   SELECT w.period, ob.miner_address, ${getPoolTagSql('ob.coinbase_hex')} AS tag,
          0::bigint AS canonical_blocks, count(*)::bigint AS orphaned_blocks
-  FROM windows w JOIN orphaned_blocks ob ON ob.timestamp >= w.window_start AND ob.timestamp < w.window_end
-  WHERE ob.source = 'indexer' AND ob.consensus_valid IS DISTINCT FROM false
-    AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.hash = ob.hash)
+  FROM windows w JOIN observed ob ON ob.timestamp >= w.window_start AND ob.timestamp < w.window_end
   GROUP BY w.period, ob.miner_address, tag
 )
-SELECT w.*, h.history_start, t.height AS indexed_height, t.hash AS indexed_hash,
+SELECT w.*, capture.*, h.history_start, t.height AS indexed_height, t.hash AS indexed_hash,
        t.timestamp AS indexed_timestamp, c.miner_address, c.tag,
        coalesce(c.canonical_blocks, 0) AS canonical_blocks,
        coalesce(c.orphaned_blocks, 0) AS orphaned_blocks
-FROM windows w CROSS JOIN history h LEFT JOIN tip t ON true
+FROM windows w CROSS JOIN history h CROSS JOIN capture LEFT JOIN tip t ON true
 LEFT JOIN counts c ON c.period = w.period
 `;
 
@@ -81,8 +102,15 @@ function formatOrphanRates(rows) {
     indexedHeight: first.indexed_height == null ? null : count(first.indexed_height),
     indexedHash: first.indexed_hash ?? null,
     indexedTimestamp: first.indexed_timestamp == null ? null : new Date(Number(first.indexed_timestamp) * 1000).toISOString(),
-    method: 'observed-indexer-reorg-v1', timeBasis: 'block-header',
+    method: 'observed-block-capture-v2', timeBasis: 'block-header',
     coverage: { status: 'unverified', collectionStart: null, uptimeVerified: false },
+    capture: {
+      startedAt: first.capture_start == null ? null : new Date(first.capture_start).toISOString(),
+      heartbeatAt: first.capture_heartbeat == null ? null : new Date(first.capture_heartbeat).toISOString(),
+      observers: Number(first.observers ?? 0),
+      healthyObservers: Number(first.healthy_observers ?? 0),
+      status: Number(first.healthy_observers ?? 0) > 0 ? 'collecting' : 'unavailable',
+    },
     periods,
   };
 }
