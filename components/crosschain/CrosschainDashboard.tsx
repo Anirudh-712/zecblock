@@ -1,4 +1,5 @@
 "use client";
+import { RelativeTimeProvider } from "@/components/RelativeTime";
 import { useState } from "react";
 import Link from "next/link";
 import { useApiQuery } from "@/hooks/useApiQuery";
@@ -35,6 +36,7 @@ export function CrosschainDashboard({
 }) {
   const [unit, setUnit] = useState<Unit>("usd");
   const [allRoutes, setAllRoutes] = useState(false);
+  const [requestedPairSort, setPairSort] = useState<"swaps" | Unit>("swaps");
   const period = useAnalyticsPeriod(params.period || "30d");
   const { data, loading, error, isRefreshing } = useApiQuery<Analytics>(
     "/v1/crosschain/analytics",
@@ -108,7 +110,13 @@ export function CrosschainDashboard({
       `Median ${value(s[`median_${unit}`], unit)}`,
     ],
   ];
-  const routes = allRoutes ? data.routes : data.routes.slice(0, 6);
+  const pairSort = data.routeRankings ? requestedPairSort : "swaps";
+  const rankedPairs = data.routeRankings?.[pairSort] || data.routes;
+  const routes = allRoutes ? rankedPairs : rankedPairs.slice(0, 6);
+  const pairUnit = pairSort === "swaps" ? unit : pairSort;
+  const pairMetric = (r: Analytics["routes"][number]) =>
+    pairSort === "swaps" ? r.swaps : Number(r[`volume_${pairSort}`] ?? 0);
+  const pairMax = Math.max(1, ...rankedPairs.map(pairMetric));
   return (
     <div className="space-y-6" aria-busy={isRefreshing}>
       {IS_DEMO && (
@@ -187,16 +195,55 @@ export function CrosschainDashboard({
         <div id="routes" className="grid lg:grid-cols-2 gap-4">
           <ActivityCharts data={data} unit={unit} panel="sizes" />
           <section className="card space-y-4">
-            <h2 className="text-sm text-secondary font-mono">Top pairs</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm text-secondary font-mono">Top pairs</h2>
+              <div
+                className="filter-group"
+                role="group"
+                aria-label="Rank top pairs by"
+              >
+                {(["swaps", "usd", "zec"] as const).map((metric) => (
+                  <button
+                    key={metric}
+                    type="button"
+                    aria-pressed={pairSort === metric}
+                    disabled={metric !== "swaps" && !data.routeRankings}
+                    className={`filter-btn disabled:opacity-40 ${pairSort === metric ? "filter-btn-active" : ""}`}
+                    onClick={() => {
+                      setPairSort(metric);
+                      setAllRoutes(false);
+                    }}
+                  >
+                    {metric === "swaps" ? "Swaps" : `${metric.toUpperCase()} volume`}
+                  </button>
+                ))}
+              </div>
+            </div>
             <p className="text-xs text-muted">
-              Most swapped pairs. Select a pair to see its swaps.
+              {pairSort === "swaps"
+                ? "Ranked by completed swap count."
+                : `Ranked by reported ${pairSort.toUpperCase()} volume from completed swaps.`}{" "}
+              Up to 100 pairs. Select a pair to see its swaps.
             </p>
+            {!data.routeRankings && (
+              <p className="text-xs text-muted">
+                Volume ranking is not available from this data source yet.
+              </p>
+            )}
+            {pairSort !== "swaps" && (
+              <p className="text-xs text-muted">
+                Missing valuations are excluded; totals use reported values only.
+              </p>
+            )}
             <div className="space-y-2">
-              {routes.map((r, i) => (
+              {routes.map((r) => (
                 <SwapFilterLink
                   scrollToSwaps
-                  key={i}
-                  title={`Median ${value(r[`median_${unit}`], unit)} · ${r.source_asset || r.source_token} → ${r.dest_asset || r.dest_token}`}
+                  key={JSON.stringify([
+                    r.source_chain, r.source_asset || r.source_token,
+                    r.dest_chain, r.dest_asset || r.dest_token,
+                  ])}
+                  title={`Median ${value(r[`median_${pairUnit}`], pairUnit)} · ${r.source_asset || r.source_token} → ${r.dest_asset || r.dest_token}`}
                   className="relative flex items-center justify-between gap-3 rounded-lg px-3 py-3 hover:bg-glass-3"
                   href={
                     href({
@@ -219,7 +266,7 @@ export function CrosschainDashboard({
                   <span
                     className="absolute inset-y-0 left-0 rounded-lg bg-glass-3"
                     style={{
-                      width: `${(r.swaps / Math.max(1, data.routes[0]?.swaps || 1)) * 100}%`,
+                      width: `${(pairMetric(r) / pairMax) * 100}%`,
                     }}
                     aria-hidden="true"
                   />
@@ -245,10 +292,14 @@ export function CrosschainDashboard({
                   </span>
                   <span className="relative text-right text-xs whitespace-nowrap">
                     <span className="block font-mono">
-                      {r.swaps.toLocaleString()} swaps
+                      {pairSort === "swaps"
+                        ? `${r.swaps.toLocaleString()} swaps`
+                        : value(r[`volume_${pairUnit}`], pairUnit)}
                     </span>
                     <span className="text-muted">
-                      {value(r[`volume_${unit}`], unit)}
+                      {pairSort === "swaps"
+                        ? value(r[`volume_${pairUnit}`], pairUnit)
+                        : `${r.swaps.toLocaleString()} swaps`}
                     </span>
                   </span>
                 </SwapFilterLink>
@@ -257,14 +308,14 @@ export function CrosschainDashboard({
             {!routes.length && (
               <p className="text-xs text-muted">No pairs in this period.</p>
             )}
-            {data.routes.length > 6 && (
+            {rankedPairs.length > 6 && (
               <button
                 className="text-xs text-cipher-gold"
                 onClick={() => setAllRoutes(!allRoutes)}
               >
                 {allRoutes
                   ? "Show fewer pairs"
-                  : `Show ${data.routes.length - 6} more pairs →`}
+                  : `Show ${rankedPairs.length - 6} more pairs →`}
               </button>
             )}
           </section>
@@ -274,17 +325,16 @@ export function CrosschainDashboard({
         <section className="card space-y-4" aria-label="Swap outcomes">
           <h2
             className="text-sm text-secondary font-mono"
-            title="Latest observed statuses for records created in the selected period. Awaiting deposits may be unfunded quotes."
+            title="Latest observed statuses for records created in the selected period. Unfunded pending-deposit quotes are excluded."
           >
             Swap outcomes
           </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[
               "SUCCESS",
               "REFUNDED",
               "FAILED",
               "PROCESSING",
-              "PENDING_DEPOSIT",
               "INCOMPLETE_DEPOSIT",
             ].map((status) => (
               <SwapFilterLink
@@ -301,7 +351,6 @@ export function CrosschainDashboard({
                         REFUNDED: "Refunded",
                         FAILED: "Failed",
                         PROCESSING: "Processing",
-                        PENDING_DEPOSIT: "Awaiting deposit",
                         INCOMPLETE_DEPOSIT: "Incomplete deposit",
                       } as Record<string, string>
                     )[status]
@@ -318,9 +367,17 @@ export function CrosschainDashboard({
               </SwapFilterLink>
             ))}
           </div>
+          <p className="text-xs text-muted">
+            {c.source === "legacy-success-index"
+              ? "This view currently covers completed swaps only; other outcome counts are unavailable. "
+              : "Latest observed outcomes; older status changes appear after reconciliation. "}
+            Unfunded pending-deposit quotes are excluded.
+          </p>
           <OutcomeBreakdown data={data} />
         </section>
-        <SwapExplorer unit={unit} statuses={c.statusesAvailable} />
+        <RelativeTimeProvider initialNow={Date.parse(data.end)}>
+          <SwapExplorer unit={unit} statuses={c.statusesAvailable} />
+        </RelativeTimeProvider>
       </section>
       <section id="ecosystem" className="space-y-3 scroll-mt-40">
         {wrapped.data && (
@@ -485,9 +542,8 @@ export function CrosschainDashboard({
           )}
           {c.source === "legacy-success-index" && (
             <p>
-              This dataset contains successful swaps only. Failure, refund and
-              pending records are not indexed yet; those counts are unavailable
-              here.
+              This dataset contains successful swaps only. Other outcome counts
+              are unavailable here. Pending-deposit quotes are excluded.
             </p>
           )}
           {missing > 0 && (
@@ -509,8 +565,8 @@ export function CrosschainDashboard({
 
         <p>
           Outcomes show the latest observed status for each record created in
-          the selected period. Awaiting deposits may be unfunded quotes. They
-          are not completed or failed swaps.
+          the selected period. Unfunded pending-deposit quotes are excluded;
+          these figures do not measure quote conversion.
         </p>
         <p>
           Charts use UTC intervals. The first and last intervals may be partial;

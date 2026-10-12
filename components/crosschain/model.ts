@@ -8,7 +8,6 @@ export const STATUSES = [
   "FAILED",
   "REFUNDED",
   "PROCESSING",
-  "PENDING_DEPOSIT",
   "INCOMPLETE_DEPOSIT",
 ];
 export const CHAINS: Record<string, string> = {
@@ -157,6 +156,7 @@ export interface Analytics {
   }[];
   chainOutcomes?: { chain: string; status: string; count: number }[];
   routes: Route[];
+  routeRankings?: Record<"swaps" | Unit, Route[]>;
   distribution: {
     bucket: number;
     swaps: number;

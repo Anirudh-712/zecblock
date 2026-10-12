@@ -376,3 +376,29 @@ worker now omits null/empty cursor memos and preserves real memo strings; matchi
 legacy/repair source fixes are included for the October 1 release. Do not infer
 that a repeated page proves history is exhausted. No checkpoint was advanced or
 coverage declared by that failed batch.
+
+
+## Pair rankings and readable swap times — October 12, 2026
+
+Prepared on `codex/zecblock-assay-rebrand`; this UI change is not a production
+release. Recent swaps reuse the shared ticking relative-time component, with
+an exact UTC tooltip, machine-readable datetime and an exact creation date in
+the expanded details. The time describes provider record creation, not settlement.
+
+Analytics adds `routeRankings: { swaps, usd, zec }`, each up to 100 successful
+external exact-asset pairs. Each ranking is computed across all matching pairs
+before its limit; a high-value pair outside the count leaders is not lost.
+SQL ranks numeric sums before serialization, puts unknown totals last and breaks
+ties deterministically. `routes` remains the count ranking for existing clients.
+USD is reported source-side value; ZEC is the Zcash-side token amount. Missing
+valuations are omitted from sums, and an entirely unknown total remains null.
+The dashboard switches both ordering and bar size/primary value with its selected
+metric. Without the additive field, volume controls are disabled; the client does
+not mislabel a re-sort of the old top-100 count subset as a global volume ranking.
+
+Five outcome cards exclude PENDING_DEPOSIT; the status filter and chain breakdown
+also exclude those quotes. A legacy SUCCESS-only response keeps other cards
+Unavailable with an adjacent explanation. A covered status with no observed rows
+is zero. V2 activation makes the five statuses available but does not guarantee
+instantaneous late-settlement updates. Publish the compatible API before this UI.
+Existing route identity, robots/canonical policy and sitemap entries are unchanged.

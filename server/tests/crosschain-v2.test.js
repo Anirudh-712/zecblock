@@ -528,6 +528,8 @@ test(
         assert.equal(response.status, 200);
         const body = await response.json();
         assert.equal(body.data.summary.swaps, 4);
+        assert.deepEqual(body.data.routeRankings.swaps, body.data.routes);
+        assert.ok(body.data.routeRankings.usd.length > 0);
         assert.equal(body.data.coverage.source, "legacy-success-index");
         const page = await fetch(
           root + "/v1/crosschain/swaps?period=all&limit=1",
@@ -574,6 +576,8 @@ test(
         { period: "24h" },
         { v2: true, now: new Date("2026-07-01T12:00:00Z") },
       );
+      assert.equal(missing.routeRankings.usd[0].volume_usd, null);
+      assert.equal(missing.routeRankings.zec[0].volume_zec, null);
       assert.equal(missing.summary.volume_usd, null);
       assert.equal(missing.summary.average_usd, null);
       assert.equal(missing.flows[0].inflow_usd, null);
@@ -590,12 +594,27 @@ test(
         SELECT 'extra-'||i,'','SUCCESS','2026-09-20T00:00:00Z','zec','ZEC','test'||i,'TOK',1,2,100,
           jsonb_build_object('originAsset','zec','destinationAsset','asset-'||i)
         FROM generate_series(1,105)i`);
+      await db.query("UPDATE crosschain_swaps_v2 SET source_amount_usd=1000000 WHERE deposit_address='extra-99'");
+      await db.query("UPDATE crosschain_swaps_v2 SET source_amount=500000 WHERE deposit_address='extra-98'");
+      await db.query("UPDATE crosschain_swaps_v2 SET source_amount_usd=NULL,source_amount=NULL WHERE deposit_address='extra-97'");
       const expanded = await readAnalytics(
         db,
         { period: "30d" },
         { v2: true, now },
       );
       assert.equal(expanded.routes.length, 100);
+      assert.deepEqual(expanded.routeRankings.swaps, expanded.routes);
+      assert.ok(!expanded.routes.some((r) => r.dest_asset === "asset-99"));
+      assert.ok(!expanded.routes.some((r) => r.dest_asset === "asset-98"));
+      assert.equal(expanded.routeRankings.usd[0].dest_asset, "asset-99");
+      assert.equal(expanded.routeRankings.usd[0].volume_usd, "1000000");
+      assert.equal(expanded.routeRankings.zec[0].dest_asset, "asset-98");
+      assert.equal(Number(expanded.routeRankings.zec[0].volume_zec), 500000);
+      for (const metric of ["usd", "zec"]) {
+        assert.equal(expanded.routeRankings[metric].length, 100);
+        assert.ok(!expanded.routeRankings[metric].some((r) => r.dest_asset === "asset-97"));
+        assert.ok(!Object.hasOwn(expanded.routeRankings[metric][0], "rank_usd"));
+      }
       assert.equal(expanded.flows.length, 106);
       assert.equal(expanded.tokenFlows.length, 106);
       assert.equal(
