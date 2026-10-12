@@ -35,10 +35,14 @@ test('queue authenticates per job, bounds pending/retained records and never exe
  const completed=tickets.filter(Boolean).find(x=>x.id!==ticket.id);assert.equal((await jobs.status(completed)).state,'succeeded');
  assert.equal((await jobs.status(completed)).result.rows[0][0],'9007199254740993');
  assert.equal((await jobs.cancel(completed)).state,'succeeded');assert.equal((await jobs.status(next)).state,'queued');
- // Retention is capped across completed jobs too; unique SQL cannot fill Redis.
+ // Retention is capped; the oldest terminal capability expires under pressure.
+ // Finished reads must not consume every future admission slot for an hour.
  await redis.flushDb();
- for(let i=0;i<24;i++){await jobs.submit(query);await jobs.tick();}
- await assert.rejects(jobs.submit(query),e=>e.askKind==='quota');assert.equal(await redis.zCard(PREFIX+'index'),24);
+ const retained=[];for(let i=0;i<24;i++){retained.push(await jobs.submit(query));await jobs.tick();}
+ const admitted=await jobs.submit(query);assert.equal(await redis.zCard(PREFIX+'index'),24);
+ await assert.rejects(jobs.status(retained[0]),e=>e.askKind==='job');
+ assert.equal((await jobs.status(retained[1])).state,'succeeded');assert.equal((await jobs.status(admitted)).state,'queued');
+ assert.equal((await redis.keys(PREFIX+'*')).length,26,'twenty-four payloads plus index and sequence');
 });
 test('only one queue runner starts SQL; cancellation aborts it and preserves terminal state',async t=>{
  const redis=await fixture(t);let calls=0,aborted=0;
@@ -195,4 +199,15 @@ test('real Redis admission retains 5/minute and 20/day caps and reports the exha
  await redis.set(keys[1],'20');
  assert.equal(Number(await redis.eval(ADMIT,{keys,arguments:[]})),-2);
  assert.equal(await redis.get(keys[0]),'5');assert.equal(await redis.get(keys[1]),'20');
+});
+
+test('six-request readiness burst uses the private HTTP queue with retained results bounded',async t=>{
+ const redis=await fixture(t),{run}=require('../../scripts/check-ask-research-readiness');
+ const settings={...env,ASK_RESEARCH_EXTENDED:'true'};
+ const app=createWorker(settings,{redis,analytics:{execute:async input=>{
+  const compiled=await compileResearchSQL(input,{extended:true});return {result:researchEvidence(compiled,[['1']],[{name:'value',dataTypeID:20}],{indexed_through:'2026-10-12T00:00:00Z'},'2026-10-12T00:00:01Z')};
+ }}});app.locals.jobs.start();t.after(()=>app.locals.jobs.stop());
+ const server=app.listen(0,'127.0.0.1');server.maxConnections=8;await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close();});
+ const output=[];const result=await run(['--concurrency=6','--rounds=2','annual_activity','flow_months','address_incidence'],{...settings,ASK_ANALYTICS_URL:`http://127.0.0.1:${server.address().port}/`},{emit:r=>output.push(r)});
+ assert.equal(result.failed,0,JSON.stringify(output));assert.equal(result.succeeded,6);
 });

@@ -1,18 +1,12 @@
 # Ask replica analytics — operator gate
 
-## Current private feed status — October 6, 2026 JST
+## Current private feed and acceptance authority — October 12, 2026 JST
 
-Initial three-table native copy is complete and live changes are streaming on
-the dedicated analytics host. Bounded source counts/exact samples and target
-canonical relationships reconcile. The store remains reconciling/not ready,
-with a dormant reader and no new Ask integration; continuous admission and
-historical flow completeness are still pending. Source logical-WAL maintenance,
-private authentication and finite WAL/disk guard are installed. Operational details,
-verified numbers and recovery boundaries: [source-feed-operations.md](source-feed-operations.md).
-
-
-This is a bounded public-data query engine, disabled unless explicitly
-configured. It is not arbitrary SQL or a direct model database connection.
+The nine-dataset private analytics store is provisioned. Today's outage/recovery,
+alert delivery, fixed workload and remaining public-launch gates are tracked in
+[launch-readiness.md](launch-readiness.md) and the canonical private wiki. Earlier
+copy/dormant-reader statements below are dated provisioning history, not the
+current state. No public paid activation is implied.
 
 ## Public catalogue audit (operator tooling)
 
