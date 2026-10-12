@@ -43,6 +43,11 @@ test('queue authenticates per job, bounds pending/retained records and never exe
  await assert.rejects(jobs.status(retained[0]),e=>e.askKind==='job');
  assert.equal((await jobs.status(retained[1])).state,'succeeded');assert.equal((await jobs.status(admitted)).state,'queued');
  assert.equal((await redis.keys(PREFIX+'*')).length,26,'twenty-four payloads plus index and sequence');
+ // A full waiting queue must not retire results for a denied submission.
+ for(let i=0;i<5;i++)await jobs.submit(query);
+ const before=await redis.zRange(PREFIX+'index',0,-1);
+ await assert.rejects(jobs.submit(query),e=>e.askKind==='quota');
+ assert.deepEqual(await redis.zRange(PREFIX+'index',0,-1),before);
 });
 test('only one queue runner starts SQL; cancellation aborts it and preserves terminal state',async t=>{
  const redis=await fixture(t);let calls=0,aborted=0;

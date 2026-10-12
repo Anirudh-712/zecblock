@@ -13,6 +13,9 @@ const hash=token=>createHash('sha256').update(token).digest('hex');
 const SUBMIT=`
 redis.call('ZREMRANGEBYSCORE',KEYS[1],'-inf',ARGV[1])
 local ids=redis.call('ZRANGE',KEYS[1],0,23)
+local waiting=0
+for _,id in ipairs(ids) do if redis.call('HGET',ARGV[6]..id,'state')=='queued' then waiting=waiting+1 end end
+if waiting>=6 then return 0 end
 -- Bound retained results without turning 24 completed reads into an hourly
 -- outage. Only retire the oldest terminal result; active work is never evicted.
 if #ids>=24 then
@@ -26,9 +29,6 @@ if #ids>=24 then
  if redis.call('ZCARD',KEYS[1])>=24 then return 0 end
  ids=redis.call('ZRANGE',KEYS[1],0,23)
 end
-local waiting=0
-for _,id in ipairs(ids) do if redis.call('HGET',ARGV[6]..id,'state')=='queued' then waiting=waiting+1 end end
-if waiting>=6 then return 0 end
 local sequence=redis.call('INCR',KEYS[3]);redis.call('EXPIRE',KEYS[3],3600)
 redis.call('HSET',KEYS[2],'order',sequence,'token',ARGV[3],'query',ARGV[4],'state','queued','createdAt',ARGV[5],'startedAt','','finishedAt','','error','','result','')
 redis.call('EXPIRE',KEYS[2],3600)
