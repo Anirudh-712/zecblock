@@ -25,6 +25,7 @@ interface RateWindow {
 }
 interface OrphanRates {
   method: string;
+  capture?: { startedAt: string | null; heartbeatAt: string | null; observers: number; healthyObservers: number; status: string };
   asOf: string;
   indexedHeight: number | null;
   indexedTimestamp: string | null;
@@ -44,7 +45,7 @@ function utc(value: string) {
 export function OrphanRateSection() {
   const [period, setPeriod] = useState<Period>('7d');
   const { data, loading, error } = useApiQuery<OrphanRates>('/v1/mining/orphan-rates', undefined, { refreshInterval: 60_000 });
-  const supported = data?.method === 'observed-indexer-reorg-v1';
+  const supported = data?.method === 'observed-indexer-reorg-v1' || data?.method === 'observed-block-capture-v2';
   const selected = supported ? data.periods.find(window => window.period === period) : null;
 
   return (
@@ -52,11 +53,18 @@ export function OrphanRateSection() {
       <Card><CardBody>
         <SectionHeader label="OBSERVED_ORPHAN_RATE" actions={<Link href="/reorgs" className="text-caption font-mono text-cipher-gold hover:underline">View forks &amp; orphaned blocks →</Link>} />
         <p className="text-sm text-muted mb-4">
-          Blocks observed by this explorer that left the canonical chain during a reorganization, as a share of canonical blocks plus observed orphans.
+          {data?.method === 'observed-block-capture-v2'
+            ? 'Observed blocks outside the current canonical chain, including captured competing blocks and blocks removed by reorgs, as a share of canonical blocks plus observed orphans.'
+            : 'Blocks observed by this explorer that left the canonical chain during a reorganization, as a share of canonical blocks plus observed orphans.'}
         </p>
         <p className="text-caption text-muted mb-5">
           Competing blocks may be missed, and collection uptime is not verified. These observations do not establish the full network or any pool&apos;s true orphan rate.
         </p>
+        {supported && data.capture && <p className="text-caption text-muted mb-5">
+          Competing-block collector: {data.capture.status === 'collecting' ? 'collecting' : 'currently unavailable'}.
+          {data.capture.startedAt && ` Capture began ${utc(data.capture.startedAt)} UTC; earlier periods have less coverage.`}
+          {' '}Saved observations remain included during interruptions.
+        </p>}
         {loading ? <p role="status" className="text-sm text-muted py-6">Loading observed orphan rates…</p> : !supported ? (
           <p role="status" className="text-sm text-muted py-6">Observed orphan rates are temporarily unavailable.</p>
         ) : <>

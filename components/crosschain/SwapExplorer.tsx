@@ -1,4 +1,5 @@
 "use client";
+import { RelativeTime } from "@/components/RelativeTime";
 import { useState } from "react";
 import {
   SwapFilterLink,
@@ -75,6 +76,7 @@ function Hashes({ chain, hashes }: { chain: string; hashes: string[] }) {
 }
 function Detail({ swap: s }: { swap: Swap }) {
   const fields = [
+    ["Created (UTC)", date(s.createdAt)],
     ["Deposit address", s.depositAddress],
     [
       "Deposit memo",
@@ -145,7 +147,7 @@ function Detail({ swap: s }: { swap: Swap }) {
       )}
       <p className="text-muted">
         Observation timestamps are indexer observations, not execution
-        completion times. Pending amounts may be withheld by NEAR.
+        completion times. Unreported amounts remain unavailable.
       </p>
     </div>
   );
@@ -511,7 +513,7 @@ function SwapResults({
                 >
                   <summary className={`cursor-pointer ${SWAP_COLUMNS} text-xs`}>
                     <span className="font-mono text-muted order-3 md:order-1 col-span-2 md:col-span-1">
-                      {date(s.createdAt)}
+                      <RelativeTime timestamp={Date.parse(s.createdAt) / 1000} />
                     </span>
                     <span className="order-1 md:order-2">
                       <SwapAsset
