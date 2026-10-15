@@ -3,6 +3,28 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
+const React = require('react');
+const { renderToStaticMarkup } = require('react-dom/server');
+
+function loadAddressComponent(file, currency = 'ZEC', imports = {}) {
+  const filename = path.resolve(__dirname, '../../app/address/[address]', file);
+  const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: {
+    jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, esModuleInterop: true,
+  } }).outputText;
+  const load = specifier => {
+    if (Object.hasOwn(imports, specifier)) return imports[specifier];
+    if (specifier === '@/lib/config') return { CURRENCY: currency };
+    if (specifier === 'next/link') return function TestLink({ children, ...props }) { return React.createElement('a', props, children); };
+    if (specifier === 'next/image') return function TestImage({ alt, src, width, height }) { return React.createElement('img', { alt, src, width, height }); };
+    if (specifier === './helpers') return { formatHumanDate: () => 'October 15, 2026' };
+    if (specifier === '@/components/ui/Skeleton') return { Skeleton: () => null };
+    if (specifier === '@/components/ui/EmptyState') return { SkeletonTable: () => null };
+    return require(specifier);
+  };
+  const module = { exports: {} };
+  new Function('require', 'module', 'exports', code)(load, module, module.exports);
+  return module.exports;
+}
 
 // Small hook runner exercises the real component's effects and fetch callbacks
 // without requiring a Next dev server. Child rendering is outside this test.
@@ -42,7 +64,10 @@ function harness() {
     if (specifier === 'next/navigation') return { useSearchParams: () => new URLSearchParams({ page }) };
     if (specifier === 'next/dynamic') return () => 'AddressGraph';
     if (specifier === '@/lib/api-config') return { getApiUrl: () => 'https://fixture.invalid' };
-    if (specifier === '@/lib/api-client') return { readApiData: response => response.json() };
+    if (specifier === '@/lib/api-client') return { readApiData: async response => {
+      const body = await response.json();
+      return body?.meta ? body.data : body;
+    } };
     if (specifier === '@/lib/format-numbers') return { zatToZec: value => value / 1e8 };
     if (specifier === './helpers') return {
       transformTransactions: (_, txs) => txs, getTypeInfo: () => ({}),
@@ -96,4 +121,82 @@ test('page data renders while enrichment is pending, page changes fetch once, an
   await flush();
   table = find(client.render(), 'TransactionTable');
   assert.equal(table.props.data.transactions[0].txid, 'new');
+});
+
+test('optional price enrichment cannot crash address rendering and preserves valid zero/nonzero quotes', async t => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const { AddressHeroCard } = loadAddressComponent('components/AddressHeroCard.tsx');
+  const cases = [
+    { name: 'testnet unavailable quote', quote: { price: null, change24h: null, available: false }, expected: null },
+    { name: 'explicit unavailable flag', quote: { price: 25, change24h: 1, available: false }, expected: null },
+    { name: 'missing price', quote: { change24h: 1 }, expected: null },
+    { name: 'numeric string', quote: { price: '25', change24h: 1 }, expected: null },
+    { name: 'nonfinite price', quote: { price: Infinity, change24h: 1 }, expected: null },
+    { name: 'missing data', quote: null, expected: null },
+    { name: 'valid quote', quote: { price: 25, change24h: 1 }, expected: 25, usd: '37.5' },
+    { name: 'valid zero quote', quote: { price: 0, change24h: 0, available: true }, expected: 0, usd: '0' },
+  ];
+  for (const { name, quote, expected, usd } of cases) {
+    await t.test(name, async () => {
+      const pending = [];
+      global.fetch = (url, options) => new Promise(resolve => pending.push({ url, options, resolve }));
+      const client = harness();
+      client.render();
+      pending.find(req => req.url.endsWith('/v1/network/price')).resolve({
+        ok: true, json: async () => ({ data: quote, meta: { network: 'testnet' } }),
+      });
+      pending.find(req => req.url.includes('?page=1')).resolve({ ok: true, json: async () => ({
+        data: { address: 't-fixture', balance: '150000000', txCount: 1, transactions: [] },
+        meta: { network: 'testnet' },
+      }) });
+      await flush();
+      const hero = find(client.render(), 'AddressHeroCard');
+      assert.ok(hero, 'address content remains available after price enrichment resolves');
+      assert.equal(hero.props.priceData?.price ?? null, expected);
+      const html = renderToStaticMarkup(React.createElement(AddressHeroCard, hero.props));
+      assert.match(html, /1\.50/);
+      if (expected === null) assert.match(html, /USD estimate unavailable/);
+      else {
+        assert.ok(html.includes(`≈ $${usd}`), 'valid quote computes the USD balance');
+        assert.ok(html.includes(`at $${expected}`), 'valid quote retains the displayed unit price');
+        assert.doesNotMatch(html, /USD estimate unavailable/);
+      }
+    });
+  }
+});
+
+test('address server/loading/empty/overview amounts and metadata use the configured network currency', async () => {
+  const meta = { balance: 1.5, txCount: 1, type: 'transparent', isShielded: false };
+  for (const currency of ['ZEC', 'TAZ', 'CTAZ']) {
+    const { AddressHeroCard } = loadAddressComponent('components/AddressHeroCard.tsx', currency);
+    const { AddressLoadingSkeleton } = loadAddressComponent('components/AddressLoadingSkeleton.tsx', currency);
+    const { EmptyAddressView } = loadAddressComponent('components/AddressStateViews.tsx', currency);
+    const html = [
+      renderToStaticMarkup(React.createElement(AddressLoadingSkeleton, { initialMeta: meta })),
+      renderToStaticMarkup(React.createElement(EmptyAddressView, { address: 't-fixture' })),
+      renderToStaticMarkup(React.createElement(AddressHeroCard, {
+        data: { ...meta, address: 't-fixture', transactions: [] },
+        priceData: null, crossChain: null, totalTxCount: 1,
+      })),
+    ];
+    for (const markup of html) assert.ok(markup.includes(`>${currency}</span>`));
+    const layout = loadAddressComponent('layout.tsx', currency, {
+      '@/components/CopyButton': { CopyButton: () => null },
+      'next/navigation': { notFound: () => { throw new Error('Unexpected not found'); } },
+      '@/lib/zcash': { detectAddressType: () => 'transparent' },
+      '@/lib/isr-fallback': { retainLastGoodOrBuildFallback: value => value },
+      '@/lib/seo': {
+        getAddressResolution: async () => ({ state: 'found', meta }),
+        formatNumber: value => String(value),
+        getBaseUrl: () => 'https://testnet.zecblock.com',
+        buildPageMetadata: options => options,
+      },
+    });
+    const props = { params: Promise.resolve({ address: 'tmTwLU5Y855hfBZ25ZaWuTvcrqjrCMFAZR9' }) };
+    const metadata = await layout.generateMetadata(props);
+    assert.ok(metadata.description.includes(`Public balance 1.50 ${currency}`));
+    const markup = renderToStaticMarkup(await layout.default(props));
+    assert.ok(markup.includes(`1.5000 ${currency}`), 'JSON-LD uses the same units as visible amounts');
+  }
 });

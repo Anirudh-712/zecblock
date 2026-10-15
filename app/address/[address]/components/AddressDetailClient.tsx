@@ -145,7 +145,9 @@ export function AddressDetailClient({ address, initialMeta = null }: AddressDeta
       .then(async response => {
         if (!response.ok) return;
         const pData = await readApiData(response);
-        if (!signal.aborted) setPriceData({ price: pData.price, change24h: pData.change24h });
+        if (!signal.aborted && pData?.available !== false && Number.isFinite(pData?.price)) {
+          setPriceData({ price: pData.price, change24h: pData.change24h });
+        }
       }).catch(() => { /* optional enrichment */ });
 
     return () => controller.abort();
