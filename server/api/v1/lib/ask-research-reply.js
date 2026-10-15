@@ -4,6 +4,7 @@ const {researchResultSchema}=require('../../../../lib/ask/research-contract');
 const {getKnowledge,publicSources}=require('./ask-knowledge');
 const {renderExplanation}=require('./ask-explanation');
 const {researchUnitsFor}=require('./ask-research-plan-quality');
+const {askError}=require('./ask-errors');
 function display(value,type,locale){
  if(value===null)return 'Unavailable';
  if(type==='number'&&/^[-+]?\d+(?:\.\d+)?$/.test(value)){
@@ -33,6 +34,18 @@ function completeSummary(text,template=text){
 }
 async function researchReply(raw,input,run,locale,answerTaskFor){
  const result=researchResultSchema.parse(raw);
+ // A narrow output-scope sanity check, not a general semantic SQL verifier.
+ // Preserve lookback rows and comparisons: reject only when every returned
+ // monthly date is outside the one explicit calendar year in the question.
+ // Direct SQL has no natural-language question and never takes this path.
+ const question=String(input.question||'');
+ const requestedYear=/\b(?:during|in|for)\s+(?:(?:the\s+)?(?:calendar\s+)?year\s+)?(20\d{2})\b/i.exec(question)?.[1];
+ const years=new Set(question.match(/\b20\d{2}\b/g)||[]);
+ const monthIndex=result.columns.findIndex(column=>/^month$/i.test(column.label));
+ if(requestedYear&&years.size===1&&monthIndex>=0&&result.rows.length){
+  const months=result.rows.map(row=>/^(20\d{2})-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?(?:[ T].*)?$/.exec(row[monthIndex]||'')?.[1]);
+  if(months.every(year=>year&&year!==requestedYear))throw askError('answer');
+ }
  const records=getKnowledge([...new Set(result.datasets.map(d=>({blocks:'block',transactions:'transactions',flows:'pools',daily:'pools',swaps:'crosschain',addresses:'addresses',address_activity:'address',activity_daily:'transactions',flow_daily:'pools'})[d]))]);
  if(!result.rows.length&&/^en(?:-|$)/.test(locale))return {answer:'This SQL returned no matching rows. That does not establish zero activity. Use Edit query to inspect its filters and baseline window.',sources:publicSources(records),spec:null,locale,research:result,evidenceKey:result.fingerprint};
  const columns=result.columns;
@@ -80,10 +93,12 @@ async function researchReply(raw,input,run,locale,answerTaskFor){
  const indexFor=id=>{const match=/^row_[a-z]+_([a-z])$/.exec(id);return match?match[1].charCodeAt(0)-97:-1;};
  const numericFact=id=>columns[indexFor(id)]?.type==='number'||['zatoshi','zec','usd'].includes(units[indexFor(id)])||/^[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?$/i.test(facts[id]||'');
  const fusedNumbers=templates.some(text=>[...text.matchAll(/\{\{([a-z_]+)\}\}\s*\{\{([a-z_]+)\}\}/g)].some(([,left,right])=>numericFact(left)&&numericFact(right)));
- const prose=templates.map(text=>text.replace(/\{\{[a-z_]+\}\}/g,''));
+ // Mask facts so their contents are not inspected or their surrounding prose
+ // accidentally joined into a period run or an unattached combining mark.
+ const prose=templates.map(text=>text.replace(/\{\{[a-z_]+\}\}/g,'F'));
  // Known stand-ins observed when constrained decoding could not emit a figure.
  // Other Unicode prose, names and mathematical notation remain valid.
- const decodingArtifact=prose.some(text=>/[*#_]{3,}/.test(text))||/^en(?:-|$)/.test(locale)&&prose.some(text=>/[\u026f\u{1104D}]/u.test(text));
+ const decodingArtifact=prose.some(text=>/[*#_]{3,}|\.{4,}|(?:^|\s)\p{M}/u.test(text))||/^en(?:-|$)/.test(locale)&&prose.some(text=>/[\u026f\u{1104D}]/u.test(text));
  const unitName=value=>/^zec$/i.test(value)?'zec':/^usd$/i.test(value)?'usd':'zatoshi';
  const unitMislabel=templates.some(text=>{
   for(const match of text.matchAll(/\{\{([a-z_]+)\}\}/g)){

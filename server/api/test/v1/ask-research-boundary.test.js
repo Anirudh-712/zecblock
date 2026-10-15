@@ -135,6 +135,20 @@ test('row counts and figures without placeholders cannot surface as misleading n
  assert.equal(french.answer,'Il y a eu 59 blocs aux frais élevés.');
 });
 
+test('prose artifacts reject period runs and unattached marks while retaining normal Unicode',async()=>{
+ const {researchReply}=require('../../v1/lib/ask-research-reply');const {answerTaskFor}=require('../../v1/lib/ask-chat');
+ const result={query:{version:3,sql:'SELECT count(*) AS total FROM transactions',limit:100},columns:[{key:'c0',label:'total',type:'number'}],rows:[['542746']],truncated:false,datasets:['transactions'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-15T00:00:00Z',indexedThrough:'2026-10-15T00:00:00Z',coverage:'verified canonical records',units:'exact'};
+ const answer=async(summary,evidence=result)=>(await researchReply(evidence,{question:'Explain the count',history:[]},async(_,task)=>task.validator.parse({summary,observations:[],limitation:'',sources:['transactions']}),'en',answerTaskFor)).answer;
+ const receipt='Your query returned 1 record. The results are available in the table below.';
+ for(const summary of ['In ťhis analysis the count was {{row_a_a}} in \u0305 ǣ ........','The count is {{row_a_a}}....','\u0305The count is {{row_a_a}}.','The count is {{row_a_a}} in \u0305 currency.','The count is {{row_a_a}}.\n\u0305A fragment.'])assert.equal(await answer(summary),receipt,summary);
+ for(const summary of ['José reports {{row_a_a}} transactions.','Jose\u0301 reports {{row_a_a}} transactions.','The count is {{row_a_a}}... The window is complete.','The count is {{row_a_a}} … within the completed window.','The count {{row_a_a}} is ≥ the benchmark; x\u0305 names the average.'])assert.equal(await answer(summary),summary.replace('{{row_a_a}}','542,746'),summary);
+ // Exact evidence stays outside this prose-only check, including an accent
+ // attached directly to a fact placeholder rather than a literal base letter.
+ const labelled={...result,query:{...result.query,sql:"SELECT 'label' AS label,count(*) AS total FROM transactions"},columns:[{key:'c0',label:'label',type:'text'},{key:'c1',label:'total',type:'number'}],rows:[['\u0305 ......','542746']]};
+ assert.equal(await answer('The label {{row_a_a}} accompanies {{row_a_b}} transactions.',labelled),'The label \u0305 ...... accompanies 542,746 transactions.');
+ assert.equal(await answer('{{row_a_a}}\u0301 reports {{row_a_b}} transactions.',{...labelled,rows:[['Jose','542746']]}),'Jose\u0301 reports 542,746 transactions.');
+});
+
 test('a unit attached to a research value must match its column conversion',async()=>{
  const {researchReply}=require('../../v1/lib/ask-research-reply');const {answerTaskFor}=require('../../v1/lib/ask-chat');
  const base={query:{version:3,sql:'SELECT avg(fees) AS average_fee_per_block FROM blocks',limit:100},truncated:false,datasets:['blocks'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-07T01:43:06Z',indexedThrough:'2026-10-07T01:43:05Z',coverage:'verified canonical records',units:'exact'};
