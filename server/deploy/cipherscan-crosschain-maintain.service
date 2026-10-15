@@ -1,0 +1,12 @@
+[Unit]
+Description=Bounded filtered cross-chain live sync and status reconciliation
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock -n -E 0 /run/cipherscan-sync-swaps.lock /usr/bin/env NODE_PATH=/root/cipherscan/server/api/node_modules NETWORK=mainnet CROSSCHAIN_V2_WRITER_ENABLED=1 NEAR_EXPLORER_SHARED_LIMIT=1 NODE_OPTIONS=--require=/opt/cipherscan-crosschain/current/server/lib/crosschain/provider-preload.js /usr/bin/node /opt/cipherscan-crosschain/current/server/jobs/maintain-crosschain-v2.js --apply --page-size=1000
+TimeoutStartSec=90
+KillMode=control-group
+Nice=10
+IOSchedulingClass=idle
+UMask=0077

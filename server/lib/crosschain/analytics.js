@@ -1,5 +1,5 @@
 "use strict";
-const { STATUSES } = require("./ingest");
+const { STATUSES, INGEST_STATUSES, INGEST_SCOPE } = require("./ingest");
 const PERIODS = {
   "24h": 1,
   "7d": 7,
@@ -71,7 +71,7 @@ function source(v2) {
     ARRAY(SELECT jsonb_array_elements_text(COALESCE(NULLIF(payload->'destinationChainTxHashes','null'::jsonb),'[]'))) AS dest_tx_hashes,
     ARRAY(SELECT jsonb_array_elements_text(COALESCE(NULLIF(payload->'senders','null'::jsonb),'[]'))) AS senders,
     payload,first_seen_at,last_seen_at,status_observed_at
-    FROM crosschain_swaps_v2`
+    FROM crosschain_swaps_v2 WHERE status <> 'PENDING_DEPOSIT'`
     : `SELECT deposit_address,''::text AS deposit_memo,status,swap_created_at,source_chain,source_token,dest_chain,dest_token,
     NULLIF(source_amount,0) AS source_amount,NULLIF(dest_amount,0) AS dest_amount,
     NULLIF(source_amount_usd,0) AS source_amount_usd,NULLIF(dest_amount_usd,0) AS dest_amount_usd,source_tx_hashes,dest_tx_hashes,senders,
@@ -94,7 +94,8 @@ async function coverage(db, v2, now) {
   const states = v2
     ? (
         await db.query(
-          "SELECT * FROM crosschain_sync_v2 ORDER BY mode,direction",
+          "SELECT * FROM crosschain_sync_v2 WHERE scope=$1 ORDER BY mode,direction",
+          [INGEST_SCOPE],
         )
       ).rows
     : [];
@@ -110,11 +111,12 @@ async function coverage(db, v2, now) {
       ? new Date(Math.min(...lastSync.map((d) => new Date(d).getTime())))
       : null;
   const backfill = states.filter((s) => s.mode === "backfill");
+  const reconciled = states.filter((s) => s.mode === "reconcile");
   const ranges = v2
     ? (
         await db.query(`WITH windows AS (
-      SELECT direction,range_agg(tstzrange(window_start,window_end,'[)')) AS spans FROM crosschain_coverage_v2 GROUP BY direction)
-      SELECT direction,upper(span) AS through FROM windows CROSS JOIN LATERAL unnest(spans) span WHERE lower_inf(span)`)
+      SELECT direction,range_agg(tstzrange(window_start,window_end,'[)')) AS spans FROM crosschain_coverage_v2 WHERE scope=$1 GROUP BY direction)
+      SELECT direction,upper(span) AS through FROM windows CROSS JOIN LATERAL unnest(spans) span WHERE lower_inf(span)`, [INGEST_SCOPE])
       ).rows
     : [];
   const continuousThrough =
@@ -132,16 +134,27 @@ async function coverage(db, v2, now) {
     continuousThrough: iso(continuousThrough),
     stale:
       !syncedThrough || now.getTime() - syncedThrough.getTime() > 20 * 60000,
-    statusesAvailable: v2 ? STATUSES : ["SUCCESS"],
+    statusesAvailable: v2 ? INGEST_STATUSES : ["SUCCESS"],
+    excludedStatuses: v2 ? ["PENDING_DEPOSIT"] : [],
+    ingestionScope: v2 ? INGEST_SCOPE : "legacy-success-index",
     historyTraversalComplete:
       backfill.length === 2 && backfill.every((s) => s.completed_at),
+    statusReconciliationComplete:
+      v2 && reconciled.length === 2 && reconciled.every((s) => s.completed_at && !s.window_end),
+    reconciliation: reconciled.map((s) => ({
+      direction: s.direction,
+      complete: !!s.completed_at && !s.window_end,
+      pages: count(s.pages),
+      completedThrough: iso(s.completed_through),
+      lastAdvancedAt: iso(s.updated_at),
+    })),
     backfill: backfill.map((s) => ({
       direction: s.direction,
       complete: !!s.completed_at,
       pages: count(s.pages),
       completedThrough: iso(s.completed_through),
     })),
-    note: "Observed NEAR 1Click swaps only. History traversal is not proof of upstream completeness. Sender addresses are not people. Internal ZEC routes are excluded from cross-chain volume.",
+    note: "Observed NEAR 1Click swaps only. Pending-deposit quotes are excluded; outcomes are not quote-conversion rates. History traversal is not proof of upstream completeness. Sender addresses are not people. Internal ZEC routes are excluded from cross-chain volume.",
   };
 }
 async function snapshot(pool, fn) {
@@ -174,7 +187,10 @@ async function readAnalytics(pool, q, { v2 = false, now = new Date() } = {}) {
           ).toISOString();
     const params = [start, end];
     const window = `swap_created_at >= $1::timestamptz AND swap_created_at < $2::timestamptz AND direction <> 'internal'`;
-    const base = `${source(v2)}, selected AS (SELECT * FROM swaps WHERE ${window}), successful AS (SELECT * FROM selected WHERE status='SUCCESS')`;
+    // Keep projection pruning through the shared query template: status/count
+    // queries must not materialize every payload and hash array just because
+    // the template also declares the successful subset.
+    const base = `${source(v2)}, selected AS NOT MATERIALIZED (SELECT * FROM swaps WHERE ${window}), successful AS NOT MATERIALIZED (SELECT * FROM selected WHERE status='SUCCESS')`;
     const summary = (
       await db.query(
         `${base} SELECT count(*)::int AS swaps,
