@@ -72,11 +72,25 @@ test('private Ask preview requires the exact explicit flag and an injected Redis
   assert.throws(() => createPrivatePreview(privateEnv, { routerFactory }), /Explicit private preview required/);
 });
 
-test('database and RPC credentials are refused before preview routing is constructed', () => {
+test('known database and RPC credential aliases are refused before preview routing is constructed', () => {
   const routerFactory = () => assert.fail('Credential-bearing environment reached the router');
-  for (const key of ['DATABASE_URL', 'PGPASSWORD', 'ASK_ANALYTICS_DATABASE_URL', 'ZCASH_RPC_PASSWORD']) {
+  // DB_PASSWORD configures both db-pool.js readers; REPLICA_DATABASE_URL is
+  // pool-routing.js's separate connection-string configuration.
+  for (const key of ['DATABASE_URL', 'REPLICA_DATABASE_URL', 'DB_PASSWORD', 'PGPASSWORD', 'ASK_ANALYTICS_DATABASE_URL', 'ZCASH_RPC_PASSWORD']) {
     assert.throws(() => createPrivatePreview({ ...privateEnv, [key]: 'test-only-placeholder' }, { redis: {}, routerFactory }), /Database\/RPC credentials/);
   }
+});
+
+test('provider, worker and quota credentials remain available to private preview routing', async t => {
+  const credentials = {
+    ASK_API_KEY: 'test-only-provider-key',
+    ASK_ANALYTICS_SERVICE_KEY: 'test-only-worker-key',
+    ASK_ANALYTICS_REDIS_URL: 'redis://test-only:quota-key@127.0.0.1:6391',
+  };
+  const { url, state } = await serve(t, { env: credentials });
+  for (const [key, value] of Object.entries(credentials)) assert.equal(state.config[key], value);
+  assert.equal((await request(url + '/v1/ask')).status, 200);
+  assert.equal(state.dispatched, 1);
 });
 
 test('preview fixtures use the dummy challenge key and cannot dispatch indexed-record reads', async t => {

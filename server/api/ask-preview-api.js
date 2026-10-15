@@ -9,7 +9,9 @@ const {createAskRouter}=require('./v1/routes/ask');
 const DUMMY_SITE_KEY='1x00000000000000000000AA';
 function createPrivatePreview(env,{redis,routerFactory=createAskRouter}={}){
  if(env.ASK_PRIVATE_PREVIEW!=='true'||!redis)throw Error('Explicit private preview required');
- if(['DATABASE_URL','PGPASSWORD','ASK_ANALYTICS_DATABASE_URL','ZCASH_RPC_PASSWORD'].some(key=>env[key]))throw Error('Database/RPC credentials must not enter the private Ask API');
+ // Known credential aliases only: this catches accidental shared DB/RPC config,
+ // not every possible inherited secret. Provider/worker/Redis credentials belong here.
+ if(['DATABASE_URL','REPLICA_DATABASE_URL','DB_PASSWORD','PGPASSWORD','ASK_ANALYTICS_DATABASE_URL','ZCASH_RPC_PASSWORD'].some(key=>env[key]))throw Error('Database/RPC credentials must not enter the private Ask API');
  const config={...env,ASK_TURNSTILE_SITE_KEY:DUMMY_SITE_KEY};
  const challengeFetch=async()=>({ok:true,json:async()=>({success:true,action:'ask',hostname:config.ASK_TURNSTILE_HOSTNAME})});
  const internalClient={dispatch:async()=>{throw Error('Indexed record source is not configured in the private preview');}};

@@ -5,12 +5,18 @@ application. The API holds the provider key; the separate query worker holds
 only its restricted reader connection. The browser receives neither credential.
 
 `server/api/ask-preview-api.js` is an operator test fixture, **not a public API
-entry point**. It requires `ASK_PRIVATE_PREVIEW=true`, refuses database/RPC
-password configuration, binds only127.0.0.1:3004 and validates local Host/Origin.
+entry point**. It requires `ASK_PRIVATE_PREVIEW=true`, refuses known database/RPC
+credential configuration aliases, binds only127.0.0.1:3004 and validates local Host/Origin.
 It supplies request IDs and cancellation signals for the normal response
 contract. CAPTCHA verification is simulated with the published dummy site key.
 Optional `ASK_PREVIEW_SIMULATE_IPS=true` admits only valid198.18/16 fixture
 addresses; public ingress must never accept a client-selected IP.
+
+The credential check rejects non-empty `DATABASE_URL`, `REPLICA_DATABASE_URL`,
+`DB_PASSWORD`, `PGPASSWORD`, `ASK_ANALYTICS_DATABASE_URL` and
+`ZCASH_RPC_PASSWORD`. This is configuration hygiene for known aliases, not proof
+that no other secret was inherited. Provider, worker service-key and quota Redis
+credentials are required by this API and remain allowed.
 
 Install matching Linux API lockfile dependencies, including shared-library zod
 resolution. Keep source, dependencies, runtime and all parent directories owned
