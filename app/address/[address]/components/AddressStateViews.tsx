@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { CURRENCY } from '@/lib/config';
 
 interface AddressStateProps {
   address: string;
@@ -12,7 +13,7 @@ export function EmptyAddressView({ address }: AddressStateProps) {
   return <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-12">
     <section aria-label={`Activity for ${address}`} role="status" className="rounded-xl border border-cipher-border bg-cipher-surface p-5 sm:p-7">
       <p className="text-xs font-mono text-muted uppercase tracking-wider">Public balance</p>
-      <p className="mt-3 text-3xl text-primary font-mono">0.00 <span className="text-base text-muted">ZEC</span></p>
+      <p className="mt-3 text-3xl text-primary font-mono">0.00 <span className="text-base text-muted">{CURRENCY}</span></p>
       <h2 className="mt-6 text-base font-semibold text-primary">No indexed activity</h2>
       <p className="mt-2 text-sm text-muted">The index has no transaction history for this transparent address.</p>
     </section>

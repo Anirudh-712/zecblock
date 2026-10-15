@@ -1,0 +1,11 @@
+[Unit]
+Description=Maintain filtered swaps between legacy five-minute sync runs
+
+[Timer]
+OnCalendar=*-*-* *:02/5:00 UTC
+AccuracySec=1s
+Persistent=false
+Unit=cipherscan-crosschain-maintain.service
+
+[Install]
+WantedBy=timers.target

@@ -7,8 +7,9 @@ const crosslinkNetwork = require('../../../../lib/crosslink-network.json');
 const router = express.Router();
 const { deps, computeStakingDay } = require('./_helpers');
 const { logSafeError } = require('../../lib/safe-log');
+const { buildCrosslinkRoster, crosslinkLiveness } = require('../../../lib/crosslink-roster');
 
-const CROSSLINK_CACHE_KEY = 'crosslink:stats';
+const CROSSLINK_CACHE_KEY = 'crosslink:stats:v14-roster-v2';
 const CROSSLINK_CACHE_DURATION = 30; // 30 seconds (includes slow recency RPC)
 
 // In-flight dedup for the heavy /api/crosslink endpoint
@@ -28,8 +29,8 @@ router.get('/api/crosslink', async (req, res) => {
 
     // Dedup: if another request is already fetching, wait for it
     if (crosslinkInflight) {
-      const result = await crosslinkInflight;
-      return res.json(result);
+      const { _status = 200, ...result } = await crosslinkInflight;
+      return res.status(_status).json(result);
     }
 
     crosslinkInflight = (async () => {
@@ -40,62 +41,16 @@ router.get('/api/crosslink', async (req, res) => {
       return { success: false, error: 'Crosslink RPC unavailable', _status: 503, _degraded: true };
     }
     const finalityInfo = await deps.callZebraRPC('get_tfl_final_block_height_and_hash', [], { timeout: 12000 }).catch(() => null);
-    const roster = await deps.callZebraRPC('get_tfl_roster_zats', [], { timeout: 12000 }).catch(() => []);
+    const roster = await deps.callZebraRPC('get_tfl_roster_zats', [], { timeout: 12000 }).catch(() => null);
+    const rosterData = buildCrosslinkRoster(roster);
+    if (!rosterData) {
+      return { success: false, error: 'Crosslink roster unavailable', _status: 503, _degraded: true };
+    }
     const peerInfo = await deps.callZebraRPC('getpeerinfo', [], { timeout: 12000 }).catch(() => []);
 
     // Slow RPC (~5s) -- call sequentially after fast ones complete
     const tflRecency = await deps.callZebraRPC('get_tfl_recency_status', [], { timeout: 20000 }).catch(() => null);
 
-    const parsedRoster = Array.isArray(roster)
-      ? roster.map((m, idx) => {
-          const stakeZats = m.stake_zats ?? m.stake ?? m.voting_power ?? 0;
-          return {
-            identity: m.identity || m.pub_key || m.public_key || '',
-            stake_zats: stakeZats,
-            stake_zec: stakeZats / 1e8,
-            _rosterIdx: idx,
-          };
-        }).sort((a, b) => b.stake_zats - a.stake_zats)
-      : [];
-
-    // Positional match: roster[i] corresponds to recency.finalizer_statuses[i]
-    const statuses = tflRecency?.finalizer_statuses || [];
-    let bftHeight = tflRecency?.my_height ?? null;
-    let bftRound = tflRecency?.my_round ?? null;
-    const nowUtc = tflRecency?.now_utc ?? Math.floor(Date.now() / 1000);
-    let onlineCount = 0;
-    let onlineStake = 0;
-    let connectedCount = 0;
-    let connectedStake = 0;
-    for (const f of parsedRoster) {
-      const entry = statuses[f._rosterIdx];
-      if (entry) {
-        const [, status] = entry;
-        const votes = status.no_yes_votes_in_my_height || [[0,0],[0,0]];
-        const prevoteYes = votes[0]?.[1] || 0;
-        const precommitYes = votes[1]?.[1] || 0;
-        f.voted = prevoteYes > 0 || precommitYes > 0;
-        f.highest_round = status.highest_round_vote || 0;
-        f.last_connected_utc = status.last_direct_connection_utc ?? status.last_connected_utc ?? null;
-        f.connected = f.last_connected_utc == null ? null : (nowUtc - f.last_connected_utc) < 300;
-      } else {
-        f.voted = null;
-        f.highest_round = null;
-        f.last_connected_utc = null;
-        f.connected = null;
-      }
-      if (f.voted) {
-        onlineCount++;
-        onlineStake += f.stake_zats;
-      }
-      if (f.connected) {
-        connectedCount++;
-        connectedStake += f.stake_zats;
-      }
-      delete f._rosterIdx;
-    }
-
-    const totalStakeZats = parsedRoster.reduce((sum, m) => sum + m.stake_zats, 0);
     const crosslinkActive = tipHeight >= crosslinkNetwork.crosslinkActivationHeight;
     const finalizedHeight = crosslinkActive ? (finalityInfo?.height ?? finalityInfo?.[0] ?? null) : null;
 
@@ -110,24 +65,10 @@ router.get('/api/crosslink', async (req, res) => {
       crosslinkActive,
       crosslinkActivationHeight: crosslinkNetwork.crosslinkActivationHeight,
       stakingActivationHeight: crosslinkNetwork.stakingActivationHeight,
-      finalizerCount: parsedRoster.length,
-      totalStakeZats,
-      totalStakeZec: totalStakeZats / 1e8,
+      ...rosterData,
       peerCount,
       stakingDay: computeStakingDay(tipHeight),
-      liveness: {
-        bftHeight: bftHeight,
-        bftRound: bftRound,
-        onlineCount,
-        offlineCount: parsedRoster.length - onlineCount,
-        onlineStakeZec: onlineStake / 1e8,
-        offlineStakeZec: (totalStakeZats - onlineStake) / 1e8,
-        onlinePercent: totalStakeZats > 0 ? Math.round((onlineStake / totalStakeZats) * 100) : 0,
-        connectedCount,
-        connectedStakeZec: connectedStake / 1e8,
-        connectedPercent: totalStakeZats > 0 ? Math.round((connectedStake / totalStakeZats) * 100) : 0,
-      },
-      roster: parsedRoster,
+      liveness: crosslinkLiveness(rosterData, tflRecency, { active: crosslinkActive }),
     };
 
     // Cache result
@@ -143,10 +84,8 @@ router.get('/api/crosslink', async (req, res) => {
     })();
 
     try {
-      const result = await crosslinkInflight;
-      const status = result._status || 200;
-      delete result._status;
-      res.status(status).json(result);
+      const { _status = 200, ...result } = await crosslinkInflight;
+      res.status(_status).json(result);
     } finally {
       crosslinkInflight = null;
     }

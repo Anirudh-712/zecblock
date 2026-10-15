@@ -5,6 +5,7 @@ import { buildPageMetadata, getAddressResolution, formatNumber, getBaseUrl } fro
 import type { AddressMeta } from '@/lib/seo';
 import { detectAddressType } from '@/lib/zcash';
 import { retainLastGoodOrBuildFallback } from '@/lib/isr-fallback';
+import { CURRENCY } from '@/lib/config';
 
 type Props = {
   params: Promise<{ address: string }>;
@@ -61,7 +62,7 @@ function getAddressSummary(address: string, meta: AddressMeta | null): string {
     ? 'no indexed transactions'
     : `${formatNumber(meta.txCount)} indexed transaction${meta.txCount === 1 ? '' : 's'}`;
 
-  return `${typeLabel} Zcash address with a public balance of ${meta.balance.toFixed(4)} ZEC and ${transactionSummary}.`;
+  return `${typeLabel} Zcash address with a public balance of ${meta.balance.toFixed(4)} ${CURRENCY} and ${transactionSummary}.`;
 }
 
 function serializeJsonLd(value: unknown): string {
@@ -103,7 +104,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const descParts = [`${typeLabel} Zcash address.`];
   if (!meta.isShielded) {
     const balance = meta.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-    descParts.push(`Public balance ${balance} ZEC${meta.txCount > 0 ? ` across ${formatNumber(meta.txCount)} indexed transaction${meta.txCount !== 1 ? 's' : ''}` : ''}.`);
+    descParts.push(`Public balance ${balance} ${CURRENCY}${meta.txCount > 0 ? ` across ${formatNumber(meta.txCount)} indexed transaction${meta.txCount !== 1 ? 's' : ''}` : ''}.`);
     descParts.push('See its history and address connections.');
   } else {
     descParts.push('Balance and transaction history are encrypted with zero-knowledge proofs.');
