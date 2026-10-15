@@ -115,11 +115,29 @@ async function draftDiagnostics(sql){
   const joins=[];
   const source=from=>{
    if(from.JoinExpr){joins.push(from.JoinExpr);return [...source(from.JoinExpr.larg),...source(from.JoinExpr.rarg)];}
-   if(from.RangeVar){const r=from.RangeVar,name=canonical(r.relname),info=scope.get(r.relname);return [{alias:r.alias?.aliasname||r.relname,kind:info?info.kind:name,dateType:info?info.dateType:['daily','activity_daily','flow_daily'].includes(name)?'date':null}];}
+   if(from.RangeVar){const r=from.RangeVar,name=canonical(r.relname),info=scope.get(r.relname);return [{alias:r.alias?.aliasname||r.relname,directHeight:!info&&['blocks','transactions','flows','address_activity'].includes(name),kind:info?info.kind:name,dateType:info?info.dateType:['daily','activity_daily','flow_daily'].includes(name)?'date':null}];}
    if(from.RangeSubselect){const info=select(from.RangeSubselect.subquery.SelectStmt,scope,requestedCounts);return [{alias:from.RangeSubselect.alias?.aliasname,...info}];}
    return [{kind:null,dateType:null}];
   };
   const sources=(s.fromClause||[]).flatMap(source);
+  // Diagnose only a locally resolved base-table height used as the clock.
+  // A CTE or derived column named height may contain Unix time: do not guess.
+  const heightClock=n=>{
+   if(n?.TypeCast)return heightClock(n.TypeCast.arg);
+   const ref=column(n);
+   if(ref){const matches=ref.length===1?sources:sources.filter(source=>source.alias===ref[0]);return ref.at(-1)==='height'&&matches.length===1&&matches[0].directHeight?'height':'other';}
+   if(n?.A_Const&&(n.A_Const.ival||n.A_Const.fval))return 'constant';
+   const e=n?.A_Expr;if(e?.kind!=='AEXPR_OP'||!['+','-','*','/','%'].includes(e.name?.[0]?.String?.sval))return 'other';
+   const values=[...(e.lexpr?[heightClock(e.lexpr)]:[]),heightClock(e.rexpr)];
+   return values.every(v=>v==='height'||v==='constant')?(values.includes('height')?'height':'constant'):'other';
+  };
+  const checkClock=n=>{
+   if(!n||typeof n!=='object')return;
+   if(n.SelectStmt){select(n.SelectStmt,scope);return;}
+   if(n.FuncCall?.funcname?.at(-1)?.String?.sval==='to_timestamp'&&heightClock(n.FuncCall.args?.[0])==='height')issues.add('Block height is not Unix time: never derive a UTC date from height or height multiplied by an assumed block interval. Use the published timestamp field for raw records, or activity_daily.date and its shielded/transparent counts for calendar summaries without transaction-level filters. Preserve the requested dates, measures and rolling window.');
+   for(const value of Object.values(n))checkClock(value);
+  };
+  for(const [key,value]of Object.entries(s))if(!['withClause','fromClause'].includes(key))checkClock(value);
   const resolveDate=ref=>ref?.at(-1)==='date'?(ref.length===1&&sources.length===1?sources[0].dateType:sources.find(x=>x.alias===ref[0])?.dateType):null;
   for(const join of joins)for(const term of andTerms(join.quals)){
    const expr=term?.A_Expr,left=resolveDate(column(expr?.lexpr)),right=resolveDate(column(expr?.rexpr));
