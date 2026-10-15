@@ -9,9 +9,104 @@ const string=n=>n?.TypeCast?string(n.TypeCast.arg):n?.A_Const?.sval?.sval;
 const integer=n=>n?.A_Const?.ival?.ival;
 const column=n=>n?.ColumnRef?.fields?.map(x=>x.String?.sval);
 const andTerms=n=>n?.BoolExpr?.boolop==='AND_EXPR'?n.BoolExpr.args.flatMap(andTerms):[n];
-const canonical=name=>({activity_daily_query:'activity_daily',daily_query:'daily',swaps_query:'swaps',flows_query:'flows',flow_daily_query:'flow_daily'})[name]||name;
+const canonical=name=>({blocks_query:'blocks',transactions_query:'transactions',flows_query:'flows',addresses_query:'addresses',address_activity_query:'address_activity',activity_daily_query:'activity_daily',daily_query:'daily',swaps_query:'swaps',flow_daily_query:'flow_daily'})[name]||name;
+// Unit lineage is deliberately separate from SQL acceptance. Unknown expressions
+// remain queryable; they cannot substantiate a monetary unit in generated prose.
+const {researchCatalogue}=require('../../../../lib/ask/research-catalogue');
+const monetaryFields={blocks:['fees'],transactions:['fees'],flows:['amount'],daily:['orchard','ironwood','sapling','sprout'],addresses:['balance','received','sent'],address_activity:['received','sent'],activity_daily:['fees'],flow_daily:['amount'],swaps:['usd']};
+const countFields=new Set('height transactions shielded_transactions transparent_transactions unclassified_transactions blocks tx_index records missing_fees missing_bytes missing_amounts'.split(' '));
+const booleanFields=new Set('shielded orchard ironwood sapling is_input is_output'.split(' '));
+const unit=value=>({unit:value});
+const unknown=()=>unit('unknown');
+const scalar=value=>({unit:'scalar',...(Number.isFinite(value)?{constant:value}:{})});
+function sameUnits(values){
+ const known=values.filter(v=>v.unit!=='null'&&v.constant!==0);
+ if(!known.length)return values[0]||unknown();
+ return known.every(v=>v.unit===known[0].unit)?unit(known[0].unit):unknown();
+}
+function unitsFromTree(tree){
+ const targets=[];
+ const baseColumns=name=>{
+  const dataset=researchCatalogue.find(d=>d.id===canonical(name));
+  return dataset?.columns.split(', ').map(name=>({name,...unit(monetaryFields[dataset.id]?.includes(name)?dataset.id==='swaps'?'usd':'zatoshi':countFields.has(name)?'count':name==='bytes'?'bytes':name==='date'?'date':name==='timestamp'||name==='first_seen'||name==='last_seen'?'time':booleanFields.has(name)?'boolean':'text')}))||[];
+ };
+ const rename=(columns,names)=>columns.map((c,i)=>({...c,name:names?.[i]?.String?.sval||c.name}));
+ function select(s,inherited=new Map(),outer=[]){
+  if(!s)return [];
+  const scope=new Map(inherited);
+  for(const item of s.withClause?.ctes||[]){const c=item.CommonTableExpr;scope.set(c.ctename,rename(select(c.ctequery?.SelectStmt,scope),c.aliascolnames));}
+  if(s.op&&s.op!=='SETOP_NONE'){
+   const left=select(s.larg,scope,outer),right=select(s.rarg,scope,outer);
+   return left.map((c,i)=>({...c,...sameUnits([c,right[i]||unknown()])}));
+  }
+  const source=from=>{
+   if(from.JoinExpr)return [...source(from.JoinExpr.larg),...source(from.JoinExpr.rarg)];
+   if(from.RangeVar){const r=from.RangeVar;return [{alias:r.alias?.aliasname||r.relname,columns:rename(scope.get(r.relname)||baseColumns(r.relname),r.alias?.colnames)}];}
+   if(from.RangeSubselect)return [{alias:from.RangeSubselect.alias?.aliasname,columns:rename(select(from.RangeSubselect.subquery?.SelectStmt,scope),from.RangeSubselect.alias?.colnames)}];
+   return [];
+  };
+  const sources=(s.fromClause||[]).flatMap(source);
+  const resolve=ref=>{
+   if(!ref?.length)return unknown();
+   const find=list=>list.filter(source=>ref.length===1||source.alias===ref[0]).flatMap(source=>source.columns.filter(c=>c.name===ref.at(-1)));
+   const local=find(sources),matches=local.length?local:find(outer);
+   return matches.length===1?unit(matches[0].unit):unknown();
+  };
+  function expression(n){
+   if(!n)return unknown();
+   if(n.ColumnRef)return resolve(column(n));
+   if(n.TypeCast){const type=n.TypeCast.typeName?.names?.at(-1)?.String?.sval;return ['date','timestamp','timestamptz'].includes(type)?unit('date'):expression(n.TypeCast.arg);}
+   if(n.A_Const){const c=n.A_Const;if(c.isnull)return unit('null');const value=c.ival?(c.ival.ival??0):c.fval?Number(c.fval.fval):undefined;return value!==undefined?scalar(value):unit(c.boolval?'boolean':'text');}
+   if(n.SubLink){if(n.SubLink.subLinkType!=='EXPR_SUBLINK')return unit('boolean');const cols=select(n.SubLink.subselect?.SelectStmt,scope,[...sources,...outer]);return cols.length===1?unit(cols[0].unit):unknown();}
+   if(n.CaseExpr)return sameUnits([...(n.CaseExpr.args||[]).map(a=>expression(a.CaseWhen?.result)),n.CaseExpr.defresult?expression(n.CaseExpr.defresult):unit('null')]);
+   if(n.CoalesceExpr||n.MinMaxExpr)return sameUnits((n.CoalesceExpr||n.MinMaxExpr).args.map(expression));
+   if(n.BoolExpr||n.NullTest||n.BooleanTest)return unit('boolean');
+   if(n.A_Expr){
+    const e=n.A_Expr,op=e.name?.[0]?.String?.sval,left=expression(e.lexpr),right=expression(e.rexpr);
+    if(e.kind==='AEXPR_NULLIF')return left;
+    if(e.kind!=='AEXPR_OP'||!['+','-','*','/','%'].includes(op))return unit('boolean');
+    if(!e.lexpr&&['+','-'].includes(op))return right.constant===undefined?right:scalar(op==='-'?-right.constant:right.constant);
+    if(left.constant!==undefined&&right.constant!==undefined){const value=op==='+'?left.constant+right.constant:op==='-'?left.constant-right.constant:op==='*'?left.constant*right.constant:op==='/'?left.constant/right.constant:left.constant%right.constant;return scalar(value);}
+    if(['+','-'].includes(op)&&(left.constant!==undefined||right.constant!==undefined))return left.constant!==undefined?right:left;
+    if(['+','-'].includes(op))return left.unit==='date'&&right.unit==='date'&&op==='-'?unit('days'):sameUnits([left,right]);
+    if(op==='*'&&(left.constant===1e-8||right.constant===1e-8)){const amount=left.constant===1e-8?right:left;return amount.unit==='zatoshi'?unit('zec'):amount.unit==='zec'?unknown():amount;}
+    if(op==='*'&&(left.constant===100000000||right.constant===100000000)){const amount=left.constant===100000000?right:left;return amount.unit==='zec'?unit('zatoshi'):amount;}
+    if(op==='/'&&right.constant===100000000)return left.unit==='zatoshi'?unit('zec'):left.unit==='zec'?unknown():left;
+    if(op==='/'&&right.constant===1e-8)return left.unit==='zec'?unit('zatoshi'):left;
+    if(op==='/'&&left.unit===right.unit&&left.unit!=='unknown')return scalar();
+    if(['scalar','count'].includes(right.unit))return left;
+    if(op==='*'&&['scalar','count'].includes(left.unit))return right;
+    return unknown();
+   }
+   if(n.FuncCall){
+    const f=n.FuncCall,name=f.funcname?.at(-1)?.String?.sval;
+    if(['count','row_number','rank','dense_rank','ntile'].includes(name))return unit('count');
+    if(['percent_rank','cume_dist','date_part','extract','length'].includes(name))return scalar();
+    if(['date_trunc','to_timestamp'].includes(name))return unit('date');
+    if(['to_char','lower','upper','substring','substr','left','right','trim','btrim','ltrim','rtrim'].includes(name))return unit('text');
+    const args=(f.args||[]).map(expression);
+    if(['lag','lead'].includes(name))return args.length>2?sameUnits([args[0],args[2]]):args[0]||unknown();
+    if(['sum','avg','min','max','round','abs','ceil','ceiling','floor','trunc','stddev_samp','stddev_pop','first_value','last_value','nth_value'].includes(name))return args[0]||unknown();
+    if(['coalesce','greatest','least'].includes(name))return sameUnits(args);
+    if(name==='nullif')return args[0]||unknown();
+   }
+   return unknown();
+  }
+  return (s.targetList||[]).flatMap(item=>{
+   const t=item.ResTarget,fields=t?.val?.ColumnRef?.fields;
+   if(fields?.at(-1)?.A_Star)return sources.filter(source=>fields.length===1||source.alias===fields[0]?.String?.sval).flatMap(source=>source.columns);
+   const info=expression(t?.val),name=t?.name||column(t?.val)?.at(-1)||t?.val?.FuncCall?.funcname?.at(-1)?.String?.sval;
+   targets.push({name,...info});return [{name,...info}];
+  });
+ }
+ return {columns:select(tree.stmts?.[0]?.stmt?.SelectStmt),targets};
+}
+async function researchUnitsFor(sql){return unitsFromTree(await parse(sql));}
 async function draftDiagnostics(sql){
  const tree=await parse(sql),issues=new Set();
+ // Only proven raw monetary values trigger a draft repair. Aliases mentioning
+ // an asset, counts, USD, and unresolved expressions never imply zatoshis.
+ for(const target of unitsFromTree(tree).targets)if(/(?:^|_)zec(?:_|$)/i.test(target.name||'')&&target.unit==='zatoshi')issues.add('A column labelled ZEC must convert zatoshis in its own expression by dividing by 100000000, for example sum(fees)::numeric/100000000 AS fees_zec. Otherwise keep a zatoshi label.');
  function select(s,inherited=new Map(),requirements=new Map()){
   const scope=new Map(inherited);
   const requestedCounts=new Map();
@@ -81,4 +176,4 @@ async function compileResearchDraft(sql,input,run,{extended=false}={}){
  }
  throw askError('answer');
 }
-module.exports={draftDiagnostics,compileResearchDraft};
+module.exports={draftDiagnostics,compileResearchDraft,researchUnitsFor};

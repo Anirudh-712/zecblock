@@ -67,6 +67,18 @@ async function compileResearchSQL(input,{extended=false}={}){
    if(tag==='ColumnRef'){const path=n.fields||[];if(path.length>2||path.some(p=>p.String&&!identifier(p.String.sval)))throw Error('Invalid column');}
    if(tag==='ResTarget'&&(n.indirection?.length||n.name&&!identifier(n.name)))throw Error('Invalid result alias');
    if(tag==='RangeSubselect'&&n.lateral)throw Error('Lateral queries are not enabled');
+   if(tag==='SubLink'){
+    // Scalar/EXISTS/IN subqueries are supported; ARRAY/ROWCOMPARE/MULTIEXPR/CTE
+    // sublinks are not. ARRAY() builds unbounded in-memory arrays that evade
+    // work_mem/temp_file limits, so it must be rejected here.
+    if(!['EXISTS_SUBLINK','ANY_SUBLINK','ALL_SUBLINK','EXPR_SUBLINK'].includes(n.subLinkType))throw Error('Unsupported subquery');
+    // ANY/ALL carry an operator that the parser never routes through A_Expr, so
+    // validate it against the same allowlist to block OPERATOR(schema.op) forms.
+    if(['ANY_SUBLINK','ALL_SUBLINK'].includes(n.subLinkType)){
+     const op=n.operName?names(n.operName):[];
+     if(!(op.length===0||op.length===1&&operators.has(op[0])))throw Error('Operator is not allowed');
+    }
+   }
    if(tag==='WindowDef'&&(++windows>16||n.frameOptions>0x7ffff))throw Error('Invalid window frame');
    // Location/enums/primitive properties are parser-produced, never client AST.
    walk(n,scope,depth+1);return;

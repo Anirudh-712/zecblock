@@ -54,6 +54,44 @@ test('daily joins reject a resolved text/date mismatch, not a valid cast or unre
  assert.deepEqual(await draftDiagnostics("SELECT * FROM flow_daily WHERE pool='orchard'"),[]);
 });
 
+// Observed live: a drafted avg(fees) AS average_fee_zec published zatoshis as ZEC.
+test('ZEC-labelled draft columns must convert zatoshis in their own expression',async()=>{
+ for(const sql of ['SELECT avg(fees) AS average_fee_zec FROM blocks','WITH x AS (SELECT avg(fees) AS a_zec FROM blocks) SELECT a_zec FROM x','SELECT (SELECT max(fees) FROM blocks) AS max_zec FROM blocks'])assert.match((await draftDiagnostics(sql))[0],/labelled ZEC must convert zatoshis/);
+ for(const sql of ['SELECT avg(fees)/100000000 AS average_fee_zec FROM blocks','SELECT round(sum(fees)::numeric/100000000,8) AS fees_zec FROM blocks','WITH x AS (SELECT avg(fees)/100000000 AS a_zec FROM blocks) SELECT a_zec FROM x','WITH x AS (SELECT height,fees::numeric/100000000 AS fee_zec FROM blocks) SELECT avg(fee_zec) OVER (ORDER BY height) AS avg_fee_zec FROM x','SELECT max(fees) AS largest_fee FROM blocks'])assert.deepEqual(await draftDiagnostics(sql),[]);
+ const {benchmarks}=require('../../v1/lib/ask-research-benchmarks');
+ for(const benchmark of benchmarks){const compiled=await compileResearchSQL({version:3,sql:benchmark.sql,limit:100},{extended:true});assert.deepEqual(await draftDiagnostics(compiled.request.sql),[],benchmark.id);}
+});
+
+test('unit diagnostics preserve counts, USD asset labels and complete expression conversions',async()=>{
+ const {researchUnitsFor}=require('../../v1/lib/ask-research-plan-quality');
+ const cases=[
+  ['SELECT count(*) AS zec_transactions,count(fees) AS fee_count_zec FROM transactions',['count','count']],
+  ["SELECT sum(usd) AS zec_outflow_usd FROM swaps WHERE direction='outflow'",['usd']],
+  ['SELECT 0.00000001*avg(b.fees) AS average_fee_zec FROM blocks b',['zec']],
+  ['SELECT avg(b.fees)*0.00000001 AS average_fee_2026 FROM blocks b',['zec']],
+  ['WITH converted(fee) AS(SELECT fees::numeric/100000000 FROM blocks) SELECT avg(c.fee) AS avg_fee_2026 FROM converted c',['zec']],
+  ['SELECT avg(c.fee) AS average_fee FROM (SELECT fees::numeric/100000000 AS fee FROM blocks) c',['zec']],
+  ['SELECT b.height,(SELECT max(t.fees)::numeric/100000000 FROM transactions t WHERE t.height=b.height) AS fee FROM blocks b',['count','zec']],
+  ['WITH public_totals AS(SELECT sum(amount)::numeric/100000000 AS volume FROM flows),swap_totals AS(SELECT sum(usd) AS volume FROM swaps) SELECT p.volume,s.volume FROM public_totals p CROSS JOIN swap_totals s',['zec','usd']],
+  ['SELECT fees::numeric/100000000 AS fee FROM blocks UNION ALL SELECT fees::numeric/100000000 AS fee FROM transactions',['zec']],
+  ['SELECT 100*sum(fees)/nullif(sum(fees),0) AS fee_share FROM blocks',['scalar']],
+  ['SELECT CASE WHEN fees IS NULL THEN NULL ELSE fees::numeric/100000000 END AS fee_zec FROM blocks',['zec']],
+  ['SELECT coalesce(avg(fees)::numeric/100000000,0) AS fee_zec FROM blocks',['zec']],
+  ['SELECT sum(fees)+sum(fees)/100000000 AS fee_zec FROM blocks',['unknown']],
+  ['SELECT sqrt(avg(fees)) AS fee_zec FROM blocks',['unknown']],
+  ['SELECT lag(fees::numeric/100000000,1,fees) OVER(ORDER BY height) AS fee_zec FROM blocks',['unknown']],
+  ['SELECT lead(fees::numeric/100000000,1,0) OVER(ORDER BY height) AS fee_zec FROM blocks',['zec']],
+  ['SELECT fees AS fee_zec FROM blocks b JOIN transactions t ON t.height=b.height',['unknown']]
+ ];
+ for(const [sql,expected]of cases){
+  const compiled=await compileResearchSQL({version:3,sql,limit:100},{extended:true});
+  assert.deepEqual((await researchUnitsFor(compiled.request.sql)).columns.map(c=>c.unit),expected,sql);
+  assert.deepEqual(await draftDiagnostics(compiled.request.sql),[],sql);
+ }
+ // A conversion in FILTER or OVER does not convert the aggregate's measure.
+ for(const sql of ['SELECT sum(fees) FILTER(WHERE height/100000000>0) AS fee_zec FROM blocks','SELECT sum(fees) OVER(PARTITION BY height/100000000) AS fee_zec FROM blocks'])assert.match((await draftDiagnostics(sql))[0],/labelled ZEC must convert zatoshis/);
+});
+
 // Numerical oracle in one disposable PG16 cluster, never a configured DB URL.
 test('isolated PG16 reviewed baselines and pool windows preserve dates and missing measures',{skip:process.env.ASK_PLAN_TEST_POSTGRES!=='1'},async t=>{
  const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{execFileSync}=require('node:child_process'),{Pool,types}=require('pg');
