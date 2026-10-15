@@ -216,11 +216,7 @@ interface BftNodeData extends Record<string, unknown> {
 }
 
 function BftDecisionNode({ data }: NodeProps<Node<BftNodeData>>) {
-  const { decision, finalizerCount, isVoting } = data;
-  const pct =
-    finalizerCount > 0
-      ? (decision.signature_count / finalizerCount) * 100
-      : 0;
+  const { decision, isVoting } = data;
 
   const circleBg = isVoting
     ? 'bg-cipher-orange/20'
@@ -277,13 +273,7 @@ function BftDecisionNode({ data }: NodeProps<Node<BftNodeData>>) {
         </div>
         <div className="text-caption font-medium text-black dark:text-white">
           <span className="tabular-nums">{decision.signature_count}</span>
-          <span className="text-muted"> of </span>
-          <span className="tabular-nums">{finalizerCount}</span>
-          <span className="text-muted"> signed</span>
-          <span className="text-muted"> · </span>
-          <span className="tabular-nums text-secondary">
-            {pct.toFixed(0)}%
-          </span>
+          <span className="text-muted"> signatures observed</span>
         </div>
         <div className="font-mono text-caption truncate text-muted">
           {decision.pow_blocks_in_decision > 1

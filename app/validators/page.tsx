@@ -20,24 +20,27 @@ interface RosterMember {
   highest_round?: number | null;
   last_connected_utc?: number | null;
   connected?: boolean | null;
+  votingEligible?: boolean;
 }
 
 interface LivenessData {
+  available?: boolean;
+  unavailableReason?: string | null;
+  observedAt?: string | null;
   bftHeight: number | null;
   bftRound: number | null;
-  onlineCount: number;
-  offlineCount: number;
-  onlineStakeZec: number;
-  offlineStakeZec: number;
-  onlinePercent: number;
-  connectedCount?: number;
-  connectedStakeZec?: number;
-  connectedPercent?: number;
+  onlineCount: number | null;
+  onlineStakeZec: number | null;
+  onlinePercent: number | null;
+  connectedCount?: number | null;
+  connectedStakeZec?: number | null;
+  connectedPercent?: number | null;
 }
 
 interface ValidatorData {
   roster: RosterMember[];
   finalizerCount: number;
+  candidateCount: number;
   totalStakeZec: number;
   finalizedHeight: number;
   tipHeight: number;
@@ -49,6 +52,7 @@ export default function ValidatorsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [expiredObservation, setExpiredObservation] = useState<string | null>(null);
   // pubkey (lowercase) -> participation_pct over the last 500 blocks
   const [participation, setParticipation] = useState<Record<string, number>>({});
 
@@ -62,6 +66,7 @@ export default function ValidatorsPage() {
       setData({
         roster: json.roster || [],
         finalizerCount: json.finalizerCount || 0,
+        candidateCount: json.candidateCount ?? json.roster?.length ?? 0,
         totalStakeZec: json.totalStakeZec || 0,
         finalizedHeight: json.finalizedHeight || 0,
         tipHeight: json.tipHeight || 0,
@@ -86,6 +91,8 @@ export default function ValidatorsPage() {
       });
       setParticipation(next);
     } catch (err: any) {
+      setData(null);
+      setParticipation({});
       setError(err.message);
     } finally {
       setLoading(false);
@@ -95,15 +102,40 @@ export default function ValidatorsPage() {
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
+    const refreshVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      // Re-evaluate the observation age immediately after a backgrounded tab
+      // resumes, before the slower replacement RPC response arrives.
+      setData(current => current ? { ...current } : current);
+      void fetchData();
+    };
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshVisible);
+    };
   }, [fetchData]);
+
+  const observedAt = data?.liveness?.observedAt;
+  const observationAge = observedAt ? Date.now() - Date.parse(observedAt) : NaN;
+  // The API accepts a 60-second native snapshot and caches it for 30 seconds.
+  const observationCurrent = expiredObservation !== observedAt && Number.isFinite(observationAge) && observationAge >= -5000 && observationAge <= 90000;
+  useEffect(() => {
+    if (!observedAt) return;
+    const remaining = Date.parse(observedAt) + 90000 - Date.now();
+    if (!Number.isFinite(remaining) || remaining <= 0) return;
+    // Expire even if a foreground refresh never resolves. A new observation
+    // has its own timestamp, so an old expiry cannot hide a replacement.
+    const timer = setTimeout(() => setExpiredObservation(observedAt), remaining + 1);
+    return () => clearTimeout(timer);
+  }, [observedAt]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
       <PageHeader
         eyebrow="FINALIZER_ROSTER"
         title="Finalizer Roster"
-        subtitle="Active validators securing the Crosslink PoS finality layer"
+        subtitle="Voting finalizers and delegated-stake candidates on Crosslink"
       />
 
       <div className="mb-6">
@@ -115,9 +147,10 @@ export default function ValidatorsPage() {
           <div className="card p-4 text-center min-w-0">
             <span className="text-caption font-mono text-muted uppercase tracking-wider block mb-1">Finalizers</span>
             <span className="text-xl sm:text-2xl font-mono font-semibold text-primary tabular-nums whitespace-nowrap">{data.finalizerCount}</span>
+            <span className="text-caption font-mono text-muted block">{data.candidateCount} candidates</span>
           </div>
           <div className="card p-4 text-center min-w-0">
-            <span className="text-caption font-mono text-muted uppercase tracking-wider block mb-1">Total Stake</span>
+            <span className="text-caption font-mono text-muted uppercase tracking-wider block mb-1">Delegated Stake</span>
             <span className="text-xl sm:text-2xl font-mono font-semibold text-primary tabular-nums whitespace-nowrap">
               {data.totalStakeZec.toFixed(2)}
               <span className="text-caption font-medium text-muted ml-1">{CURRENCY}</span>
@@ -134,24 +167,25 @@ export default function ValidatorsPage() {
         </div>
       )}
 
-      {data?.liveness && (
+      {data?.liveness?.available === true && observationCurrent ? (
         <div className="card p-4 mb-8">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-mono text-muted uppercase tracking-wider">Finalizer Liveness</h3>
+            <h3 className="text-xs font-mono text-muted uppercase tracking-wider">Finalizer Observations</h3>
             <span className="text-caption font-mono text-muted">
               BFT height {data.liveness.bftHeight?.toLocaleString()} &middot; round {data.liveness.bftRound}
+              {observedAt ? <> &middot; <time dateTime={observedAt} title={observedAt}>{new Date(observedAt).toLocaleTimeString()}</time></> : null}
             </span>
           </div>
 
           {data.liveness.connectedPercent != null && (
             <>
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-caption font-mono text-muted uppercase w-16">Connected</span>
+                <span className="text-caption font-mono text-muted uppercase w-24">Recent packets</span>
                 <div className="flex-1 flex rounded-full overflow-hidden h-3 bg-cipher-border-alpha/30">
                   <div
                     className="bg-cipher-gold transition-[width] duration-500"
                     style={{ width: `${data.liveness.connectedPercent}%` }}
-                    title={`Connected: ${data.liveness.connectedCount} finalizers (${data.liveness.connectedStakeZec?.toFixed(2)} ${CURRENCY})`}
+                    title={`Packets observed within five minutes: ${data.liveness.connectedCount} voting finalizers (${data.liveness.connectedStakeZec?.toFixed(2)} ${CURRENCY})`}
                   />
                 </div>
                 <span className="text-caption font-mono text-cipher-gold w-24 text-right">
@@ -161,26 +195,30 @@ export default function ValidatorsPage() {
             </>
           )}
 
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-caption font-mono text-muted uppercase w-16">Voted</span>
+          {data.liveness.onlinePercent != null ? <div className="flex items-center gap-2 mb-2">
+            <span className="text-caption font-mono text-muted uppercase w-24">Votes this height</span>
             <div className="flex-1 flex rounded-full overflow-hidden h-3 bg-cipher-border-alpha/30">
               <div
                 className="bg-cipher-green transition-[width] duration-500"
                 style={{ width: `${data.liveness.onlinePercent}%` }}
-                title={`Voted: ${data.liveness.onlineCount} finalizers (${data.liveness.onlineStakeZec.toFixed(2)} ${CURRENCY})`}
+                title={`Vote observed: ${data.liveness.onlineCount} voting finalizers (${data.liveness.onlineStakeZec?.toFixed(2)} ${CURRENCY})`}
               />
             </div>
             <span className="text-caption font-mono text-cipher-green w-24 text-right">
               {data.liveness.onlineCount} ({data.liveness.onlinePercent}%)
             </span>
-          </div>
+          </div> : <p className="text-caption font-mono text-muted mb-2">Vote share is unavailable without a positive voting-stake total.</p>}
 
-          <div className="flex justify-between text-caption font-mono text-muted">
-            <span>{data.roster.length} total finalizers</span>
-            <span>{data.liveness.offlineCount} silent &middot; {data.liveness.offlineStakeZec.toFixed(2)} {CURRENCY} offline</span>
-          </div>
+          <p className="text-caption font-mono text-muted">
+            Observed by this node. Percentages use stake in the {data.finalizerCount}-member voting roster.
+            A missing vote at this height does not establish that a finalizer is offline.
+          </p>
         </div>
-      )}
+      ) : data ? (
+        <div className="card p-4 mb-8 text-sm text-muted" role="status">
+          Recent finalizer observations are unavailable. Vote and packet totals require a current matching voting roster.
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="card p-0 overflow-x-auto no-scrollbar">
@@ -246,7 +284,7 @@ export default function ValidatorsPage() {
               <thead>
                 <tr>
                   <th className="px-3 sm:px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-muted border-b border-cipher-border w-12 sm:w-16">Rank</th>
-                  <th className="px-2 py-3 text-center text-caption font-semibold uppercase tracking-wider text-muted border-b border-cipher-border w-10" title="Peer discovery status: gold = connected, green = voted, red = silent">Status</th>
+                  <th className="px-2 py-3 text-center text-caption font-semibold uppercase tracking-wider text-muted border-b border-cipher-border w-10" title="Local node observations: gold = recent packet, green = vote at this BFT height; gray = no observation or outside the voting roster">Status</th>
                   <th className="px-3 sm:px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-muted border-b border-cipher-border">Finalizer</th>
                   <th className="px-3 sm:px-4 py-3 text-right text-caption font-semibold uppercase tracking-wider text-muted border-b border-cipher-border">Stake ({CURRENCY})</th>
                   <th className="px-3 sm:px-4 py-3 text-right text-caption font-semibold uppercase tracking-wider text-muted border-b border-cipher-border w-20 sm:w-24">Share</th>
@@ -298,6 +336,12 @@ export default function ValidatorsPage() {
                       </td>
                       <td className="px-2 h-[60px] border-b border-cipher-border text-center">
                         {(() => {
+                          if (member.votingEligible === false) {
+                            return <span className="inline-block w-2.5 h-2.5 rounded-full bg-cipher-border-alpha/40" title="Delegated candidate outside the current voting roster" />;
+                          }
+                          if (data.liveness?.available !== true || !observationCurrent) {
+                            return <span className="inline-block w-2.5 h-2.5 rounded-full bg-cipher-border-alpha/40" title="Recent finalizer observations unavailable" />;
+                          }
                           const lastConn = member.last_connected_utc;
                           const ago = lastConn ? Math.max(0, Math.floor(Date.now() / 1000) - lastConn) : null;
                           const agoText = ago != null
@@ -307,7 +351,7 @@ export default function ValidatorsPage() {
                             return (
                               <span
                                 className="inline-block w-2.5 h-2.5 rounded-full bg-cipher-gold"
-                                title={`Connected (${agoText})${member.voted ? ' + voted' : ''}`}
+                                title={`Packet observed ${agoText}${member.voted ? '; vote observed at this height' : ''}`}
                               />
                             );
                           }
@@ -315,15 +359,15 @@ export default function ValidatorsPage() {
                             return (
                               <span
                                 className="inline-block w-2.5 h-2.5 rounded-full bg-cipher-green"
-                                title={`Voted (not directly connected${agoText ? `, last seen ${agoText}` : ''})`}
+                                title={`Vote observed at this height${agoText ? `; last packet ${agoText}` : ''}`}
                               />
                             );
                           }
                           if (member.voted === false) {
                             return (
                               <span
-                                className="inline-block w-2.5 h-2.5 rounded-full bg-danger/60"
-                                title={`Silent${agoText ? ` (last connected ${agoText})` : ''}`}
+                                className="inline-block w-2.5 h-2.5 rounded-full bg-cipher-border-alpha/40"
+                                title={`No vote observed at this BFT height${agoText ? `; last packet ${agoText}` : ''}`}
                               />
                             );
                           }

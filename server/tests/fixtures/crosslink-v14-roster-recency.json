@@ -1,0 +1,332 @@
+{
+  "sourceCommit": "eca0207c19469df3abd9da8290bf0aea94da8642",
+  "capturedAt": "2026-10-15T02:06:14.056968+00:00",
+  "roster": [
+    {
+      "pub_key": "09445c8c15b39c61c34ebc76a473976bdf42e22e8ce5cf3874bc435629583c43",
+      "voting_power": 234857660519
+    },
+    {
+      "pub_key": "24e66dea5c0c964aba73d267a91fa21261885653d68377d5351198f29ec1a11c",
+      "voting_power": 523841411644
+    },
+    {
+      "pub_key": "996b01d1533d66b711b8b340bded2d27f0bab135a97326d3f4fd05b5e0dacae5",
+      "voting_power": 25301631448
+    },
+    {
+      "pub_key": "cdc3fb6b7895c38ccc846d7d4c4a14feeb04764e74f41d5922387cbe5bd331d1",
+      "voting_power": 2631201064682
+    },
+    {
+      "pub_key": "146f412744b0e2b66466318626ea70baa0b61e2dca8babed217c7afa277f738b",
+      "voting_power": 2551112768
+    },
+    {
+      "pub_key": "cf5efaa7bd4b4873b4704e260a43e8102aef4ab857952c96fc2b4dc618aa9671",
+      "voting_power": 3852042782
+    },
+    {
+      "pub_key": "0835ce098b73767163fa4deee09acf49a538469ba9396652d49d04fd944e4390",
+      "voting_power": 1149010235
+    },
+    {
+      "pub_key": "e7b68007c162eaab9e75f0441b319913c298a2419abdde3cf4c800cb28a76340",
+      "voting_power": 3573264115789
+    },
+    {
+      "pub_key": "c4d9f4e95d500574f97028fe4bb1eae50441376a5695675dd8eb83ad8c45a587",
+      "voting_power": 2407653677351
+    },
+    {
+      "pub_key": "4ee265cb20b4de3bbc1d8248e358b54023724d826839887f843cb70f44763e61",
+      "voting_power": 255087642
+    },
+    {
+      "pub_key": "57e47b03ab3e7b9f0edaa1624d3ee2b5634fac9eb1dd8f44bce177fbb72d105f",
+      "voting_power": 10037143225
+    },
+    {
+      "pub_key": "7386acdc6ec4afe076f8b31477927e34cba989ce230debda0ad4e7b0f801a2e3",
+      "voting_power": 56131460246
+    },
+    {
+      "pub_key": "8fae6a26079221deecb1993a6bbd4dbd01b62a30f985f2426315a40923ef4129",
+      "voting_power": 246306546782
+    },
+    {
+      "pub_key": "b65bb28154a267703c065faa0c3b469085ecdea0697d19932bda25365d80830a",
+      "voting_power": 377540767834
+    },
+    {
+      "pub_key": "3a7db83bf61c9db73e24a0def5826ea116611847576c5d9a10ccf3c5cb9e0b2a",
+      "voting_power": 573278755874
+    },
+    {
+      "pub_key": "2cd24fd76ab079aa849e129de66cc3da6263ccd0b1b1508fef6f9cfdd9370d04",
+      "voting_power": 53499605119
+    },
+    {
+      "pub_key": "23a5b4f690d5dbe306c1c500c235dd9158dea34b48608d3138e6ec02eb3e37dd",
+      "voting_power": 1871232255639
+    },
+    {
+      "pub_key": "ee8d588e6c18c427df4bdae73b25665894c90e05a176a2f2f924f2c29ba73982",
+      "voting_power": 6179690711645
+    },
+    {
+      "pub_key": "17260141ce3f4e235a46e822603d19158a46bb14a9346c03a415ffe69bb7a3b3",
+      "voting_power": 637244798674
+    },
+    {
+      "pub_key": "30e763a2b168a5e807e30376895516decc7b6a2b31d225fe3403a14643055948",
+      "voting_power": 1294314492060
+    },
+    {
+      "pub_key": "4bd86615dedf10c8c07f1bcd0a5f8d85441f6717622b6f92a5bd7146e5da15fb",
+      "voting_power": 848981397541
+    },
+    {
+      "pub_key": "81c0542bccc40e62e7e9fb5717b635ac2681dde05bd253932d3896dc50f5625c",
+      "voting_power": 408123267
+    },
+    {
+      "pub_key": "351bd97c3be6b9d998940fac0747cc612c4dafdbc4feead5adfec9304d7ecf8d",
+      "voting_power": 26021514692
+    },
+    {
+      "pub_key": "15b62141e77536c03f11cd8e3c3fb56f146daafa5ddd3032ae7c7131197f4dda",
+      "voting_power": 63751583
+    },
+    {
+      "pub_key": "46ad9c974ab34178076924886439cf6dcdfe99558456d3ee51a3467ac682a75a",
+      "voting_power": 2390818429
+    }
+  ],
+  "recency": {
+    "now_utc": 1792029973,
+    "my_height": 12324,
+    "my_round": 0,
+    "my_step": 0,
+    "my_locked_round": -1,
+    "my_valid_round": -1,
+    "finalizer_statuses": [
+      [
+        "8239a79bc2f224f9f2a276a1050ec9945866253be7da4bdf27c4186c8e588dee",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029972
+        }
+      ],
+      [
+        "4063a728cb00c8f43cdebd9a41a298c21399311b44f0759eabea62c10780b6e7",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029741
+        }
+      ],
+      [
+        "d131d35bbe7c3822591df4744e7604ebfe144a4c7d6d84cc8cc395786bfbc3cd",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029972
+        }
+      ],
+      [
+        "87a5458cad83ebd85d6795566a374104e5eab14bfe2870f97405505de9f4d9c4",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029973
+        }
+      ],
+      [
+        "dd373eeb02ece638318d60484ba3de5891dd35c200c5c106e3dbd590f6b4a523",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029972
+        }
+      ],
+      [
+        "4859054346a10334fe25d2312b6a7bccde1655897603e307e8a568b1a263e730",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029973
+        }
+      ],
+      [
+        "fb15dae54671bda5926f2b6217671f44858d5f0acd1b7fc0c810dfde1566d84b",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029972
+        }
+      ],
+      [
+        "b3a3b79be6ff15a4036c34a914bb468a15193d6022e8465a234e3fce41012617",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029973
+        }
+      ],
+      [
+        "2a0b9ecbc5f3cc109a5d6c5747186116a16e82f5dea0243eb79d1cf63bb87d3a",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029973
+        }
+      ],
+      [
+        "1ca1c19ef2981135d57783d65356886112a21fa967d273ba4a960c5cea6de624",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029973
+        }
+      ],
+      [
+        "0a83805d3625da2b93197d69a0deec8590463b0caa5f063c7067a25481b25bb6",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029972
+        }
+      ],
+      [
+        "2941ef2309a4156342f285f9302ab601bd4dbd6b3a99b1ecde219207266aae8f",
+        {
+          "no_yes_votes_in_my_height": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ],
+          "highest_round_vote": 0,
+          "last_seen_new_info_utc": 0,
+          "last_direct_connection_utc": 1792029973
+        }
+      ]
+    ]
+  }
+}

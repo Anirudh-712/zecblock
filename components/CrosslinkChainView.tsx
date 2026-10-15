@@ -334,20 +334,18 @@ function ChainRow({
           {isVotingOn && bftTip && stats ? (
             <BftChip
               count={bftTip.signatureCount}
-              total={stats.finalizerCount}
               state="voting"
             />
           ) : decision && stats ? (
             <BftChip
               count={decision.signature_count}
-              total={stats.finalizerCount}
               state="signed"
               blocksInDecision={decision.pow_blocks_in_decision}
             />
           ) : isFinalized ? (
-            <BftChip count={0} total={0} state="final" />
+            <BftChip count={0} state="final" />
           ) : (
-            <BftChip count={0} total={0} state="pending" />
+            <BftChip count={0} state="pending" />
           )}
         </div>
       </div>
@@ -357,12 +355,10 @@ function ChainRow({
 
 function BftChip({
   count,
-  total,
   state,
   blocksInDecision,
 }: {
   count: number;
-  total: number;
   state: 'voting' | 'signed' | 'final' | 'pending';
   blocksInDecision?: number;
 }) {
@@ -388,9 +384,9 @@ function BftChip({
     );
   }
 
-  // signed or voting → show a mini circle with sig count + "of N"
+  // Historical decisions do not contain their roster denominator. The latest
+  // next-BFT roster must not be used to invent historical participation rates.
   const isVoting = state === 'voting';
-  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
   const circleColor = isVoting
     ? 'border-cipher-orange/70 bg-cipher-orange/15 text-cipher-orange'
     : 'border-cipher-coral/70 bg-cipher-coral/15 text-cipher-coral';
@@ -409,14 +405,14 @@ function BftChip({
       </span>
       <div className="text-caption font-mono leading-tight">
         <div className="text-black dark:text-white tabular-nums">
-          {isVoting ? 'voting' : `of ${total}`}
+          {isVoting ? 'voting' : 'signatures'}
         </div>
         <div className="text-muted tabular-nums">
           {isVoting
-            ? `${count}/${total}`
+            ? 'signatures observed'
             : blocksInDecision && blocksInDecision > 1
-            ? `${pct}% · ${blocksInDecision}b`
-            : `${pct}%`}
+            ? `${blocksInDecision} PoW blocks`
+            : 'observed'}
         </div>
       </div>
     </div>

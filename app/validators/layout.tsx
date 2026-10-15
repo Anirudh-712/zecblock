@@ -2,7 +2,7 @@ import { buildPageMetadata } from '@/lib/seo';
 
 export const metadata = buildPageMetadata({
   title: 'Zcash Crosslink Finalizers & Stake | ZecBlock',
-  description: 'View the Crosslink finalizer roster, delegated stake, network share, liveness, and recent voting participation.',
+  description: 'Explore Crosslink delegated-stake candidates, the next voting roster, and this node’s current vote and recent packet observations.',
   path: '/validators',
   index: false,
   networks: ['crosslink-testnet'],
