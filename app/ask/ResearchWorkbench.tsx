@@ -7,6 +7,7 @@ import {defaultResearchChart,shortLabel,supportsLine,cellLink} from '@/lib/ask/r
 import type { ResearchChart, ResearchDocument, ResearchLibrary, ResearchResult } from '@/lib/ask/research-contract';
 import { researchDocumentSchema } from '@/lib/ask/research-contract';
 import { emptyLibrary, readLibrary, writeLibrary, readPortable, mergePortable, markdownReport, MAX_BYTES } from '@/lib/ask/research-library';
+import { queryShare, dashboardShare, researchLink, sharedLibrary, type ResearchShare } from '@/lib/ask/research-share';
 import styles from './research.module.css';
 import askStyles from './ask.module.css';
 import {catalogueFor} from '../../lib/ask/research-catalogue';
@@ -42,21 +43,22 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [importing, setImporting] = useState(false);
+  const [shareURL, setShareURL] = useState('');
   useEffect(() => {
     try { const loaded = readLibrary(window.localStorage); raw.current = loaded.raw; setLibrary(loaded.library); setReady(true); }
     catch { setError('Browser storage is unavailable or contains an invalid library. Existing saves have been preserved.'); }
   }, []);
   function persist(next: ResearchLibrary) { raw.current = writeLibrary(window.localStorage, next, raw.current); setLibrary(next); }
   function accept(data: ResearchResult, label: string, fresh = true) {
-    setResult(data); setSQL(data.query.sql); setLimit(data.query.limit); setTitle(label.slice(0, 120)); setBoardId(null); setError(''); setNotice('');
+    setResult(data); setSQL(data.query.sql); setLimit(data.query.limit); setTitle(label.slice(0, 120)); setBoardId(null); setError(''); setNotice(''); setShareURL('');
     setChart(defaultResearchChart(data));
     if (fresh) { setId(null); setNotes(''); }
   }
-  function open(doc: ResearchDocument) {
+  function open(doc: ResearchDocument, shared = false) {
     setId(doc.id); setTitle(doc.title); setNotes(doc.notes); setSQL(doc.query.sql); setLimit(doc.query.limit); setChart(doc.chart); setResult(doc.result); setBoardId(null); setError('');
-    setNotice('Saved snapshot. Run the query to refresh its data.');
+    setShareURL(''); setNotice(shared ? 'Shared SQL is an unverified draft. Review it before running.' : 'Saved snapshot. Run the query to refresh its data.');
   }
-  function reset() { setId(null); setResult(null); setNotes(''); setTitle('My Zcash analysis'); setSQL(initialSQL); setLimit(100); setBoardId(null); setError(''); setNotice(''); }
+  function reset() { setId(null); setResult(null); setNotes(''); setTitle('My Zcash analysis'); setSQL(initialSQL); setLimit(100); setBoardId(null); setError(''); setNotice(''); setShareURL(''); }
   function document(): ResearchDocument {
     const current = result?.query.sql === sql && result.query.limit === limit ? result : null;
     return researchDocumentSchema.parse({ format: 'zecblock-research', version: 1, id: id || crypto.randomUUID(), title, notes, query: { version: 3, sql, limit }, chart, result: current, savedAt: new Date().toISOString() });
@@ -76,6 +78,23 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
     try { const doc = document(); download(report ? 'zecblock-research.md' : 'zecblock-research.json', report ? markdownReport(doc) : JSON.stringify(doc, null, 2), report ? 'text/markdown' : 'application/json'); setError(''); }
     catch { setError('Give this analysis a title and valid SQL before downloading.'); }
   }
+  async function copyLink(board = false) {
+    try {
+      const share = board && boardId ? dashboardShare(library, boardId) : queryShare(document());
+      const url = researchLink(share, window.location.origin); setShareURL(url); setError('');
+      try { await navigator.clipboard.writeText(url); setNotice('Link copied. It opens query drafts; results and notes are excluded.'); }
+      catch { setNotice('Link ready. Copy it from the field below.'); }
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not create this research link.'); }
+  }
+  function saveShared(share: ResearchShare) {
+    try {
+      const incoming = sharedLibrary(share, () => crypto.randomUUID(), new Date().toISOString());
+      const next = mergePortable(library, incoming, () => crypto.randomUUID()); persist(next);
+      setNotice('Shared queries saved in this browser. Review each query before running; no SQL has run.'); setError('');
+      if (share.kind === 'dashboard') setBoardId(next.dashboards.at(-1)!.id);
+      return true;
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not save this shared research.'); return false; }
+  }
   function remove() {
     if (!id || !window.confirm('Remove this saved analysis from this browser? Download a copy first if you want to keep it.')) return;
     try { persist({ ...library, documents: library.documents.filter(d => d.id !== id), dashboards: library.dashboards.map(d => ({ ...d, items: d.items.filter(item => item !== id) })) }); setId(null); setNotice('Removed the local save. The open analysis is still available.'); }
@@ -90,7 +109,7 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
     try { persist({ ...library, dashboards: library.dashboards.filter(d => d.id !== boardId) }); setBoardId(null); }
     catch { setError('Could not remove this dashboard.'); }
   }
-  return { library, ready, id, title, setTitle, notes, setNotes, sql, setSQL, limit, setLimit, result, chart, setChart, boardId, setBoardId, dashboard, setDashboard, notice, error, importing, accept, open, reset, save, importFile, exportFile, remove, addToDashboard, removeDashboard, downloadLibrary: () => download('zecblock-library.json', JSON.stringify(library, null, 2), 'application/json') };
+  return { library, ready, id, title, setTitle, notes, setNotes, sql, setSQL, limit, setLimit, result, chart, setChart, boardId, setBoardId, dashboard, setDashboard, notice, error, importing, shareURL, copyLink, saveShared, accept, open, reset, save, importFile, exportFile, remove, addToDashboard, removeDashboard, downloadLibrary: () => download('zecblock-library.json', JSON.stringify(library, null, 2), 'application/json') };
 }
 type Tools = ReturnType<typeof useResearchTools>;
 
@@ -143,7 +162,9 @@ export function ResearchPanel({ tools, result, busy, titleId = 'research-title' 
     <ResearchData result={result} chart={tools.chart} />
     <details className={styles.disclosure}><summary>Notes & downloads</summary><div className={styles.advanced}>
       <label className={styles.field}>Research notes<textarea name="notes" autoComplete="off" className={styles.input} maxLength={4000} value={tools.notes} onChange={event => tools.setNotes(event.target.value)} rows={3} /></label>
-      <div className={styles.actions}><button className={styles.button} onClick={() => tools.exportFile(false)}>Download research</button><button className={styles.button} onClick={() => tools.exportFile(true)}>Download report</button></div>
+      <div className={styles.actions}><button className={styles.button} onClick={() => void tools.copyLink()}>Copy query link</button><button className={styles.button} onClick={() => tools.exportFile(false)}>Download research</button><button className={styles.button} onClick={() => tools.exportFile(true)}>Download report</button></div>
+      <ShareLinkField tools={tools} />
+      <p className={styles.caption}>Links contain the title, SQL and chart settings. Anyone with the link can open the draft. Notes and result snapshots are excluded; queries never run automatically.</p>
       <p className={styles.caption}>Research files include your query, notes and saved results. Reports are readable Markdown documents. Edited queries need a new run to include verified results.</p>
       <label className={styles.field}>Dashboard name<input name="dashboard" autoComplete="off" className={styles.input} value={tools.dashboard} maxLength={120} onChange={event => tools.setDashboard(event.target.value)} placeholder="My Zcash research…" /></label>
       <div className={styles.actions}><button className={styles.button} disabled={!tools.ready || busy || tools.importing || !tools.id || !tools.dashboard.trim()} onClick={tools.addToDashboard}>Add to dashboard</button>{tools.id ? <button className={styles.button} disabled={busy || tools.importing} onClick={tools.remove}>Remove local save</button> : null}</div>
@@ -153,5 +174,23 @@ export function ResearchPanel({ tools, result, busy, titleId = 'research-title' 
 export function ResearchDashboard({ tools, busy, onOpen }: { tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void }) {
   const board = tools.library.dashboards.find(d => d.id === tools.boardId);
   if (!board) return null;
-  return <section aria-label="Saved dashboard"><div className={styles.toolbar}><h2 className={styles.resultTitle}>{board.title}</h2><button className={styles.button} onClick={() => tools.setBoardId(null)}>Back to analysis</button></div><p className={styles.caption}>Saved snapshots · open an analysis to refresh it</p><div className={styles.dashboard}>{board.items.map(id => { const doc = tools.library.documents.find(d => d.id === id)!; return <article key={id} className={askStyles.analysis}><div className={styles.panelBody}><button className={styles.textButton} disabled={busy} onClick={() => onOpen(doc)}>{doc.title} →</button>{doc.result ? <ResearchData result={doc.result} chart={doc.chart} /> : <p className={styles.caption}>Run this query to add its results.</p>}</div></article>; })}</div><div className={styles.actions}><button className={styles.button} onClick={tools.downloadLibrary}>Download dashboard library</button><button className={styles.button} onClick={tools.removeDashboard}>Remove dashboard</button></div><ResearchStatus tools={tools} /></section>;
+  return <section aria-label="Saved dashboard"><div className={styles.toolbar}><h2 className={styles.resultTitle}>{board.title}</h2><button className={styles.button} onClick={() => tools.setBoardId(null)}>Back to analysis</button></div><p className={styles.caption}>Saved snapshots · open an analysis to refresh it</p><div className={styles.dashboard}>{board.items.map(id => { const doc = tools.library.documents.find(d => d.id === id)!; return <article key={id} className={askStyles.analysis}><div className={styles.panelBody}><button className={styles.textButton} disabled={busy} onClick={() => onOpen(doc)}>{doc.title} →</button>{doc.result ? <ResearchData result={doc.result} chart={doc.chart} /> : <p className={styles.caption}>Run this query to add its results.</p>}</div></article>; })}</div><div className={styles.actions}><button className={styles.button} onClick={() => void tools.copyLink(true)}>Copy dashboard link</button><button className={styles.button} onClick={tools.downloadLibrary}>Download dashboard library</button><button className={styles.button} onClick={tools.removeDashboard}>Remove dashboard</button></div><ShareLinkField tools={tools} /><p className={styles.caption}>Dashboard links contain query drafts, titles and chart settings. Results and notes are excluded; queries never run automatically.</p><ResearchStatus tools={tools} /></section>;
+}
+
+function ShareLinkField({ tools }: { tools: Tools }) {
+  return tools.shareURL ? <label className={styles.field}>Research link<input readOnly name="research-link" type="url" autoComplete="off" spellCheck={false} className={`${styles.input} ${styles.shareInput}`} value={tools.shareURL} onFocus={event => event.currentTarget.select()} /></label> : null;
+}
+export function SharedResearchDraft({ share, tools, busy, enabled, onOpen, onDismiss }: { share: ResearchShare; tools: Tools; busy: boolean; enabled: boolean; onOpen: (doc: ResearchDocument) => void; onDismiss: () => void }) {
+  return <section className={styles.sharedDraft} aria-label="Shared research draft">
+    <div className={styles.toolbar}><div><p className={styles.eyebrow}>{share.kind === 'dashboard' ? 'SHARED DASHBOARD' : 'SHARED QUERY'}</p><h2 className={styles.resultTitle}>{share.title}</h2></div><button className={styles.button} onClick={onDismiss}>Dismiss</button></div>
+    <p className={styles.caption}>Unverified query drafts · no SQL has run. Review before running. Your existing saves have not changed.</p>
+    {share.queries.map((item, index) => <article className={styles.sharedItem} key={index}>
+      {share.kind === 'dashboard' ? <h3 className={styles.dataset}>{item.title}</h3> : null}
+      <details className={styles.catalogue}><summary>Review SQL</summary><pre className={styles.shareSQL} translate="no" tabIndex={0} aria-label="SQL draft">{item.query.sql}</pre></details>
+      <div className={styles.actions}><button className={styles.button} disabled={busy || tools.importing || !enabled} onClick={() => onOpen(sharedLibrary({ ...share, kind: 'query', title: item.title, queries: [item] }, () => crypto.randomUUID(), new Date().toISOString()).documents[0])}>Open query draft</button></div>
+    </article>)}
+    {!enabled ? <p className={styles.caption}>SQL research is not enabled on this connection. You can still inspect these drafts.</p> : null}
+    <div className={styles.actions}><button className={styles.button} disabled={!tools.ready || busy || tools.importing} onClick={() => { if (tools.saveShared(share)) onDismiss(); }}>Save {share.kind === 'dashboard' ? 'dashboard' : 'query'} in this browser</button></div>
+    <ResearchStatus tools={tools} />
+  </section>;
 }

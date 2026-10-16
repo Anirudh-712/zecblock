@@ -6,7 +6,7 @@ import { analysisSchema, resolveShortcut, starters, type AnalysisSpec } from '@/
 import { getApiUrl } from '@/lib/api-config';
 import { readApiResponse } from '@/lib/api-client';
 import styles from './ask.module.css';
-import { useResearchTools, ResearchLibrary, ResearchEditor, ResearchPanel, ResearchData, ResearchDashboard } from './ResearchWorkbench';
+import { useResearchTools, ResearchLibrary, ResearchEditor, ResearchPanel, ResearchData, ResearchDashboard, SharedResearchDraft } from './ResearchWorkbench';
 import type { ResearchDocument, ResearchResult } from '@/lib/ask/research-contract';
 import type {ResearchJobStatus} from '@/lib/ask/research-job-contract';
 import {jobTicketSchema} from '@/lib/ask/research-job-contract';
@@ -24,6 +24,7 @@ import { sqlDraft } from '@/lib/ask/composer';
 import { AskFeedback, AskFailureFeedback, useAskFeedback } from '@/components/ask/AskFeedback';
 import { describeMetric } from '@/lib/ask/data';
 import { AskAnalysis } from './AskAnalysis';
+import { readResearchLink, type ResearchShare } from '@/lib/ask/research-share';
 
 const categories = ['Featured', 'Pools', 'Ironwood', 'Cross-chain', 'Network'];
 type Message = { state?: 'pending' | 'complete' | 'failed' | 'cancelled'; sql?: string; research?: ResearchResult; analytics?: AskReply['analytics']; transactions?: AskReply['transactions']; blocks?: AskReply['blocks']; dataContext?: AskReply['dataContext']; id: number; question: string; answer: string; spec?: AnalysisSpec; viewSpec?: AnalysisSpec; sources?: AskSource[]; transfers?: AskReply['transfers']; locale?: string; scope?: string };
@@ -44,6 +45,7 @@ export function AskWorkspace() {
   const tools = useResearchTools(handoff?.turns.at(-1)?.research, handoff?.turns.at(-1)?.question);
   const [activeId, setActiveId] = useState(0);
   const [question, setQuestion] = useState('');
+  const [sharedResearch, setSharedResearch] = useState<ResearchShare | null>(null);
   const [sqlInput, setSQLInput] = useState('');
   const [sqlLimit, setSQLLimit] = useState(100);
   const [expanded, setExpanded] = useState<Message | null>(null);
@@ -79,6 +81,14 @@ export function AskWorkspace() {
   const transactions = latestRecords?.transactions;
   const analytics = latestRecords?.analytics;
   const research = latestRecords?.research;
+  useEffect(() => {
+    const readShare = () => {
+      try { setSharedResearch(readResearchLink(window.location.hash)); }
+      catch (failure) { setSharedResearch(null); setChatError(failure instanceof Error ? failure.message : 'This research link is invalid.'); }
+    };
+    readShare(); window.addEventListener('hashchange', readShare);
+    return () => window.removeEventListener('hashchange', readShare);
+  }, []);
   useEffect(() => { if (expanded && !resultDialog.current?.open) resultDialog.current?.showModal(); else if(!expanded && resultDialog.current?.open) resultDialog.current.close(); }, [expanded]);
 
   useEffect(() => {
@@ -195,11 +205,11 @@ export function AskWorkspace() {
     }
   }
 
-  function openSaved(doc: ResearchDocument) {
+  function openSaved(doc: ResearchDocument, shared = false) {
     if(busy||tools.importing)return;
-    tools.open(doc);const id=++serial.current;
-    setSessions(all=>[{id,title:doc.title,spec:null,messages:[{id,question:doc.title,sql:doc.query.sql,answer:doc.result?'Opened your saved analysis. These are saved results; run its SQL to refresh them.':'Opened your saved query. Choose Run SQL to refresh its results.',research:doc.result||undefined}]},...all].slice(0,12));
-    setActiveId(id);setQuestion('');setSQLInput(doc.result ? '' : doc.query.sql);setSQLLimit(doc.query.limit);setInputMode('sql');setNotice(doc.result ? 'Saved results loaded. Choose Edit query to run them again.' : 'Saved query loaded. Run SQL to refresh its results.');feedback.clear();setChatError('');
+    tools.open(doc, shared);const id=++serial.current;
+    setSessions(all=>[{id,title:doc.title,spec:null,messages:[{id,question:doc.title,sql:doc.query.sql,answer:shared?'Opened a shared query draft. Review the SQL, then choose Run SQL. No query has run.':doc.result?'Opened your saved analysis. These are saved results; run its SQL to refresh them.':'Opened your saved query. Choose Run SQL to refresh its results.',research:doc.result||undefined}]},...all].slice(0,12));
+    setActiveId(id);setQuestion('');setSQLInput(doc.result ? '' : doc.query.sql);setSQLLimit(doc.query.limit);setInputMode('sql');setNotice(shared ? 'Shared query loaded. Review it before running.' : doc.result ? 'Saved results loaded. Choose Edit query to run them again.' : 'Saved query loaded. Run SQL to refresh its results.');feedback.clear();setChatError('');
   }
   async function runSQL() {
     if(busy||request.current||tools.importing||feedback.blocked||!sqlInput.trim()||!capabilityReady)return;
@@ -291,6 +301,7 @@ export function AskWorkspace() {
     </aside>
 
     <div className={`${styles.main} ${hasMessages && !tools.boardId ? styles.threadMain : ''}`}>
+      {sharedResearch ? <SharedResearchDraft share={sharedResearch} tools={tools} busy={busy} enabled={capability.researchEnabled === true} onDismiss={() => setSharedResearch(null)} onOpen={doc => { openSaved(doc, true); setSharedResearch(null); }} /> : null}
       {tools.boardId ? <ResearchDashboard tools={tools} busy={busy} onOpen={openSaved}/> : !hasMessages ? <div className={styles.welcome}>
         <AskMark /><h2 className="text-3xl sm:text-4xl font-medium tracking-tight text-primary mt-6">Follow your curiosity.</h2>
         <p className="mt-3 mb-8 text-secondary text-sm sm:text-base leading-relaxed">Ask a question. Find the signal.<br className="sm:hidden" /> Make the data your own.</p>

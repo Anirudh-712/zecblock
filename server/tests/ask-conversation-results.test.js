@@ -19,6 +19,7 @@ function workspace(handoff) {
     '@/lib/ask/client': {peekAskHandoff:() => handoff}, '@/lib/ask/composer': {sqlDraft:() => null},
     '@/components/ask/AskFeedback': {AskFeedback:() => null, AskFailureFeedback:() => null, useAskFeedback:() => ({blocked:false})},
     '@/lib/ask/data': require('../../lib/ask/data'),
+    '@/lib/ask/research-share': require('../../lib/ask/research-share'),
     './AskAnalysis': {AskAnalysis:({spec}) => React.createElement('article', {'data-record':'preset', 'data-period':spec.period}, spec.metric)},
   };
   m.require = name => Object.hasOwn(imports, name) ? imports[name] : name.endsWith('.module.css') ? new Proxy({}, {get:(_,key) => key}) : base(name);

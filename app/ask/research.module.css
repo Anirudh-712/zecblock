@@ -70,3 +70,11 @@
 .scroll:focus-visible,.panelBody button:focus-visible,.panelBody select:focus-visible,.table a:focus-visible {outline:2px solid var(--color-gold);outline-offset:3px;}
 
 .toolbar .button {flex-shrink:0;white-space:nowrap;}
+
+.shareInput {font-family:var(--font-geist-mono),monospace;font-size:12px;}
+.sharedDraft {border:1px solid var(--color-border);border-radius:8px;padding:24px;margin-bottom:24px;min-width:0;text-align:left;}
+.sharedItem + .sharedItem {border-top:1px solid var(--color-border);margin-top:20px;padding-top:12px;}
+.shareSQL {font-family:var(--font-geist-mono),monospace;font-size:12px;line-height:1.7;color:var(--color-text-secondary);overflow:auto;max-height:240px;margin-top:12px;padding:12px;border:1px solid var(--color-border);border-radius:6px;}
+@media(max-width:640px){.sharedDraft{padding:18px}.shareInput{font-size:16px}}
+
+.shareSQL:focus-visible {outline:2px solid var(--color-gold);outline-offset:3px;}
