@@ -7,8 +7,11 @@ Type=oneshot
 WorkingDirectory=/root/cipherscan
 Environment=NODE_PATH=/root/cipherscan/server/api/node_modules
 EnvironmentFile=/etc/cipherscan/subsidy-allocations.env
+StateDirectory=cipherscan-subsidy-allocations
+StateDirectoryMode=0700
 ExecStart=/usr/bin/node server/jobs/maintain-subsidy-allocations.js
 TimeoutStartSec=60
+TimeoutStopSec=5
 Nice=15
 CPUWeight=10
 IOWeight=10

@@ -41,15 +41,22 @@ function harness(options = {}) {
       if (/FROM (?:public\.)?blocks/.test(sql) && /height\s*=\s*0/.test(sql)) {
         return { rows: [{ hash: options.databaseGenesis ?? genesis }] };
       }
-      if (/FROM (?:public\.)?blocks/.test(sql)) return { rows: candidates.slice(0, params[3]) };
+      if (/FROM (?:public\.)?blocks/.test(sql)) {
+        const excluded = new Set(params[4] ?? []);
+        return { rows: candidates.filter(row => !excluded.has(row.hash)).slice(0, params[3]) };
+      }
       throw new Error(`Unexpected database query: ${sql}`);
     },
     release() { released = true; },
   };
   const pool = { connect: async () => client };
-  const rpc = async (method, params = []) => {
-    rpcCalls.push({ method, params });
-    if (method === 'getblockchaininfo') return options.info ?? info;
+  const rpc = async (method, params = [], rpcOptions = {}) => {
+    rpcCalls.push({ method, params, options: rpcOptions });
+    options.onRpc?.(method, params);
+    if (method === 'getblockchaininfo') {
+      if (options.infoError) throw options.infoError;
+      return options.info ?? info;
+    }
     if (method === 'getblockhash') {
       if (Number(params[0]) === 0) return options.nodeGenesis ?? genesis;
       allocationHashReads++;
@@ -57,8 +64,10 @@ function harness(options = {}) {
       return candidates.find(row => Number(row.height) === Number(params[0]))?.hash ?? hash;
     }
     if (method === 'getblocksubsidy') {
-      if (options.rpcError) throw options.rpcError;
-      return options.subsidy === undefined ? subsidy : options.subsidy;
+      const error = typeof options.rpcError === 'function' ? options.rpcError(params[0]) : options.rpcError;
+      if (error) throw error;
+      return typeof options.subsidy === 'function' ? options.subsidy(params[0])
+        : options.subsidy === undefined ? subsidy : options.subsidy;
     }
     throw new Error(`Unexpected RPC method: ${method}`);
   };
@@ -70,6 +79,8 @@ test('maintenance stores exact historical allocations without manufacturing rese
   const result = await maintainAllocations(h.pool, h.rpc, { network: 'testnet' });
   assert.equal(result.processed, 1);
   assert.equal(result.written, 1);
+  assert.deepEqual(result.writtenHashes, [hash]);
+  assert.deepEqual(result.failures, []);
   assert.equal(h.inserts.length, 1);
   const values = h.inserts[0].params.map(String);
   for (const expected of [hash, String(activationHeight), 'test', '0', '4166666', '41666668']) {
@@ -104,6 +115,7 @@ test('the guarded insert may lose a canonical race or find an existing immutable
   const result = await maintainAllocations(h.pool, h.rpc, { network: 'testnet' });
   assert.equal(result.processed, 1);
   assert.equal(result.written, 0);
+  assert.deepEqual(result.writtenHashes, []);
   assert.equal(h.released, true);
 });
 
@@ -118,7 +130,9 @@ test('malformed, missing, negative and fractional-zatoshi RPC amounts remain mis
     { ...subsidy, founders: Number.NaN },
   ]) {
     const h = harness({ subsidy: response });
-    await assert.rejects(maintainAllocations(h.pool, h.rpc, { network: 'testnet' }), /allocations unavailable/);
+    const result = await maintainAllocations(h.pool, h.rpc, { network: 'testnet' });
+    assert.equal(result.status, 'partial');
+    assert.deepEqual(result.failures, [{ height: activationHeight, hash, message: 'Historical subsidy allocations unavailable.' }]);
     assert.equal(h.inserts.length, 0);
     assert.equal(h.released, true);
   }
@@ -169,9 +183,11 @@ test('an unscheduled mainnet does not backfill arbitrary historical allocations'
 test('an exhausted wall-clock budget starts no historical subsidy work', async () => {
   const h = harness();
   let ticks = 0;
-  await assert.rejects(maintainAllocations(h.pool, h.rpc, {
+  const result = await maintainAllocations(h.pool, h.rpc, {
     network: 'testnet', timeBudgetMs: 10, now: () => ticks++ === 0 ? 0 : 11,
-  }), /time budget exhausted/);
+  });
+  assert.equal(result.status, 'budget');
+  assert.deepEqual(result.failures, []);
   assert.equal(h.rpcCalls.filter(call => call.method === 'getblocksubsidy').length, 0);
   assert.equal(h.released, true);
 });
@@ -188,6 +204,8 @@ test('maintenance stops between rows when its budget expires', async () => {
   assert.equal(result.status, 'budget');
   assert.equal(result.processed, 1);
   assert.equal(result.written, 1);
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.writtenHashes, [hash]);
   assert.equal(h.rpcCalls.filter(call => call.method === 'getblocksubsidy').length, 1);
   assert.equal(h.released, true);
 });
@@ -209,16 +227,82 @@ test('invalid invocation cannot connect to the database or node', async () => {
     {}, { network: 'crosslink' }, { network: 'testnet', limit: 0 },
     { network: 'testnet', limit: 501 }, { network: 'testnet', limit: 1.5 },
     { network: 'testnet', timeBudgetMs: 0 }, { network: 'testnet', timeBudgetMs: 60_001 },
+    { network: 'testnet', excludeHashes: null }, { network: 'testnet', excludeHashes: 'bad' },
+    { network: 'testnet', excludeHashes: ['bad'] }, { network: 'testnet', excludeHashes: [hash.toUpperCase()] },
+    { network: 'testnet', excludeHashes: Array(5001).fill(hash) },
   ]) await assert.rejects(maintainAllocations(h.pool, h.rpc, options));
   assert.equal(h.queries.length, 0);
   assert.equal(h.rpcCalls.length, 0);
 });
 
-test('RPC and insertion failures release the worker session and write no successful rows', async () => {
-  for (const options of [{ rpcError: new Error('RPC unavailable') }, { insertError: new Error('database unavailable') }]) {
+test('insertion and network discovery failures remain fatal and release the worker session', async () => {
+  for (const options of [{ infoError: new Error('node unavailable') }, { insertError: new Error('database unavailable') }]) {
     const h = harness(options);
     await assert.rejects(maintainAllocations(h.pool, h.rpc, { network: 'testnet' }));
     assert.equal(h.released, true);
     assert.ok(h.queries.some(query => /pg_advisory_unlock/.test(query.sql)));
+  }
+});
+
+test('an unavailable or malformed earliest height does not block later valid receipts', async () => {
+  for (const options of [
+    { rpcError: height => height === activationHeight ? new Error('upstream response contains secret material') : null },
+    { subsidy: height => height === activationHeight ? { ...subsidy, founders: 'secret material' } : subsidy },
+  ]) {
+    const h = harness({ ...options, candidates: [
+      { height: activationHeight, hash },
+      { height: activationHeight + 1, hash: otherHash },
+    ] });
+    const result = await maintainAllocations(h.pool, h.rpc, { network: 'testnet' });
+    assert.equal(result.status, 'partial');
+    assert.equal(result.processed, 2);
+    assert.equal(result.written, 1);
+    assert.deepEqual(result.writtenHashes, [otherHash]);
+    assert.equal(result.failures.length, 1);
+    assert.equal(result.failures[0].height, activationHeight);
+    assert.equal(result.failures[0].hash, hash);
+    assert.match(result.failures[0].message, /^Historical subsidy (RPC|allocations) unavailable\.$/);
+    assert.doesNotMatch(JSON.stringify(result), /secret material/);
+    assert.equal(h.released, true);
+  }
+});
+
+test('excluded failed hashes leave the bounded batch available to later gaps', async () => {
+  const h = harness({ candidates: [
+    { height: activationHeight, hash },
+    { height: activationHeight + 1, hash: otherHash },
+  ] });
+  const result = await maintainAllocations(h.pool, h.rpc, { network: 'testnet', limit: 1, excludeHashes: [hash] });
+  assert.equal(result.candidates, 1);
+  assert.equal(result.processed, 1);
+  assert.deepEqual(result.writtenHashes, [otherHash]);
+  assert.deepEqual(result.failures, []);
+  assert.ok(h.queries.some(query => /ANY\(\$5::text\[\]\)/.test(query.sql) && query.params[4]?.[0] === hash));
+  assert.equal(h.rpcCalls.filter(call => call.method === 'getblocksubsidy' && call.params[0] === activationHeight).length, 0);
+});
+
+test('the exclusion bound accepts 5000 valid hashes without unnecessary RPC work', async () => {
+  const h = harness();
+  const result = await maintainAllocations(h.pool, h.rpc, { network: 'testnet', excludeHashes: Array(5000).fill(hash) });
+  assert.equal(result.processed, 0);
+  assert.equal(result.written, 0);
+  assert.equal(h.rpcCalls.filter(call => call.method === 'getblocksubsidy').length, 0);
+});
+
+test('deadline exhaustion during a candidate never marks that height for backoff', async () => {
+  for (const rpcError of [undefined, new Error('RPC timeout')]) {
+    let currentTime = 0;
+    const h = harness({ rpcError, onRpc: method => {
+      if (method === 'getblocksubsidy') currentTime = 11;
+    } });
+    const result = await maintainAllocations(h.pool, h.rpc, {
+      network: 'testnet', timeBudgetMs: 10, now: () => currentTime,
+    });
+    assert.equal(result.status, 'budget');
+    assert.equal(result.written, 0);
+    assert.deepEqual(result.failures, []);
+    assert.deepEqual(result.writtenHashes, []);
+    assert.equal(h.inserts.length, 0);
+    assert.equal(h.released, true);
   }
 });

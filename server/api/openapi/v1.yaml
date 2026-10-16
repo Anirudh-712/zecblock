@@ -1910,7 +1910,10 @@ paths:
   /v1/system/health/deep:
     get:
       operationId: get_system_Health_Deep
-      summary: Deep health check including DB connectivity.
+      summary: >-
+        Uncached deep health check including DB connectivity and, when configured, historical
+        subsidy allocation repair freshness and coverage. An unavailable, stale or unhealthy repair
+        monitor returns HTTP 503.
       tags:
         - system
       x-cipherscan-legacy-path: /health/deep
@@ -1919,7 +1922,10 @@ paths:
       x-cipherscan-v1-status: adapter
       responses:
         '200':
-          description: Deep health check including DB connectivity.
+          description: >-
+            Uncached deep health check including DB connectivity and, when configured, historical
+            subsidy allocation repair freshness and coverage. An unavailable, stale or unhealthy
+            repair monitor returns HTTP 503.
           content:
             application/json:
               schema:

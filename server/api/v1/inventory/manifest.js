@@ -60,7 +60,7 @@ const MANIFEST = [
   {
     method: 'GET', legacyPath: '/health/deep', file: 'server/api/routes/blocks.js',
     classification: 'ops', domain: 'system', auth: 'none',
-    description: 'Deep health check including DB connectivity.',
+    description: 'Uncached deep health check including DB connectivity and, when configured, historical subsidy allocation repair freshness and coverage. An unavailable, stale or unhealthy repair monitor returns HTTP 503.',
     v1: { path: '/v1/system/health/deep', status: 'adapter', shape: 'passthrough' },
   },
   {
