@@ -1,11 +1,15 @@
 // Period charts aggregate exact block amounts in PostgreSQL, before returning
 // at most ~241 UTC buckets. Do not round 60% of an already aggregated fee sum.
-const PERIOD_SQL = `WITH canonical AS MATERIALIZED (
+const { allocationJoin, allocationColumns, sampledSubsidyZatSql } = require('./subsidy-allocations');
+
+function accountingPeriodSql(withAllocations = false) {
+  return `WITH canonical AS MATERIALIZED (
   SELECT b.height, b.hash, b.timestamp, b.transaction_count, a.nsm_balance_zat,
-    a.subsidy, t.*,
+    a.subsidy, ${allocationColumns(withAllocations)}, t.*,
     b.height - lag(b.height, 1, $2::bigint - 1) OVER (ORDER BY b.height) - 1 AS missing_before
   FROM blocks b
   LEFT JOIN node_accounting_observations a ON a.height=b.height AND a.hash=b.hash AND a.chain=$3
+  ${allocationJoin(withAllocations, '$3')}
   LEFT JOIN LATERAL (
     SELECT count(txid) AS tx_count, count(*) FILTER (WHERE is_coinbase) AS coinbases,
       count(*) FILTER (WHERE NOT is_coinbase AND (fee IS NULL OR fee < 0)) AS invalid_fees,
@@ -14,17 +18,19 @@ const PERIOD_SQL = `WITH canonical AS MATERIALIZED (
         FILTER (WHERE is_coinbase) AS coinbase_value
     FROM transactions WHERE block_height=b.height AND block_hash=b.hash
   ) t ON true WHERE b.height BETWEEN $2 AND $1
+), allocations AS MATERIALIZED (
+  SELECT *, coalesce(allocation_founders_zat::numeric, ${sampledSubsidyZatSql('founders')}) AS founders_zat,
+    coalesce(allocation_funding_streams_zat::numeric, ${sampledSubsidyZatSql('fundingstreamstotal')}) AS funding_streams_zat
+  FROM canonical
 ), amounts AS MATERIALIZED (
   SELECT *, CASE WHEN tx_count=transaction_count AND coinbases=1 AND invalid_fees=0
     AND fees BETWEEN 0 AND 2100000000000000 THEN fees END AS paid,
     CASE WHEN tx_count=transaction_count AND coinbases=1 AND invalid_fees=0
       AND coinbase_value BETWEEN 0 AND 2100000000000000
-      AND (subsidy->>'founders')::numeric * 100000000 = trunc((subsidy->>'founders')::numeric * 100000000)
-      AND (subsidy->>'fundingstreamstotal')::numeric * 100000000 = trunc((subsidy->>'fundingstreamstotal')::numeric * 100000000)
-      AND (subsidy->>'founders')::numeric >= 0 AND (subsidy->>'fundingstreamstotal')::numeric >= 0
-      AND coinbase_value >= ((subsidy->>'founders')::numeric + (subsidy->>'fundingstreamstotal')::numeric)*100000000
-    THEN coinbase_value - ((subsidy->>'founders')::numeric + (subsidy->>'fundingstreamstotal')::numeric)*100000000 END AS receipts
-  FROM canonical
+      AND founders_zat IS NOT NULL AND funding_streams_zat IS NOT NULL
+      AND coinbase_value >= founders_zat + funding_streams_zat
+    THEN coinbase_value - founders_zat - funding_streams_zat END AS receipts
+  FROM allocations
 ), exact AS MATERIALIZED (
   SELECT *, floor(paid*3/5) AS removed FROM amounts
 ), bounds AS (
@@ -32,7 +38,7 @@ const PERIOD_SQL = `WITH canonical AS MATERIALIZED (
 ), buckets AS (
   SELECT floor(e.timestamp / bounds.bucket_seconds)::bigint * bounds.bucket_seconds AS timestamp,
     min(height) AS first_height, max(height) AS last_height, count(*)::int AS blocks,
-    count(paid)::int AS fee_blocks, count(nsm_balance_zat)::int AS nsm_samples,
+    count(paid)::int AS fee_blocks, count(receipts)::int AS receipt_blocks, count(nsm_balance_zat)::int AS nsm_samples,
     sum(missing_before)::int AS missing_blocks,
     CASE WHEN count(paid)=count(*) AND sum(missing_before)=0 THEN sum(paid)::text END AS fees_paid_zat,
     CASE WHEN count(paid)=count(*) AND sum(missing_before)=0 THEN sum(removed)::text END AS fees_to_nsm_zat,
@@ -45,7 +51,7 @@ const PERIOD_SQL = `WITH canonical AS MATERIALIZED (
   SELECT *, CASE WHEN sum(unknown_fees) OVER (ORDER BY timestamp)=0
     THEN (sum(removed_sum) OVER (ORDER BY timestamp))::text END AS cumulative_removal_zat FROM buckets
 ), totals AS (
-  SELECT jsonb_build_object('blocks',count(*),'feeBlocks',count(paid),'nsmSamples',count(nsm_balance_zat),
+  SELECT jsonb_build_object('blocks',count(*),'feeBlocks',count(paid),'receiptBlocks',count(receipts),'nsmSamples',count(nsm_balance_zat),
     'missingBlocks',coalesce(sum(missing_before),0),
     'feesPaidZat',CASE WHEN count(*)>0 AND count(paid)=count(*) AND sum(missing_before)=0 THEN sum(paid)::text END,
     'feesToNsmZat',CASE WHEN count(*)>0 AND count(paid)=count(*) AND sum(missing_before)=0 THEN sum(removed)::text END,
@@ -53,7 +59,7 @@ const PERIOD_SQL = `WITH canonical AS MATERIALIZED (
     'firstHeight',min(height),'lastHeight',max(height),'firstTimestamp',min(timestamp),'lastTimestamp',max(timestamp)) AS value
   FROM exact
 ), selected AS (
-  SELECT jsonb_build_object('blocks',count(*),'feeBlocks',count(paid),'nsmSamples',count(nsm_balance_zat),
+  SELECT jsonb_build_object('blocks',count(*),'feeBlocks',count(paid),'receiptBlocks',count(receipts),'nsmSamples',count(nsm_balance_zat),
     'missingBlocks',coalesce(sum(missing_before),0),
     'feesPaidZat',CASE WHEN count(*)>0 AND count(paid)=count(*) AND sum(missing_before)=0 THEN sum(paid)::text END,
     'feesToNsmZat',CASE WHEN count(*)>0 AND count(paid)=count(*) AND sum(missing_before)=0 THEN sum(removed)::text END,
@@ -65,7 +71,7 @@ const PERIOD_SQL = `WITH canonical AS MATERIALIZED (
   -- cumulative value still includes all earlier NU7 blocks.
   SELECT floor(e.timestamp / bounds.bucket_seconds)::bigint * bounds.bucket_seconds AS timestamp,
     min(height) AS first_height, max(height) AS last_height, count(*)::int AS blocks,
-    count(paid)::int AS fee_blocks, count(nsm_balance_zat)::int AS nsm_samples,
+    count(paid)::int AS fee_blocks, count(receipts)::int AS receipt_blocks, count(nsm_balance_zat)::int AS nsm_samples,
     sum(missing_before)::int AS missing_blocks,
     CASE WHEN count(paid)=count(*) AND sum(missing_before)=0 THEN sum(paid)::text END AS fees_paid_zat,
     CASE WHEN count(paid)=count(*) AND sum(missing_before)=0 THEN sum(removed)::text END AS fees_to_nsm_zat,
@@ -83,12 +89,14 @@ SELECT (SELECT value FROM totals) AS totals, (SELECT value FROM selected) AS sel
   (SELECT row_to_json(baseline) FROM baseline) AS baseline,
   (SELECT row_to_json(tip) FROM tip) AS tip,
   coalesce((SELECT jsonb_agg(jsonb_build_object('timestamp',s.timestamp,'firstHeight',s.first_height,
-    'lastHeight',s.last_height,'blocks',s.blocks,'feeBlocks',s.fee_blocks,'nsmSamples',s.nsm_samples,
+    'lastHeight',s.last_height,'blocks',s.blocks,'feeBlocks',s.fee_blocks,'receiptBlocks',s.receipt_blocks,'nsmSamples',s.nsm_samples,
     'missingBlocks',s.missing_blocks,'feesPaidZat',s.fees_paid_zat,'feesToNsmZat',s.fees_to_nsm_zat,
     'minerFeeAllocationZat',s.miner_fee_allocation_zat,'minerReceiptsZat',s.miner_receipts_zat,
     'nsmBalanceZat',CASE WHEN s.missing_blocks=0 THEN s.nsm_balance_zat END,
     'cumulativeRemovalZat',c.cumulative_removal_zat) ORDER BY s.timestamp)
     FROM selected_buckets s JOIN cumulative c USING(timestamp)), '[]'::jsonb) AS points`;
+}
+const PERIOD_SQL = accountingPeriodSql();
 
 function periodPayload(row, period, schedule, info, observedAt) {
   const baseline = row.baseline ?? null;
@@ -106,4 +114,4 @@ function periodPayload(row, period, schedule, info, observedAt) {
     nsmChangeMeaning: 'Net reserve growth from the preactivation sample, not cumulative fees or gross removal.' };
 }
 
-module.exports = { PERIOD_SQL, periodPayload };
+module.exports = { PERIOD_SQL, accountingPeriodSql, periodPayload };

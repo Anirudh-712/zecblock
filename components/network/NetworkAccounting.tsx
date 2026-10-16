@@ -14,10 +14,10 @@ type Accounting = { schedule: { network: string; nu7Height: number | null } | nu
   block: { height: number; feesPaidZat: number | string | null; feesToNsmZat: number | string | null; minerFeeAllocationZat: number | string | null;
     minerSubsidyZat: number | string | null; minerReceiptsZat: number | string | null; reissuanceZat: number | string | null } | null };
 
-type Totals = { blocks: number; feeBlocks: number; nsmSamples: number; missingBlocks: number; feesPaidZat: string | null;
+type Totals = { blocks: number; feeBlocks: number; receiptBlocks?: number; nsmSamples: number; missingBlocks: number; feesPaidZat: string | null;
   feesToNsmZat: string | null; minerFeeAllocationZat: string | null; firstHeight: number | null; lastHeight: number | null;
   firstTimestamp: number | null; lastTimestamp: number | null };
-type Point = { timestamp: number; firstHeight: number; lastHeight: number; blocks: number; feeBlocks: number; nsmSamples: number;
+type Point = { timestamp: number; firstHeight: number; lastHeight: number; blocks: number; feeBlocks: number; receiptBlocks?: number; nsmSamples: number;
   missingBlocks: number; feesPaidZat: string | null; feesToNsmZat: string | null; minerFeeAllocationZat: string | null;
   minerReceiptsZat: string | null; nsmBalanceZat: string | null; cumulativeRemovalZat: string | null };
 type Period = '1d' | '7d' | '30d' | 'all';
@@ -68,6 +68,9 @@ export function NetworkAccounting() {
   });
   const series = historySeries[metric];
   const hasValues = selected?.points.some(point => series.some(([key]) => point[key] != null));
+  const completeReceiptBuckets = selected?.points.filter(point => point.minerReceiptsZat != null && Number.isFinite(Number(point.minerReceiptsZat))).length ?? 0;
+  const receiptBlocks = selected?.selected.receiptBlocks;
+  const hasReceiptCoverage = Number.isSafeInteger(receiptBlocks) && receiptBlocks! >= 0 && receiptBlocks! <= (selected?.selected.blocks ?? 0);
   if (!nu7Active) return null;
   const block = data.block;
   const bucketLabel = selected ? selected.bucketSeconds < 3600 ? `${selected.bucketSeconds/60}-minute` : selected.bucketSeconds < 86400
@@ -122,9 +125,10 @@ export function NetworkAccounting() {
             {payload?.[0]?.payload?.firstHeight != null && <div className="text-caption mt-1">Blocks {payload[0].payload.firstHeight.toLocaleString()}–{payload[0].payload.lastHeight.toLocaleString()}
               {metric === 'fees' && <div>Fees paid: {zec(payload[0].payload.feesPaidZat)}</div>}</div>}
           </div>} formatter={(_value, name, item) => [zec(item.payload[String(item.dataKey).replace(/Display$/, '')]), name]} />
-          {series.map(([key, name, color]) => metric === 'fees'
-            ? <Bar key={key} dataKey={key + 'Display'} name={name} fill={colors[color]} stackId="fees" isAnimationActive={false} />
-            : <Line key={key} dataKey={key + 'Display'} name={name} stroke={colors[color]} type={metric === 'receipts' ? 'linear' : 'stepAfter'}
+          {series.map(([key, name, color]) => metric === 'fees' || metric === 'receipts'
+            ? <Bar key={key} dataKey={key + 'Display'} name={name} fill={colors[color]} stackId={metric === 'fees' ? 'fees' : undefined}
+              maxBarSize={metric === 'receipts' ? 18 : undefined} isAnimationActive={false} />
+            : <Line key={key} dataKey={key + 'Display'} name={name} stroke={colors[color]} type="stepAfter"
               dot={false} connectNulls={false} isAnimationActive={false} strokeWidth={2} />)}
         </ComposedChart>
       </ResponsiveContainer> : <p role="status" className="min-h-[280px] flex items-center justify-center text-center text-sm text-muted">{history.loading || (!selected && !history.error)
@@ -133,10 +137,11 @@ export function NetworkAccounting() {
         {series.map(([key, name, color]) => <li key={key} className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-3 h-0.5" style={{ backgroundColor: colors[color] }} />{name}</li>)}
       </ul>}
       <p className="text-caption text-muted">{metric === 'fees' ? 'Total column height = fees paid.' : metric === 'cumulative' ? 'Cumulative minimum removal starts at NU7 activation, including earlier blocks outside the selected range.'
-        : metric === 'reserve' ? 'Reserve balance at the last block sampled in each bucket.' : 'Actual miner receipts summed within each bucket.'} Amounts in {CURRENCY}; exact values in tooltips.</p>
+        : metric === 'reserve' ? 'Reserve balance at the last block sampled in each bucket.' : 'Each column sums actual miner receipts in a complete bucket.'} Amounts in {CURRENCY}; exact values in tooltips.</p>
       {selected && <div className="text-caption text-muted mt-2 space-y-1">
         <p>{bucketLabel} buckets · Block-header times in UTC · {selected.selected.firstTimestamp != null ? `${utc(selected.selected.firstTimestamp)}–${utc(selected.selected.lastTimestamp!)}` : 'No blocks in this period'}.</p>
-        <p>{selected.selected.feeBlocks.toLocaleString()} of {selected.selected.blocks.toLocaleString()} blocks have complete fees · {selected.selected.nsmSamples.toLocaleString()} reserve samples{selected.selected.missingBlocks ? ` · ${selected.selected.missingBlocks.toLocaleString()} missing blocks` : ''}. Missing observations remain gaps.</p>
+        {metric === 'receipts' ? <p>{hasReceiptCoverage ? `${receiptBlocks!.toLocaleString()} of ${selected.selected.blocks.toLocaleString()} blocks have miner receipts` : 'Block receipt coverage unavailable'} · {completeReceiptBuckets.toLocaleString()} of {selected.points.length.toLocaleString()} reported buckets have complete receipts{selected.selected.missingBlocks ? ` · ${selected.selected.missingBlocks.toLocaleString()} missing blocks` : ''}. Incomplete receipt buckets remain gaps.</p>
+          : <p>{selected.selected.feeBlocks.toLocaleString()} of {selected.selected.blocks.toLocaleString()} blocks have complete fees · {selected.selected.nsmSamples.toLocaleString()} reserve samples{selected.selected.missingBlocks ? ` · ${selected.selected.missingBlocks.toLocaleString()} missing blocks` : ''}. Missing observations remain gaps.</p>}
         {selected.selected.firstHeight === activationHeight && period !== 'all' && <p>Available history begins at NU7 activation; this period is not yet fully elapsed.</p>}
       </div>}
       {(history.error || (selected?.indexedHeight != null && selected.nodeHeight > selected.indexedHeight)) && <p role="status" className="text-caption text-warning mt-2">{history.error ? 'History refresh unavailable. Displayed data may be stale.' : `History is ${selected!.nodeHeight - selected!.indexedHeight!} blocks behind the node.`}</p>}
@@ -156,7 +161,7 @@ export function NetworkAccounting() {
         <p>All ranges include only blocks at or after the serving node’s NU7 activation height. Since NU7 includes the full available activation history. Amounts require complete indexed transactions; missing blocks or fees make the affected total unavailable.</p>
         <p>Actual miner receipts exclude funding and founders’ payouts. Subsidy allocations are shown once in Issuance below.</p>
         <p>The signed NSM reserve is separate from circulating supply and cumulative fees. Reserve growth subtracts the hash-matched sample immediately before activation from the latest indexed block sample. Missing baseline or end samples make growth unavailable. The current node reserve can be newer than the history.</p>
-        <p>Reserve and miner-receipt samples begin when collection is enabled. Missing bucket-end reserve samples remain gaps. The RPC does not separately report reissuance.</p>
+        <p>Reserve samples begin when collection is enabled; missing bucket-end samples remain gaps. Miner receipts use complete indexed coinbase payouts and retained or historical node subsidy allocations. The RPC does not separately report reissuance.</p>
       </div>
     </details>
   </CardBody></Card></section>;

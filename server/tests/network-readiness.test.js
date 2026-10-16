@@ -43,6 +43,7 @@ test('history preserves exact reserve values, misses and decreases without infer
   assert.equal(points[1].nsmNetChangeZat, '-1');
   for (const i of [0, 2, 3, 4]) assert.equal(points[i].nsmNetChangeZat, null);
   assert.equal(points[0].minerReceiptsZat, '80000004');
+  assert.equal(points[0].receiptSource, 'indexed-coinbase-and-retained-tip-subsidy');
   assert.equal(points[0].reissuanceZat, null);
   assert.equal(historyPoints([base], schedule, 'main')[0].minerReceiptsZat, null);
 });
@@ -52,4 +53,22 @@ test('block rounding occurs before historical aggregation, including across acti
   assert.equal(points.reduce((sum, p) => sum + BigInt(p.feesToNsmZat), 0n), 2n);
   assert.equal(points[0].nsmBalanceZat, null);
   assert.match(points[0].accountingUnavailableReason, /No matching/);
+});
+
+test('canonical historical allocations recover actual receipts while NSM samples remain missing', () => {
+  const cached = { ...row, coinbase_value: '100000001',
+    allocation_founders_zat: '0', allocation_funding_streams_zat: '20000000', allocation_miner_zat: '80000000' };
+  const [point] = historyPoints([cached], schedule, 'test');
+  assert.equal(point.minerReceiptsZat, '80000001');
+  assert.equal(point.receiptSource, 'indexed-coinbase-and-historical-node-subsidy');
+  assert.equal(point.minerSubsidyZat, '80000000');
+  assert.equal(point.minerFeeAllocationZat, '2');
+  assert.notEqual(BigInt(point.minerReceiptsZat), BigInt(point.minerSubsidyZat) + BigInt(point.minerFeeAllocationZat), 'actual coinbase underclaim is preserved');
+  assert.equal(point.nsmBalanceZat, null); assert.equal(point.nsmNetChangeZat, null);
+  assert.equal(point.observedAt, null); assert.match(point.accountingUnavailableReason, /No matching/);
+  assert.equal(historyPoints([{ ...cached, allocation_miner_zat: null }], schedule, 'test')[0].minerReceiptsZat, '80000001');
+  assert.equal(historyPoints([{ ...cached, allocation_founders_zat: '-1' }], schedule, 'test')[0].minerReceiptsZat, null);
+  assert.equal(historyPoints([{ ...cached, allocation_founders_zat: '-1' }], schedule, 'test')[0].receiptSource, null);
+  const sampled = { ...cached, allocation_founders_zat: '-1', chain: 'test', subsidy: { miner: 0.8, founders: 0, fundingstreamstotal: 0.2 } };
+  assert.equal(historyPoints([sampled], schedule, 'test')[0].minerReceiptsZat, '80000001', 'invalid cache falls back to the matching real sample');
 });

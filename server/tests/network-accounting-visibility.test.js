@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { createRequire } = require('node:module');
 const vm = require('node:vm');
 const ts = require('typescript');
 
@@ -18,7 +19,7 @@ function render(data, { network = 'mainnet', error = null, historyData = undefin
     if (name === '@/components/ui/SectionHeader') return { SectionHeader: 'SectionHeader' };
     if (name === '@/components/charts/ChartTooltip') return { ChartTooltip: 'Tooltip' };
     if (name === '@/contexts/ThemeContext') return { useTheme: () => ({ theme: 'dark' }) };
-    if (name === '@/lib/chart-theme') return { getChartColors: () => ({}) };
+    if (name === '@/lib/chart-theme') return { getChartColors: () => ({ gold: '#d4a44a' }) };
     if (name === '@/lib/config') return { NETWORK: network, CURRENCY: 'ZEC' };
     if (name === '@/components/ui/Card') return { Card: 'Card', CardBody: 'CardBody' };
     if (name === '@/hooks/useApiQuery') return { useApiQuery(url, params, options) {
@@ -104,4 +105,88 @@ test('range changes never plot retained data under a new period, and reserve/cum
     assert.equal(nodes(result.tree,'Line')[0].props.type,'stepAfter');
     assert.equal(nodes(result.tree,'Line')[0].props.connectNulls,false);
   }
+});
+
+function textContent(tree) {
+  if (tree == null || typeof tree === 'boolean') return '';
+  if (Array.isArray(tree)) return tree.map(textContent).join('');
+  if (typeof tree === 'object') return textContent(tree.props?.children);
+  return String(tree);
+}
+
+// Complete fees do not imply complete coinbase-receipt observations. The middle
+// receipt bucket is isolated between unknown totals, as in the real 7D incident.
+const sparseReceiptHistory = {
+  ...periodHistory, period: '7d', bucketSeconds: 2700, nodeHeight: 4400005, indexedHeight: 4400005,
+  selected: { ...periodHistory.selected, blocks: 6, feeBlocks: 6, receiptBlocks: 3, nsmSamples: 6,
+    lastHeight: 4400005, lastTimestamp: 6010 },
+  points: [null, '2500000000', null].map((minerReceiptsZat, i) => ({
+    ...periodHistory.points[0], timestamp: 600 + i * 2700,
+    firstHeight: 4400000 + i * 2, lastHeight: 4400001 + i * 2,
+    blocks: 2, feeBlocks: 2, receiptBlocks: [1, 2, 0][i], nsmSamples: 2,
+    missingBlocks: 0, minerReceiptsZat,
+  })),
+};
+
+test('isolated receipt buckets render real Recharts bars while unknown totals remain absent', () => {
+  const result = render(snapshot(4400005, 4400000, 'test'), {
+    network: 'testnet', historyData: sparseReceiptHistory, period: '7d', metric: 'receipts',
+  });
+  const chart = nodes(result.tree, 'ComposedChart')[0];
+  const bars = nodes(result.tree, 'Bar');
+  assert.equal(bars.length, 1);
+  assert.equal(nodes(result.tree, 'Line').length, 0);
+  assert.equal(bars[0].props.dataKey, 'minerReceiptsZatDisplay');
+  assert.equal(bars[0].props.stackId, undefined);
+  assert.deepEqual(Array.from(chart.props.data, point => point.minerReceiptsZatDisplay), [null, 25, null]);
+
+  // Recharts' complete chart needs browser layout effects. Exercise its actual
+  // bar geometry and SVG renderer here, rather than only checking mocked props.
+  const chartRequire = createRequire(require.resolve('recharts/package.json'));
+  const React = chartRequire('react');
+  const { renderToStaticMarkup } = chartRequire('react-dom/server');
+  const { computeBarRectangles } = chartRequire('./lib/cartesian/Bar');
+  const { Rectangle } = chartRequire('.');
+  const rectangles = computeBarRectangles({
+    layout: 'horizontal', barSettings: { ...bars[0].props, minPointSize: 0, hasCustomShape: false },
+    pos: { offset: 0, size: bars[0].props.maxBarSize }, bandSize: 100,
+    xAxis: { type: 'category' },
+    yAxis: { type: 'number', scale: { domain: () => [0, 50], map: value => value == null ? undefined : 250 - Number(value) * 5 } },
+    xAxisTicks: chart.props.data.map((_, i) => ({ coordinate: i * 100 })), yAxisTicks: [],
+    displayedData: chart.props.data, offset: { top: 0, left: 0, width: 300, height: 250 }, dataStartIndex: 0,
+  });
+  assert.equal(rectangles.length, 1, 'unknown receipt buckets must not become zero-filled bars');
+  assert.equal(rectangles[0].payload.timestamp, 3300);
+  assert.ok(rectangles[0].width > 0 && rectangles[0].height > 0, 'isolated known bucket has visible area');
+  const svg = renderToStaticMarkup(React.createElement('svg', null, rectangles.map((rectangle, i) => React.createElement(Rectangle, {
+    key: i, x: rectangle.x, y: rectangle.y, width: rectangle.width, height: rectangle.height, fill: bars[0].props.fill,
+  }))));
+  assert.match(svg, /class="recharts-rectangle"/);
+  assert.match(svg, /fill="#d4a44a"/);
+  assert.equal((svg.match(/<path/g) || []).length, 1);
+  assert.match(svg, /d="[^"]+"/);
+});
+
+test('receipt coverage distinguishes missing receipt observations from complete fees', () => {
+  const data = snapshot(4400005, 4400000, 'test');
+  const options = { network: 'testnet', historyData: sparseReceiptHistory, period: '7d', metric: 'receipts' };
+  const text = textContent(render(data, options).tree);
+  assert.match(text, /3 of 6 blocks have miner receipts/);
+  assert.match(text, /1 of 3 reported buckets have complete receipts/);
+  assert.match(text, /Incomplete receipt buckets remain gaps/);
+  assert.doesNotMatch(text, /blocks have complete fees/);
+
+  for (const receiptBlocks of [undefined, null, -1, 7, '3']) {
+    const historyData = { ...sparseReceiptHistory, selected: { ...sparseReceiptHistory.selected, receiptBlocks } };
+    const fallback = textContent(render(data, { ...options, historyData }).tree);
+    assert.match(fallback, /Block receipt coverage unavailable/);
+    assert.match(fallback, /1 of 3 reported buckets have complete receipts/);
+  }
+
+  const historyData = { ...sparseReceiptHistory,
+    points: sparseReceiptHistory.points.map(point => ({ ...point, minerReceiptsZat: null })) };
+  const empty = render(data, { ...options, historyData });
+  assert.equal(nodes(empty.tree, 'ComposedChart').length, 0);
+  assert.match(textContent(empty.tree), /No complete observations for this metric in this period/);
+  assert.match(textContent(empty.tree), /0 of 3 reported buckets have complete receipts/);
 });
