@@ -22,7 +22,7 @@ export function TransactionTable({ address, data, currentPage, totalPages, pageS
       if (other === 'shielded') return <TxTypeBadge category="shielded" />;
       return other && other !== address ? <HashLink value={other} href={`/address/${other}`} lead={6} tail={4} copy={false} /> : <span className="text-xs text-muted">—</span>;
     } },
-    { id: 'block', header: 'Block', className: 'hidden md:table-cell', cell: tx => tx.blockHeight ? <Link href={`/block/${tx.blockHeight}`} className="text-xs font-mono text-secondary hover:text-primary">{tx.blockHeight.toLocaleString('en-US')}</Link> : <span className="text-xs text-muted">—</span> },
+    { id: 'block', header: 'Block', className: 'hidden md:table-cell', cell: tx => tx.blockHeight ? <Link href={`/block/${tx.blockHeight}`} prefetch={false} className="text-xs font-mono text-secondary hover:text-primary">{tx.blockHeight.toLocaleString('en-US')}</Link> : <span className="text-xs text-muted">—</span> },
     { id: 'amount', header: `Balance change (${CURRENCY})`, align: 'right', cell: tx => <span className={`text-xs font-mono whitespace-nowrap ${tx.amount === 0 ? 'text-secondary' : tx.type === 'received' ? 'text-cipher-green' : 'text-danger'}`}>{tx.amount === 0 ? '' : tx.type === 'received' ? '+' : '−'}{Math.abs(tx.amount).toLocaleString('en-US', { maximumFractionDigits: 8 })}</span> },
     { id: 'age', header: 'Age', align: 'right', cell: tx => <RelativeTime timestamp={tx.timestamp} className="text-xs text-muted whitespace-nowrap" /> },
   ];

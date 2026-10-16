@@ -80,7 +80,7 @@ export function TxOverview({ data }: TxOverviewProps) {
           <div className="flex flex-wrap items-start gap-3">
             <FactBox hug label="Block" tooltip="The block that includes this transaction">
               <div className="flex items-center gap-2 flex-wrap text-sm">
-                <Link href={`/block/${data.blockHeight}`} className="text-primary hover:underline font-mono">
+                <Link href={`/block/${data.blockHeight}`} prefetch={false} className="text-primary hover:underline font-mono">
                   #{data.blockHeight.toLocaleString()}
                 </Link>
                 <span className="text-muted text-xs whitespace-nowrap">

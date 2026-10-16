@@ -164,7 +164,7 @@ function PowBlockNode({ data }: NodeProps<Node<PowNodeData>>) {
       />
 
       <Link
-        href={`/block/${block.height}`}
+        href={`/block/${block.height}`} prefetch={false}
         className={`group absolute inset-0 flex items-stretch rounded-lg border ${borderClass} bg-white dark:bg-white/[0.03] overflow-hidden hover:border-cipher-gold/60 hover:shadow-[0_0_20px_rgba(248,188,33,0.12)] transition`}
       >
         <span className={`block w-1 shrink-0 ${accentClass}`} />

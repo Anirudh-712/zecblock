@@ -48,7 +48,7 @@ export function FutureBlockView({
             )}
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Link
-                href={`/block/${targetHeight}`}
+                href={`/block/${targetHeight}`} prefetch={false}
                 className="btn btn-md btn-primary"
               >
                 View Block →
@@ -134,7 +134,7 @@ export function FutureBlockView({
           <dl className="mt-6 grid grid-cols-1 gap-5 border-t border-cipher-border pt-6 sm:grid-cols-2 sm:gap-8">
             <div>
               <dt className="text-sm text-secondary mb-2">Latest block</dt>
-              <dd className="font-mono text-primary tabular-nums"><Link href={`/block/${currentHeight}`} className="hover:text-cipher-gold transition-colors">#{currentHeight.toLocaleString('en-US')}</Link></dd>
+              <dd className="font-mono text-primary tabular-nums"><Link href={`/block/${currentHeight}`} prefetch={false} className="hover:text-cipher-gold transition-colors">#{currentHeight.toLocaleString('en-US')}</Link></dd>
             </div>
             <div>
               <dt className="text-sm text-secondary mb-2">{upgrade ? 'Activation block' : 'Upcoming block'}</dt>

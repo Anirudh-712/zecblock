@@ -16,7 +16,7 @@ function BlockNavPill({ height, hash, direction }: { height: number; hash?: stri
   const disabled = !hash;
   return (
     <Link
-      href={disabled ? '#' : `/block/${height}`}
+      href={disabled ? '#' : `/block/${height}`} prefetch={false}
       aria-disabled={disabled}
       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-mono transition-colors ${
         disabled

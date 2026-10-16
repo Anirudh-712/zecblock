@@ -25,7 +25,7 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-function handleApiRateLimit(request: NextRequest): NextResponse {
+function handleApiRateLimit(request: NextRequest, includeQuotaHeaders = true): NextResponse {
   const ip =
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     request.headers.get('x-real-ip') ||
@@ -63,6 +63,10 @@ function handleApiRateLimit(request: NextRequest): NextResponse {
   }
 
   const response = NextResponse.next();
+  // Shared CDN responses must not replay the first visitor's per-IP quota.
+  // Keep enforcement above; a rejected request still receives its own quota
+  // and Retry-After headers from the uncached 429 response.
+  if (!includeQuotaHeaders) return response;
   const remaining = Math.max(0, RATE_LIMIT.maxRequests - userData.count);
 
   response.headers.set('X-RateLimit-Limit', RATE_LIMIT.maxRequests.toString());
@@ -116,6 +120,23 @@ export async function proxy(request: NextRequest) {
       status: 404,
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, follow' },
     });
+  }
+  // One cache identity per identifier. These aliases already share canonical
+  // metadata, but otherwise cause separate on-demand page generations. Keep
+  // block-hash lookups (including persistent orphans) distinct from heights.
+  const detailPath = request.nextUrl.pathname.match(/^\/(tx|block)\/([^/]+)$/);
+  if (detailPath) {
+    const [, kind, identifier] = detailPath;
+    const isHash = /^[a-fA-F0-9]{64}$/.test(identifier);
+    const isHeight = kind === 'block' && /^\d+$/.test(identifier)
+      && Number(identifier) <= 100_000_000;
+    const normalized = isHash ? identifier.toLowerCase()
+      : isHeight ? String(Number(identifier)) : identifier;
+    if (normalized !== identifier) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/${kind}/${normalized}`;
+      return NextResponse.redirect(url, 308);
+    }
   }
   // Keep filtered archives dynamic and the unfiltered list on its ISR route.
   // Vercel permits at most 16 has/missing conditions per static routing rule.
@@ -180,7 +201,7 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith('/api/')) {
-    return handleApiRateLimit(request);
+    return handleApiRateLimit(request, pathname !== '/api/governance/announcement');
   }
 
   // Block pages take their CDN lifetime from ISR (getBlockResolution): one
@@ -190,5 +211,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/name/:path*', '/api/:path*', '/block/:path*', '/blocks', '/governance/:path*', '/charts/:slug'],
+  // Canonical lowercase tx URLs bypass Proxy; only uppercase aliases need it.
+  matcher: ['/name/:path*', '/api/:path*', '/tx/:txid((?=[a-fA-F0-9]{0,63}[A-F])[a-fA-F0-9]{64})', '/block/:path*', '/blocks', '/governance/:path*', '/charts/:slug'],
 };

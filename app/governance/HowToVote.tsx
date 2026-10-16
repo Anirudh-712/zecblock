@@ -27,7 +27,7 @@ export function HowToVote({ snapshotHeight }: { snapshotHeight?: number }) {
           <h3 className="text-sm font-medium text-primary"><span className="mr-2 font-mono text-cipher-gold">02</span>Check your eligible balance</h3>
           <p className="mt-2 text-sm leading-relaxed text-secondary">Follow the wallet’s eligibility check. Each poll uses a snapshot: an earlier point in the blockchain used to determine which funds can vote.</p>
           {snapshotHeight !== undefined && (
-            <Link href={`/block/${snapshotHeight}`} className="mt-2 inline-block text-xs text-cipher-gold hover:underline">
+            <Link href={`/block/${snapshotHeight}`} prefetch={false} className="mt-2 inline-block text-xs text-cipher-gold hover:underline">
               This poll’s snapshot: block {snapshotHeight.toLocaleString('en-US')} →
             </Link>
           )}

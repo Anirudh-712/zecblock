@@ -108,3 +108,48 @@ test('block list routing preserves every archive filter and only rewrites unfilt
     }
   }
 });
+
+test('identifier aliases redirect before SSR without changing network, query or orphan identity', async () => {
+  const { NextRequest, NextResponse } = require('next/server');
+  const { unstable_doesMiddlewareMatch } = require('next/experimental/testing/server');
+  const exports = {};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync('proxy.ts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText, { exports, URL, process: { env: { NODE_ENV: 'development' } }, setInterval: () => {},
+    require: name => ({
+      'next/server': { NextResponse },
+      './lib/governance-request': {},
+      './lib/network': {},
+    })[name],
+  });
+  for (const host of ['zecblock.com', 'testnet.zecblock.com', 'crosslink.zecblock.com']) {
+    for (const [alias, canonical] of [
+      [`/tx/${'Ab'.repeat(32)}`, `/tx/${'ab'.repeat(32)}`],
+      [`/block/${'Cd'.repeat(32)}`, `/block/${'cd'.repeat(32)}`],
+      ['/block/0003492072', '/block/3492072'],
+      ['/block/000', '/block/0'],
+    ]) {
+      const url = `https://${host}${alias}?utm_source=reference`;
+      assert.equal(unstable_doesMiddlewareMatch({ config: exports.config, nextConfig: {}, url }), true);
+      const response = await exports.proxy(new NextRequest(url));
+      assert.equal(response.status, 308);
+      assert.equal(response.headers.get('location'), `https://${host}${canonical}?utm_source=reference`);
+    }
+    const canonicalTx = `https://${host}/tx/${'ab'.repeat(32)}`;
+    assert.equal(unstable_doesMiddlewareMatch({ config: exports.config, nextConfig: {}, url: canonicalTx }), false,
+      'ordinary transaction views must not gain a paid Proxy invocation');
+    for (const identifier of ['A'.repeat(63), 'A'.repeat(65), `${'A'.repeat(64)}g`, `${'A'.repeat(8192)}g`]) {
+      assert.equal(unstable_doesMiddlewareMatch({ config: exports.config, nextConfig: {}, url: `https://${host}/tx/${identifier}` }), false,
+        'invalid lengths and long invalid input must not invoke the alias normalizer');
+    }
+    for (const identifier of ['3492072', 'cd'.repeat(32), '0'.repeat(64)]) {
+      const response = await exports.proxy(new NextRequest(`https://${host}/block/${identifier}`));
+      assert.equal(response.headers.get('location'), null, 'a canonical hash, including an orphan, stays a hash lookup');
+    }
+    for (const identifier of ['-01', '100000001', '000100000001', 'invalid']) {
+      const response = await exports.proxy(new NextRequest(`https://${host}/block/${identifier}`));
+      assert.equal(response.status, 404, 'normalization must not rescue an invalid identifier');
+      assert.equal(response.headers.get('location'), null);
+    }
+  }
+});

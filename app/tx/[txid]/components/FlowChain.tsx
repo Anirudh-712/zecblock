@@ -44,7 +44,7 @@ function FlowAddressNode({ address }: { address: string }) {
   const labelInfo = useAddressLabel(address);
   if (!labelInfo) return <AddressDisplay address={address} className="text-xs" />;
   return (
-    <Link href={`/address/${address}`} className="transition-colors">
+    <Link href={`/address/${address}`} prefetch={false} className="transition-colors">
       <Badge
         color={labelInfo.isOfficial ? 'gold' : 'muted'}
         variant="subtle"

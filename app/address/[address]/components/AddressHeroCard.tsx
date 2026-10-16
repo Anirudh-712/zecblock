@@ -36,8 +36,8 @@ export function AddressHeroCard({ data, priceData, crossChain, totalTxCount }: {
         </dl>
       </div>
       {(funding || (crossChain && crossChain.totalSwaps > 0)) && <div className="flex flex-wrap gap-x-8 gap-y-3 border-t border-cipher-border px-5 sm:px-7 py-4 text-xs text-muted">
-        {funding && <p>First funding <Link href={`/tx/${funding.txid}`} className="ml-2 text-secondary underline underline-offset-4 hover:text-primary">{funding.amountZec.toLocaleString('en-US', { maximumFractionDigits: 8 })} {CURRENCY} ↗</Link>
-          {funding.isCoinbase ? ' · Mining reward' : funding.funderAddress ? <> · From <Link className="text-secondary hover:text-primary" href={`/address/${funding.funderAddress}`}>{funding.funderLabel || `${funding.funderAddress.slice(0, 6)}…${funding.funderAddress.slice(-4)}`}</Link></> : null}
+        {funding && <p>First funding <Link href={`/tx/${funding.txid}`} prefetch={false} className="ml-2 text-secondary underline underline-offset-4 hover:text-primary">{funding.amountZec.toLocaleString('en-US', { maximumFractionDigits: 8 })} {CURRENCY} ↗</Link>
+          {funding.isCoinbase ? ' · Mining reward' : funding.funderAddress ? <> · From <Link className="text-secondary hover:text-primary" href={`/address/${funding.funderAddress}`} prefetch={false}>{funding.funderLabel || `${funding.funderAddress.slice(0, 6)}…${funding.funderAddress.slice(-4)}`}</Link></> : null}
         </p>}
         {crossChain && crossChain.totalSwaps > 0 && <p>Bridge records <span className="ml-2 font-mono text-secondary">{crossChain.totalSwaps.toLocaleString('en-US')}</span> · {crossChain.entryCount} in / {crossChain.exitCount} out</p>}
       </div>}

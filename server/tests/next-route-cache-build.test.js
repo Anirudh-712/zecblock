@@ -62,3 +62,11 @@ test('detail routes retain on-demand static fallbacks for runtime ISR', () => {
 test('network snapshot retains five-minute ISR independently of live browser polling', () => {
   assert.equal(manifest.routes?.['/network']?.initialRevalidateSeconds, 300);
 });
+
+test('governance announcements compute clock boundaries at request time before entering the CDN', () => {
+  assert.equal(
+    manifest.routes?.['/api/governance/announcement'],
+    undefined,
+    'announcement selection must not become a static ISR response that outlives a known vote boundary',
+  );
+});

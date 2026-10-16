@@ -100,7 +100,7 @@ const forkColumns: DataTableColumn<ForkEvent>[] = [
     id: 'height',
     header: 'Height',
     cell: (fork) => (
-      <Link href={`/block/${fork.forkHeight}`} className="text-cipher-gold hover:underline font-mono text-xs">
+      <Link href={`/block/${fork.forkHeight}`} prefetch={false} className="text-cipher-gold hover:underline font-mono text-xs">
         #{fork.forkHeight.toLocaleString()}
       </Link>
     ),
@@ -381,7 +381,7 @@ export default function UnclesPage() {
           <div>
             <span className="text-caption text-muted font-mono uppercase">Hash</span>
             <Link
-              href={isOrphan ? `/block/${block.hash}` : `/block/${height}`}
+              href={isOrphan ? `/block/${block.hash}` : `/block/${height}`} prefetch={false}
               className={`text-xs font-mono break-all hover:underline block mt-0.5 ${isOrphan ? 'text-cipher-orange' : 'text-cipher-green'}`}
             >
               {block.hash}
@@ -549,7 +549,7 @@ export default function UnclesPage() {
                       onClick={() => setExpandedOrphan(expandedOrphan === block.id ? null : block.id)}
                     >
                       <td className="px-4 h-[44px] border-b border-cipher-border">
-                        <Link href={`/block/${block.height}`} className="text-cipher-gold hover:underline font-mono text-xs" onClick={e => e.stopPropagation()}>
+                        <Link href={`/block/${block.height}`} prefetch={false} className="text-cipher-gold hover:underline font-mono text-xs" onClick={e => e.stopPropagation()}>
                           #{block.height.toLocaleString()}
                         </Link>
                       </td>
@@ -585,7 +585,7 @@ export default function UnclesPage() {
                             <span className="text-xs text-muted">—</span>
                           )
                         ) : block.minerAddress ? (
-                          <Link href={`/address/${block.minerAddress}`} className="text-xs font-mono text-cipher-gold hover:underline truncate block max-w-[120px]" title={block.minerAddress} onClick={e => e.stopPropagation()}>
+                          <Link href={`/address/${block.minerAddress}`} prefetch={false} className="text-xs font-mono text-cipher-gold hover:underline truncate block max-w-[120px]" title={block.minerAddress} onClick={e => e.stopPropagation()}>
                             {block.minerPool}
                           </Link>
                         ) : (

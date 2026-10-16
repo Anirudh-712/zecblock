@@ -26,7 +26,7 @@ const columns: DataTableColumn<RecentBlock>[] = [
     header: 'Block',
     skeletonWidth: 'w-24',
     cell: (b) => (
-      <Link href={`/block/${b.height}`} className="font-mono text-sm text-cipher-gold hover:underline">
+      <Link href={`/block/${b.height}`} prefetch={false} className="font-mono text-sm text-cipher-gold hover:underline">
         {b.height.toLocaleString()}
       </Link>
     ),
