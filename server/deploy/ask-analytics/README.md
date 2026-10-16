@@ -8,6 +8,11 @@ alert delivery, fixed workload and remaining public-launch gates are tracked in
 copy/dormant-reader statements below are dated provisioning history, not the
 current state. No public paid activation is implied.
 
+The [guarded feed-recovery runbook](feed-recovery.md) documents classified
+transport recovery, protected configuration, operator pauses, error evidence
+and isolated acceptance. Deployment status still requires a verified release
+record; the runbook itself is not evidence of an enabled timer.
+
 ## Public catalogue audit (operator tooling)
 
 [`catalogue-audit.md`](catalogue-audit.md) describes the draft nine-source

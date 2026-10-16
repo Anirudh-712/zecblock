@@ -20,6 +20,17 @@ class Availability(unittest.TestCase):
   s,event=a.transition({},['subscriber_inactive'],'A/1',0)
   s,event=a.transition(s,['source_probe_failed'],'A/1',60);self.assertIsNone(event)
   s,event=a.transition(s,['source_probe_failed'],'A/1',120);self.assertEqual(event,'failure')
+ def test_source_recovery_reports_connection_without_claiming_research_readiness(self):
+  text=a.notification_text('recovery','')
+  self.assertIn('feed connection restored',text)
+  self.assertIn('subscriber connected and advancing',text)
+  self.assertIn('readiness requires separate confirmation from the analytics monitor',text)
+  self.assertNotIn('research data readiness restored',text.lower())
+  self.assertNotIn('research recovered',text.lower())
+  failed=a.notification_text('failure','subscriber_inactive')
+  self.assertIn('subscriber_inactive',failed)
+  self.assertIn('Stale data must not be served',failed)
+  self.assertIn('reported separately by the analytics monitor',failed)
  def test_http_success_alone_is_not_delivery(self):
   env={'TELEGRAM_BOT_TOKEN':'123:'+('a'*25),'TELEGRAM_CHAT_ID':'-123'}
   class Response(io.BytesIO):

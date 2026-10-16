@@ -13,7 +13,7 @@ The October 9 publisher restart closed a logical replication stream. PostgreSQL
 and timeline were unchanged. A reviewed enable operation resumed from the saved
 origin; no origin advance, slot recreation, history skip or chain-row mutation.
 The original error counter and log event must be retained as incident evidence
-before acknowledging/resetting that subscription's cumulative statistics.
+when acknowledging the reviewed event; do not reset cumulative statistics.
 Existing admission remains closed until applied source checkpoint, canonical
 consistency, freshness and dirty-history reconciliation pass again.
 
@@ -46,6 +46,16 @@ Bot credentials stay in protected operator environment files, outside the query
 worker. Messages contain fixed check codes, never questions, SQL, job capabilities,
 DSNs, credentials or arbitrary exceptions. Verify actual API `ok=true`, rather
 than treating an HTTP 200 as acknowledged delivery.
+
+## Automatic recovery implementation
+
+The [feed-recovery runbook](feed-recovery.md) describes the guarded target-only
+service and [disabled config template](feed-recovery.json.example). It preserves
+raw errors in an append-only acknowledgement ledger and re-enables only an
+existing subscription after classified native evidence and source/target pins
+match. Normal admission still reconciles data before reopening coverage.
+Installation, current retry/checkpoint behavior and isolated test outcomes
+must be reconciled with the actual release; this link does not claim deployment.
 
 ## Repeatable fixed workload
 

@@ -12,6 +12,18 @@ class Probe(unittest.TestCase):
  def test_admission_datasets_and_worker_all_required(self):
   self.assertEqual(a.probe(self.runner())[0],[])
   for args,code in [({'healthy':False},'analytics_health_failed'),({'datasets':False},'datasets_unavailable'),({'worker':False},'query_worker_unavailable')]:self.assertIn(code,a.probe(self.runner(**args))[0])
+ def test_analytics_alone_reports_research_data_readiness(self):
+  text=a.notification_text('recovery','')
+  self.assertIn('research data readiness restored',text)
+  self.assertIn('admission, datasets and query worker checks passed',text)
+  failed=a.notification_text('failure','datasets_unavailable')
+  self.assertIn('research data readiness blocked',failed)
+  self.assertIn('datasets_unavailable',failed)
+  self.assertIn('Ask research must remain unavailable',failed)
+  self.assertNotIn('restored',failed)
+  source_text=a.alerts.notification_text('recovery','')
+  self.assertIn('feed connection restored',source_text)
+  self.assertNotIn('research data readiness restored',source_text.lower())
  def test_unreadable_probe_is_never_healthy(self):
   def broken(*args,**kwargs):raise RuntimeError('secret fixture is never output')
   errors,_=a.probe(broken);self.assertEqual(errors,['analytics_probe_failed'])

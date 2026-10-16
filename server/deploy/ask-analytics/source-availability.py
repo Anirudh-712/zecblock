@@ -32,6 +32,10 @@ def transition(previous,errors,confirmed,now):
     state.update(signature=signature,since=since,confirmed=confirmed or state.get('confirmed'),progress_at=progress_at)
     return state,'failure' if alert else 'recovery' if recovery else None
 
+def notification_text(event,signature):
+    if event=='recovery':return 'ZecBlock feed connection restored: subscriber connected and advancing. Research data readiness requires separate confirmation from the analytics monitor.'
+    return 'ZecBlock feed health checks failed: '+signature+'. Stale data must not be served; review the replication recovery runbook. Research data readiness is reported separately by the analytics monitor.'
+
 def telegram(method,payload,env,opener=urllib.request.urlopen):
     token=env.get('TELEGRAM_BOT_TOKEN','');chat=env.get('TELEGRAM_CHAT_ID','')
     if not re.fullmatch(r'\d+:[A-Za-z0-9_-]{20,}',token) or not re.fullmatch(r'-?\d+',chat): raise ValueError('Existing private ops destination required')
@@ -58,7 +62,7 @@ def main():
     except Exception: errors=['source_probe_failed'];confirmed=None
     state,event=transition(previous,errors,confirmed,now)
     if event:
-        text='ZecBlock analytics feed recovered: subscriber connected and advancing again.' if event=='recovery' else 'ZecBlock analytics feed unavailable. Checks: '+state['signature']+'. Stale data must not be served; review the replication recovery runbook.'
+        text=notification_text(event,state['signature'])
         try:
             telegram('sendMessage',{'text':text,'disable_web_page_preview':True},os.environ)
             state.update(notified='' if event=='recovery' else state['signature'],sent_at=now)

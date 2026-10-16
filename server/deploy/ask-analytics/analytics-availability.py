@@ -18,12 +18,16 @@ def probe(runner=subprocess.run):
     except Exception:errors=['analytics_probe_failed']
     return errors,verified
 
+def notification_text(event,signature):
+    if event=='recovery':return 'ZecBlock research data readiness restored: admission, datasets and query worker checks passed.'
+    return 'ZecBlock research data readiness blocked. Checks: '+signature+'. Ask research must remain unavailable until freshness and isolation checks pass.'
+
 def main():
     path=pathlib.Path('/var/lib/zecblock-ask-analytics-alerts/state.json');previous=json.loads(path.read_text()) if path.exists() else {}
     errors,verified=probe()
     now=time.time();state,event=alerts.transition(previous,errors,verified,now)
     if event:
-        text='ZecBlock analytics checks recovered: admission, datasets and query worker are available.' if event=='recovery' else 'ZecBlock analytics checks failed: '+state['signature']+'. Ask research must remain unavailable until freshness and isolation checks pass.'
+        text=notification_text(event,state['signature'])
         try:alerts.telegram('sendMessage',{'text':text,'disable_web_page_preview':True},os.environ);state.update(notified='' if event=='recovery' else state['signature'],sent_at=now)
         except Exception:event='delivery_failed'
     path.parent.mkdir(mode=0o700,parents=True,exist_ok=True);temporary=path.with_suffix('.tmp');temporary.write_text(json.dumps(state));temporary.chmod(0o600);temporary.replace(path)

@@ -2,6 +2,14 @@
 // Trusted operator process only; never imported by HTTP/model/query workers.
 const {Pool}=require('pg');
 const SETTINGS="SET LOCAL lock_timeout='500ms'; SET LOCAL idle_in_transaction_session_timeout='15s'; SET LOCAL timezone='UTC'; SET LOCAL search_path=pg_catalog; SET LOCAL max_parallel_workers_per_gather=0; SET LOCAL jit=off";
+async function replicationErrorsAcknowledged(client) {
+ const installed=(await client.query("SELECT to_regprocedure('analytics_meta.replication_errors_acknowledged()') IS NOT NULL AS installed")).rows[0]?.installed;
+ if(typeof installed!=='boolean')throw Error('Recovery helper availability unknown');
+ // Older fixtures/stores retain the original zero-errors rule. A failed helper
+ // query is never converted into a pass or a fallback that ignores its ledger.
+ const sql=installed===true ? 'SELECT analytics_meta.replication_errors_acknowledged() AS acknowledged' : 'SELECT coalesce(sum(apply_error_count+sync_error_count),0)=0 AS acknowledged FROM pg_stat_subscription_stats';
+ return (await client.query(sql)).rows[0]?.acknowledged===true;
+}
 async function refreshAdmission(pool) {
  const client=await pool.connect();let broken=false;
  try {
@@ -12,7 +20,8 @@ async function refreshAdmission(pool) {
   const c=(await client.query('SELECT * FROM analytics_meta.admission_control WHERE singleton FOR UPDATE')).rows[0];
   if(s.state==='quarantined'){await client.query('ROLLBACK');return {state:'quarantined'};}
   const m=(await client.query('SELECT *,sampled_at<=statement_timestamp() AND sampled_at>statement_timestamp()-interval \'120 seconds\' AS fresh FROM analytics_feed_meta.signal WHERE singleton')).rows[0];
-  const status=(await client.query("SELECT (SELECT count(*)=1 AND bool_and(subenabled AND subdisableonerr AND NOT subrunasowner AND subname='ask_public_core_v1') FROM pg_subscription) AS enabled,(SELECT count(*)=4 AND bool_and(srsubstate='r') FROM pg_subscription_rel WHERE srrelid IN('public.blocks'::regclass,'public.transactions'::regclass,'public.shielded_flows'::regclass,'analytics_feed_meta.signal'::regclass)) AS copied,(SELECT count(*)=1 FROM pg_stat_subscription WHERE relid IS NULL AND pid IS NOT NULL AND subname='ask_public_core_v1') AS running,(SELECT coalesce(sum(apply_error_count+sync_error_count),0)=0 FROM pg_stat_subscription_stats) AS error_free,(SELECT remote_lsn FROM pg_replication_origin_status WHERE external_id='pg_'||(SELECT oid::text FROM pg_subscription WHERE subname='ask_public_core_v1')) AS applied_lsn")).rows[0];
+  const status=(await client.query("SELECT (SELECT count(*)=1 AND bool_and(subenabled AND subdisableonerr AND NOT subrunasowner AND subname='ask_public_core_v1') FROM pg_subscription) AS enabled,(SELECT count(*)=4 AND bool_and(srsubstate='r') FROM pg_subscription_rel WHERE srrelid IN('public.blocks'::regclass,'public.transactions'::regclass,'public.shielded_flows'::regclass,'analytics_feed_meta.signal'::regclass)) AS copied,(SELECT count(*)=1 FROM pg_stat_subscription WHERE relid IS NULL AND pid IS NOT NULL AND subname='ask_public_core_v1') AS running,(SELECT remote_lsn FROM pg_replication_origin_status WHERE external_id='pg_'||(SELECT oid::text FROM pg_subscription WHERE subname='ask_public_core_v1')) AS applied_lsn")).rows[0];
+  status.error_free=await replicationErrorsAcknowledged(client);
   const fail=async state=>{await client.query('UPDATE analytics_meta.sync_state SET state=$1,verified_at=NULL WHERE singleton',[state]);if(state==='quarantined')await client.query('UPDATE analytics_meta.admission_control SET baseline_verified=false WHERE singleton');await client.query('COMMIT');return {state};};
   if(m && (m.generation!==s.source_id || m.system_identifier!==s.source_system_identifier || m.timeline!==c.expected_timeline))return await fail('quarantined');
   if(!m?.fresh || !status.enabled || !status.copied || !status.running || !status.error_free || !status.applied_lsn)return await fail('stale');
@@ -55,4 +64,4 @@ async function main(){
  try{console.log(JSON.stringify(await refreshAdmission(pool)));}finally{await pool.end();}
 }
 if(require.main===module)main().catch(()=>{console.error(JSON.stringify({state:'probe-failed'}));process.exitCode=1;});
-module.exports={refreshAdmission};
+module.exports={refreshAdmission,replicationErrorsAcknowledged};

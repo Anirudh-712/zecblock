@@ -5,19 +5,33 @@ import argparse,datetime,json,os,stat,subprocess,sys
 def command(args):
     return subprocess.run(args,check=True,capture_output=True,text=True,timeout=8).stdout.strip()
 
+def replication_errors_clear(db):
+    # Keep historical counters visible; only the operator helper can acknowledge
+    # their exact epoch/counts. Older fixture reports keep the zero-only rule.
+    if db['sync_errors']!=0: return False
+    if 'errors_acknowledged' in db: return db['errors_acknowledged'] is True
+    return db['apply_errors']==0 and db['sync_errors']==0
+
+def replication_error_sql(run=command):
+    installed=run(['/usr/bin/psql','-X','-w','-At','-v','ON_ERROR_STOP=1','-d','ask_analytics','-c',
+        "SET statement_timeout='2s'; SELECT to_regprocedure('analytics_meta.replication_errors_acknowledged()') IS NOT NULL;"])
+    result=installed.splitlines()[-1]
+    if result not in ('t','f'): raise ValueError('unknown recovery helper availability')
+    return 'analytics_meta.replication_errors_acknowledged()' if result=='t' else '(SELECT coalesce(sum(apply_error_count+sync_error_count),0)=0 FROM pg_stat_subscription_stats)'
+
 def stage_alerts(db,stage):
     if stage=='bootstrap':
         return ['bootstrap_stage_changed_review_monitor_policy'] if db['subscriptions'] or db['ready'] or db['state']!='uninitialized' else []
     if stage=='ready':
         alerts=[]
         if db['subscriptions']!=1 or not db['ready'] or db['state']!='ready': alerts.append('admission_not_ready')
-        if not db['subscription_enabled'] or not db['apply_worker_active'] or db['apply_errors'] or db['sync_errors']: alerts.append('ready_replication_unhealthy')
+        if not db['subscription_enabled'] or not db['apply_worker_active'] or not replication_errors_clear(db): alerts.append('ready_replication_unhealthy')
         return alerts
     if stage!='copying': raise ValueError('unknown health stage')
     alerts=[]
     if db['subscriptions']!=1 or db['ready'] or db['state'] not in ('copying','reconciling'):
         alerts.append('copy_stage_boundary_failed')
-    if not db['subscription_enabled'] or not db['apply_worker_active'] or db['apply_errors'] or db['sync_errors']:
+    if not db['subscription_enabled'] or not db['apply_worker_active'] or not replication_errors_clear(db):
         alerts.append('copy_replication_unhealthy')
     return alerts
 
@@ -43,11 +57,12 @@ def main(stage):
      'apply_worker_active',(SELECT count(*)=1 FROM pg_stat_subscription WHERE relid IS NULL AND pid IS NOT NULL AND subname='ask_public_core_v1'),
      'apply_errors',(SELECT coalesce(sum(apply_error_count),0) FROM pg_stat_subscription_stats),
      'sync_errors',(SELECT coalesce(sum(sync_error_count),0) FROM pg_stat_subscription_stats),
+     'errors_acknowledged',__ERRORS_ACKNOWLEDGED__,
      'ready',(SELECT ready FROM analytics_public.coverage),
      'state',(SELECT state FROM analytics_public.coverage),
      'reader_dormant',(SELECT NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls FROM pg_roles WHERE rolname='ask_public_reader'),
      'reader_memberships',(SELECT count(*) FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname='ask_public_reader')));
-    ROLLBACK;"""
+    ROLLBACK;""".replace('__ERRORS_ACKNOWLEDGED__',replication_error_sql())
         raw=command(['/usr/bin/psql','-X','-w','-At','-v','ON_ERROR_STOP=1','-d','ask_analytics','-c',sql])
         db=json.loads(next(line for line in raw.splitlines() if line.startswith('{')))
         report['checks']['database']=db
