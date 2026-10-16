@@ -1,7 +1,8 @@
 # PostgreSQL memory and bounded load acceptance
 
-This is a reviewed candidate and opt-in acceptance tooling, not an installed
-policy or a capacity claim. The private analytics PostgreSQL service is
+This repository provides reviewed policy templates and opt-in acceptance
+tooling. Host installation is an operator action; the dated acceptance below
+records the private analytics rollout, not a public capacity claim. The private analytics PostgreSQL service is
 `postgresql@16-main.service` on the analytics host. Never apply this policy or
 run this probe against the source/indexer database.
 
@@ -165,7 +166,8 @@ the crash, `disable_on_error=true`, acknowledged=false, enabled=false and public
 coverage ready=false. Two more deliberate fixture-only main-process kills
 exhausted the three-start limit. Cleanup removed the fixture unit, runtime
 property drop-in and cluster; a separate read-only inventory found no leftovers.
-The live target/source PostgreSQL services were never restarted or changed.
+The disposable proof itself never restarted or changed the live target/source
+PostgreSQL services.
 
 The live metadata-only baseline correctly refused workload execution with
 unbounded high/max/swap values and an unset running worker pressure guard.
@@ -182,8 +184,18 @@ point samples, not reserved-capacity guarantees for future cohosted workloads.
 Local integration verification passed the pressure/worker/jobs tests, including
 a real HTTP/Redis run of all eleven fixed queued cases and the bounded quick
 lane. Its database results were fixtures; this does not establish real query
-semantics or live workload performance. Applied live containment, exact worker
-artifact reconciliation and serial/overlap live samples remain separate gates.
+semantics or live workload performance. The subsequent private installation passed those separate gates: worker
+`1fdb4937` was reconciled under its existing Node 22.22.1 and locked Linux dependencies;
+High 24GiB / Max 32GiB / swap 1GiB and restart 5s / 300s / 3-start policy were applied without
+restarting PostgreSQL. Its postmaster PID 1421348 / start 06:57:24.622491 UTC stayed
+unchanged. Serial 11 queued + 4 quick completed in 21.148s; overlap 11 queued + 4 quick
+in 19.980s. Queued end-to-end P95 was 6595ms / 13027ms respectively, observed PG
+peak 2258149376 bytes, with no memory/PSI/restart/readiness event. Core 3519778 and
+all six dataset gates were ready at 11:58:26.7757 UTC. This is a warm/cache-capable
+fixed private sample; long-job/public-capacity and backup/restore claims remain
+separate. Owner deferred off-host backup for beta. The private API later moved
+to `57f39c8f` without changing the worker/SQL budgets or serving model. Sanitized
+evidence lives in the private wiki at assets/ask-beta-foundations-2026-10-16/.
 
 Authoritative behavior references:
 [systemd resource controls](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html),

@@ -30,16 +30,26 @@ async function comparisonQuery(item,candidate){
  const query={version:3,sql:side(item.referenceSQL,'reference',item.roles.length)+' UNION ALL '+side(draft.query.sql,'candidate',draft.columns.length),limit:200};
  return (await compileResearchSQL(query,{extended:true})).request;
 }
+function verificationFailure(stage,counts={}){return Object.assign(Error('Evaluation verification failed'),{verificationDiagnostic:{stage,...counts}});}
 function splitComparison(item,candidate,raw){
- const verification=researchResultSchema.parse(raw);
- if(candidate.truncated||verification.truncated)throw Error('Truncated evaluation');
+ const parsed=researchResultSchema.safeParse(raw);if(!parsed.success)throw verificationFailure('verification-shape');
+ const verification=parsed.data,counts={initialRows:candidate.rows.length,initialColumns:candidate.columns.length,verificationRows:verification.rows.length,verificationColumns:verification.columns.length};
+ if(candidate.truncated||verification.truncated)throw verificationFailure('truncated',counts);
+ if(verification.columns.length!==1+Math.max(item.roles.length,candidate.columns.length))throw verificationFailure('verification-width',counts);
  const reference=[],observed=[];
- for(const row of verification.rows){if(row[0]==='reference')reference.push(row.slice(1,1+item.roles.length));else if(row[0]==='candidate')observed.push(row.slice(1,1+candidate.columns.length));else throw Error('Invalid evaluation tag');}
- if(reference.length<item.minRows||reference.length>item.maxRows||observed.length!==reference.length)throw Error('Evaluation row coverage');
- // These two executions can observe different snapshots. Never silently grade
- // the user's earlier table against a later result if it changed meanwhile.
- const signature=rows=>JSON.stringify(rows.map(row=>JSON.stringify(row)).sort());
- if(signature(observed)!==signature(candidate.rows))throw Error('Evaluation snapshot changed');
+ for(const row of verification.rows){if(row[0]==='reference')reference.push(row.slice(1,1+item.roles.length));else if(row[0]==='candidate')observed.push(row.slice(1,1+candidate.columns.length));else throw verificationFailure('verification-tag',counts);}
+ counts.referenceRows=reference.length;counts.candidateRows=observed.length;
+ if(reference.length<item.minRows||reference.length>item.maxRows)throw verificationFailure('reference-coverage',counts);
+ if(observed.length!==reference.length)throw verificationFailure('candidate-coverage',counts);
+ // PG boolean wire output is t/f, while its SQL ::text cast is true/false.
+ // Normalize only columns the worker identified as BOOLEAN. TEXT t/f and all
+ // other cells remain exact; false, true and null are always distinct.
+ const cell=(value,i)=>candidate.columns[i].type==='boolean'?(value==='t'?'true':value==='f'?'false':value):value;
+ const signature=rows=>JSON.stringify(rows.map(row=>JSON.stringify(row.map(cell))).sort());
+ if(signature(observed)!==signature(candidate.rows)){
+  const differingColumns=candidate.columns.flatMap((_,i)=>JSON.stringify(observed.map(row=>cell(row[i],i)).sort())===JSON.stringify(candidate.rows.map(row=>cell(row[i],i)).sort())?[]:[i]);
+  throw verificationFailure('snapshot-mismatch',{...counts,differingColumns});
+ }
  return {reference,observed};
 }
 function matchRoles(item,reference,observed){
@@ -79,7 +89,7 @@ function mentionsMonth(answer,value){
 function compareDecimal(left,right){const [a,sa]=decimal(left).split(':'),[b,sb]=decimal(right).split(':'),scale=Math.max(Number(sa),Number(sb)),delta=BigInt(a)*10n**BigInt(scale-Number(sa))-BigInt(b)*10n**BigInt(scale-Number(sb));return delta<0n?-1:delta>0n?1:0;}
 function usefulFinding(item,answer,reference){
  if(receipt.test(answer.trim())||answer.length<20||answer.includes('{{'))return false;
- if(item.finding==='fee')return /\bfee\b/i.test(answer)&&mentionsValue(answer,reference[0][3])&&(reference[0][3]===null||/\bZEC\b/.test(answer));
+ if(item.finding==='fee')return /\bfees?\b/i.test(answer)&&mentionsValue(answer,reference[0][3])&&(reference[0][3]===null||/\bZEC\b/.test(answer));
  if(item.finding==='baseline'){const leader=[...reference].sort((a,b)=>compareDecimal(b[3],a[3])||a[0].localeCompare(b[0]))[0];return mentionsDate(answer,leader[0])&&/\b(?:above|baseline|preceding|average)\b/i.test(answer)&&mentionsValue(answer,leader[3])&&/%|percent/i.test(answer);}
  if(item.finding==='annual_change'){
   const sorted=[...reference].sort((a,b)=>a[0].localeCompare(b[0]));let largest=0n,leaders=[];
@@ -97,10 +107,16 @@ function gradeReply(item,reply,verification=null){
   if(item.kind==='unavailable'&&(!/\b(?:cannot|can't|unavailable|unknown|not available|not reveal|not identify|do not identify)\b/i.test(answer)||/\b(?:belongs? to|owned by)\b/i.test(answer)))checks.push('private-facts-not-refused');
   return {passed:!checks.length,checks};
  }
- let reference;
- try{const candidate=researchResultSchema.parse(reply?.research);const pair=splitComparison(item,candidate,verification);reference=pair.reference;if(!matchRoles(item,pair.reference,pair.observed))checks.push('measures-or-window-mismatch');}catch{checks.push('result-not-verified');}
+ let reference,diagnostics,candidate;
+ const parsed=researchResultSchema.safeParse(reply?.research);
+ if(!parsed.success){checks.push('result-not-verified');diagnostics={stage:'candidate-shape'};}
+ else{
+  candidate=parsed.data;
+  try{const pair=splitComparison(item,candidate,verification);reference=pair.reference;if(!matchRoles(item,pair.reference,pair.observed))checks.push('measures-or-window-mismatch');}
+  catch(error){checks.push('result-not-verified');diagnostics=error.verificationDiagnostic||{stage:'verification-shape'};}
+ }
  if(receipt.test(answer.trim()))checks.push('receipt-fallback');
  if(reference&&!usefulFinding(item,answer,reference))checks.push('requested-finding-missing');
- return {passed:!checks.length,checks};
+ return {passed:!checks.length,checks,...(diagnostics?{diagnostics}:{})};
 }
 module.exports={decimal,dateKey,comparisonQuery,splitComparison,matchRoles,usefulFinding,gradeReply};

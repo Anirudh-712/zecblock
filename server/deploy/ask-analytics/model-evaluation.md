@@ -30,8 +30,9 @@ not approval to silently change the current `ASK_MODEL`.
   `ASK_ANALYTICS_SERVICE_KEY` stay in the protected server environment.
   Do not reset, bypass or raise the existing daily/monthly/call/IP allowances.
 - The isolated wrapper pins outbound OpenAI `service_tier=default` before
-  dispatch, selecting Standard processing. Omitting the field would mean
-  `auto`, which follows project settings. The normal serving route is unchanged;
+  dispatch, selecting Standard processing. Startup rejects reservation rates
+  below the explicit profile minimums. Omitting the field would mean
+  `auto`, which follows project settings. The shared OpenAI request path also pins Standard as of `57f39c8f`;
   the small additional field fits the existing reservation overhead allowance.
 
 The wrapper attests its actual provider/model/effort, unique process `runId`,
@@ -131,3 +132,35 @@ an evaluation corpus from raw visitor questions or SQL. Record measured outcomes
 exact source commit/digest, and remaining failures separately before rollout.
 A comparison with changed prompt/source digests cannot attribute gains solely
 to the model.
+
+
+## Private observations — 2026-10-16
+
+No candidate was accepted or promoted. The normal private API still uses
+`gpt-4o-mini`; local evaluation changes do not change the serving model.
+
+- At source `3d26cbaf`, mini passed one of five fixed cases using eight actual
+  provider attempts, with two receipt fallbacks. Luna completed the same five
+  cases with two passes and seven attempts. Luna's earlier quota-interrupted
+  run is separate evidence, not a model accuracy score.
+- At source `57f39c8f`, Sol passed one of three research cases using six attempts:
+  the baseline case passed, annual verification failed and the fee finding was
+  missing. Prompt/source changes prevent attributing differences solely to the
+  model. No generic receipt was returned in that run.
+- One later, separately capped annual reproduction used two attempts and passed
+  both the original and corrected graders. The original annual failure was not
+  reproduced; its exact failed stage remains unknown. This retry does not turn
+  the initial run into a pass or establish repeatability.
+- Offline regression coverage found a verifier transport edge: PG BOOLEAN
+  `t/f` output differs from `::text` `true/false`. Equivalence is now restricted
+  to worker-typed boolean columns; text, true, false and null remain distinct.
+  The annual reproduction had no boolean column, so that fix is not credited
+  for its pass. Singular/plural fee wording is accepted while exact value and
+  unit checks remain. New failure diagnostics contain only fixed stages,
+  counts and differing column indices, never SQL, values or prose.
+
+The owner approved raising private monthly reservations to **$5**. The **$1
+daily** cap, existing counters, admission and per-run attempt caps were retained.
+The temporary evaluation units are stopped. These operator-fixture observations
+must not become a visitor prompt/SQL collection pipeline. Sanitized evidence is
+recorded in the private wiki under `assets/ask-beta-foundations-2026-10-16/`.

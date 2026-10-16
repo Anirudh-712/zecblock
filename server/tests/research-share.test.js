@@ -18,6 +18,7 @@ test('oversized links, hidden fields, invalid UTF8 and malformed base64 are reje
  const encode=value=>'#research='+Buffer.from(JSON.stringify(value)).toString('base64url');
  for(const value of [{...queryShare(doc()),endpoint:'https://evil.test'},{...queryShare(doc()),queries:[{...queryShare(doc()).queries[0],apiKey:'hidden'}]},{...queryShare(doc()),queries:[]},{...queryShare(doc()),queries:Array(13).fill(queryShare(doc()).queries[0])}])assert.throws(()=>readResearchLink(encode(value)));
  const large={...queryShare(doc()),kind:'dashboard',queries:Array.from({length:12},()=>({...queryShare(doc()).queries[0],query:{version:3,sql:'SELECT '+ 'x'.repeat(8000),limit:200}}))};assert.throws(()=>researchLink(large,'https://zecblock.com'),/too large/);
+ const unicodeLarge={...large,queries:large.queries.map(q=>({...q,query:{...q.query,sql:'SELECT '+ '🛡'.repeat(4000)}}))};assert.throws(()=>researchLink(unicodeLarge,'https://zecblock.com'),/too large/);
  assert.throws(()=>researchLink(queryShare(doc()),'javascript:alert(1)'));assert.equal(readResearchLink('#other=value'),null);
 });
 test('shared SQL remains an untrusted draft: no fetch, execution, provider or storage dependency',()=>{

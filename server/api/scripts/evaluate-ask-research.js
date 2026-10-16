@@ -41,7 +41,7 @@ async function run(args,env,{request=fetch,worker=null,emit=record=>console.log(
   if(!client){client=require('../v1/lib/ask-analytics-client').createAnalyticsClient(env);ownedClient=true;}
   if(!client?.jobsEnabled)throw Error('Private verification worker required');
   for(const item of config.cases){
-   const started=now();let ticket=null,checks=[],passed=false,before=null,fatal=false;
+   const started=now();let ticket=null,checks=[],passed=false,before=null,fatal=false,diagnostics=null;
    try{
     await attest();before=identity.providerAttempts;
     // /chat selection includes its draft, with at most one repair; research
@@ -56,7 +56,7 @@ async function run(args,env,{request=fetch,worker=null,emit=record=>console.log(
      const verification=await poll(verificationTicket,t=>client.status(t),t=>client.cancel(t));
      reply=await post('/research/jobs/explain',{...ticket,question:item.question,locale:'en'});
      if(JSON.stringify(researchResultSchema.parse(reply?.research))!==JSON.stringify(candidate))throw Object.assign(Error('Explanation result changed'),{kind:'result-changed'});
-     ({passed,checks}=gradeReply(item,reply,verification));
+     ({passed,checks,diagnostics}=gradeReply(item,reply,verification));
     }else{
      if(reply?.job){ticket=jobTicketSchema.parse(reply.job);await post('/research/jobs/cancel',ticket);}
      ({passed,checks}=gradeReply(item,reply));
@@ -67,7 +67,7 @@ async function run(args,env,{request=fetch,worker=null,emit=record=>console.log(
     if(ticket&&!passed)try{await post('/research/jobs/cancel',ticket);}catch{/* No raw response logging. */}
    }
    if(before!==null&&identity&&identity.providerAttempts-before>(item.kind==='research'?3:2)){checks.push('provider-attempt-bound-exceeded');passed=false;fatal=true;}
-   const record={kind:'ask-ai-case',case:item.id,passed,checks,elapsedMs:now()-started,providerAttempts:before===null||attestationLost?null:identity?.providerAttempts-before};records.push(record);emit(record);
+   const record={kind:'ask-ai-case',case:item.id,passed,checks,elapsedMs:now()-started,providerAttempts:before===null||attestationLost?null:identity?.providerAttempts-before,...(diagnostics?{diagnostics}:{})};records.push(record);emit(record);
    if(fatal||checks.some(code=>['quota','authentication','attempt-budget','worker-quota'].includes(code)))break;
    if(item!==config.cases.at(-1))await pause(31000); // Preserve existing per-IP admission; no simulated identities.
   }

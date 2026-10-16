@@ -137,3 +137,39 @@ test('quota stops remaining fixed cases and worker failure categories remain saf
  assert.equal(failed.accepted,false);assert.deepEqual(fixture.emitted[0].checks,['worker-resource']);
  assert.equal(JSON.stringify(fixture.emitted).includes(fee.question),false);
 });
+
+test('snapshot transport equivalence is restricted to worker-typed boolean columns',()=>{
+ const rows=[...feeRows[0],'t'],candidate=result([rows]);candidate.columns[4].type='boolean';
+ const verified=comparison(feeRows,candidate);verified.rows[1][5]='true';
+ assert.equal(gradeReply(fee,reply(candidate),verified).passed,true);
+ for(const [before,after] of [['f','false'],[null,null]]){const copy=structuredClone(candidate),check=structuredClone(verified);copy.rows[0][4]=before;check.rows[1][5]=after;assert.equal(gradeReply(fee,reply(copy),check).passed,true);}
+ for(const [before,after] of [['f','true'],[null,'false'],['t',null]]){const copy=structuredClone(candidate),check=structuredClone(verified);copy.rows[0][4]=before;check.rows[1][5]=after;const grade=gradeReply(fee,reply(copy),check);assert.equal(grade.passed,false);assert.equal(grade.diagnostics.stage,'snapshot-mismatch');assert.deepEqual(grade.diagnostics.differingColumns,[4]);}
+ const text=structuredClone(candidate);text.columns[4].type='text';assert.equal(gradeReply(fee,reply(text),verified).passed,false);
+});
+test('fee wording accepts singular and plural while preserving exact number and ZEC checks',()=>{
+ const verified=comparison(feeRows,feeResult);
+ for(const answer of ['The average fee is 0.00393737 ZEC.','Transaction fees averaged 0.00393737 ZEC.'])assert.equal(gradeReply(fee,reply(feeResult,answer),verified).passed,true);
+ for(const answer of ['Transaction fees averaged 0.00393737 USD.','Transaction fees averaged 393737 ZEC.','Fees are shown in the table below.'])assert.equal(gradeReply(fee,reply(feeResult,answer),verified).passed,false);
+});
+test('unverified results expose fixed diagnostic stages and counts without result contents',()=>{
+ const verified=comparison(feeRows,feeResult);
+ const checks=[
+  [null,'verification-shape'],
+  [{...verified,truncated:true},'truncated'],
+  [{...verified,rows:verified.rows.filter(row=>row[0]!=='reference')},'reference-coverage'],
+  [{...verified,rows:verified.rows.filter(row=>row[0]!=='candidate')},'candidate-coverage'],
+  [{...verified,rows:verified.rows.map((row,i)=>i?['untrusted-tag',...row.slice(1)]:row)},'verification-tag'],
+  [{...verified,columns:verified.columns.slice(0,-1),rows:verified.rows.map(row=>row.slice(0,-1))},'verification-width'],
+ ];
+ for(const [raw,stage] of checks){const grade=gradeReply(fee,reply(),raw);assert.equal(grade.passed,false);assert.ok(grade.checks.includes('result-not-verified'));assert.equal(grade.diagnostics.stage,stage);const diagnostic=JSON.stringify(grade.diagnostics);for(const value of [feeResult.query.sql,feeRows[0][0],feeRows[0][3],'arbitrary_'])assert.equal(diagnostic.includes(value),false);}
+ const changed=structuredClone(verified);changed.rows[1][4]='0.004';const grade=gradeReply(fee,reply(),changed);assert.equal(grade.diagnostics.stage,'snapshot-mismatch');assert.equal(grade.diagnostics.referenceRows,1);assert.equal(grade.diagnostics.candidateRows,1);assert.deepEqual(grade.diagnostics.differingColumns,[3]);
+});
+
+test('CLI reports content-free verification diagnostics without hiding the failure',async()=>{
+ const fixture=liveFixture(),changed=comparison(feeRows,feeResult);changed.rows[1][4]='0.004';
+ fixture.worker.status=async()=>state(changed,verificationTicket);
+ const summary=await run(liveArgs,{},fixture);
+ assert.equal(summary.accepted,false);assert.ok(fixture.emitted[0].checks.includes('result-not-verified'));
+ assert.equal(fixture.emitted[0].diagnostics.stage,'snapshot-mismatch');assert.deepEqual(fixture.emitted[0].diagnostics.differingColumns,[3]);
+ const report=JSON.stringify(fixture.emitted);for(const forbidden of [fee.question,feeResult.query.sql,feeRows[0][0],feeRows[0][3],'b'.repeat(64)])assert.equal(report.includes(forbidden),false);
+});
