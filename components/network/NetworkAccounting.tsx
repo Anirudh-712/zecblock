@@ -73,7 +73,7 @@ export function NetworkAccounting() {
   const bucketLabel = selected ? selected.bucketSeconds < 3600 ? `${selected.bucketSeconds/60}-minute` : selected.bucketSeconds < 86400
     ? `${Number((selected.bucketSeconds/3600).toFixed(1))}-hour` : `${Number((selected.bucketSeconds/86400).toFixed(1))}-day` : '';
   return <section id="nu7-accounting" className="network-section mt-5" aria-label="NU7 network accounting"><Card className="card-static"><CardBody>
-    <SectionHeader label="NU7_ACCOUNTING" actions={block && <Link href={`/block/${block.height}`}
+    <SectionHeader label="NU7_ACCOUNTING" actions={block && <Link href={`/block/${block.height}`} prefetch={false}
       title={`Latest indexed canonical block ${block.height.toLocaleString('en-US')}`}
       className="inline-flex items-center gap-1 rounded-full border border-cipher-border px-2.5 py-1 text-caption text-muted font-mono hover:text-primary">
       Block #{block.height.toLocaleString('en-US')} <span aria-hidden="true">↗</span>

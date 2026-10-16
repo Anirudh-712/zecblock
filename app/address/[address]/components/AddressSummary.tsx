@@ -36,7 +36,7 @@ export function AddressSummary({ data, totalTxCount }: AddressSummaryProps) {
     if (funding.funderLabel && funding.funderAddress) {
       return (
         <Link
-          href={`/address/${funding.funderAddress}`}
+          href={`/address/${funding.funderAddress}`} prefetch={false}
           className="text-cipher-gold hover:text-primary transition-colors"
         >
           {funding.funderLabel}
@@ -46,7 +46,7 @@ export function AddressSummary({ data, totalTxCount }: AddressSummaryProps) {
     if (funding.funderAddress) {
       return (
         <Link
-          href={`/address/${funding.funderAddress}`}
+          href={`/address/${funding.funderAddress}`} prefetch={false}
           className="text-cipher-gold hover:text-primary transition-colors"
         >
           {shortAddr(funding.funderAddress)}

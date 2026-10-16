@@ -275,7 +275,7 @@ export function NU7VoteClient({ initialData, resultsState, resultsContent, initi
             {countdownLabel}
           </span>
           {phase === 'pre-snapshot' && (
-            <Link href={`/block/${NU7_VOTE.snapshotHeight}`} className="text-caption font-mono text-muted hover:text-primary transition-colors ml-auto">
+            <Link href={`/block/${NU7_VOTE.snapshotHeight}`} prefetch={false} className="text-caption font-mono text-muted hover:text-primary transition-colors ml-auto">
               Block #{NU7_VOTE.snapshotHeight.toLocaleString()}
             </Link>
           )}

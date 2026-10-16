@@ -106,7 +106,7 @@ function RegisteredView({
           <Field label="Resolves to">
             <div className="flex items-center">
               <Link
-                href={`/address/${registration.address}`}
+                href={`/address/${registration.address}`} prefetch={false}
                 className="font-mono text-sm hover:text-primary transition-colors break-all"
               >
                 {registration.address}
@@ -128,7 +128,7 @@ function RegisteredView({
           <Field label="Block">
             <div className="flex items-center">
               <Link
-                href={`/block/${registration.height}`}
+                href={`/block/${registration.height}`} prefetch={false}
                 className="font-mono text-sm hover:text-primary transition-colors"
               >
                 {registration.height.toLocaleString('en-US')}
@@ -191,7 +191,7 @@ function RegisteredView({
                       </td>
                       <td className="py-2 pr-4 font-mono">
                         <Link
-                          href={`/block/${e.height}`}
+                          href={`/block/${e.height}`} prefetch={false}
                           className="hover:text-primary transition-colors"
                         >
                           {e.height.toLocaleString('en-US')}

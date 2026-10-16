@@ -156,7 +156,7 @@ export default function NetworkClient({ initialData }: { initialData: NetworkPag
           </dl>
           <dl id="network-overview" className="network-section network-summary-grid network-live-facts" aria-label="Current chain activity">
             {[
-              { label: 'Latest block', value: height != null ? <Link href={`/block/${height}`} className="hover:text-cipher-gold">{height.toLocaleString()}</Link> : '—', hint: stats ? `Block timestamp · ${blockAgeLabel(stats.blockchain.latestBlockTime, now)}` : 'Awaiting chain data' },
+              { label: 'Latest block', value: height != null ? <Link href={`/block/${height}`} prefetch={false} className="hover:text-cipher-gold">{height.toLocaleString()}</Link> : '—', hint: stats ? `Block timestamp · ${blockAgeLabel(stats.blockchain.latestBlockTime, now)}` : 'Awaiting chain data' },
               { label: 'Average block interval', value: stats?.mining.avgBlockTime != null ? `${stats.mining.avgBlockTime.toFixed(1)}s` : '—', hint: stats?.mining.targetBlockTime != null ? `Observed · protocol target ${stats.mining.targetBlockTime}s` : 'Observed · protocol target unavailable' },
               { label: 'Transactions · 24h', value: txCount?.toLocaleString() ?? '—', hint: stats?.blockchain.tx24hExclCoinbase != null ? 'Confirmed · coinbase excluded' : 'Confirmed · includes coinbase' },
               { label: 'Estimated hashrate · 24h', value: stats?.mining.hashrateEstimate ? stats.mining.networkHashrate : '—', hint: <Link href="/mining#metrics" className="hover:text-primary underline underline-offset-4">Trailing 24-hour estimate →</Link> },

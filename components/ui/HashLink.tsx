@@ -15,6 +15,9 @@ function truncate(value: string, lead: number, tail: number): string {
  * link, and an optional one-click copy button. Use everywhere instead of
  * hand-rolled `slice(0, 8)}...{slice(-6)` so truncation and styling stay
  * identical across the app.
+ *
+ * Fetch linked detail pages on navigation. Lists contain many unique
+ * identifiers, so viewport prefetch would render pages visitors never open.
  */
 export function HashLink({
   value,
@@ -71,6 +74,7 @@ export function HashLink({
   const text = href ? (
     <Link
       href={href}
+      prefetch={false}
       title={value}
       className={linkClassName ?? `font-mono text-xs text-primary ${hover} transition-colors truncate ${full ? 'break-all' : ''}`}
     >

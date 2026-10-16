@@ -293,7 +293,7 @@ function ChainRow({
 
   return (
     <Link
-      href={`/block/${block.height}`}
+      href={`/block/${block.height}`} prefetch={false}
       className={`group flex items-stretch rounded-md border ${borderClass} bg-white dark:bg-white/[0.03] overflow-hidden hover:border-cipher-gold/60 transition-colors`}
     >
       <span className={`block w-1 shrink-0 ${accentClass}`} />
@@ -607,7 +607,7 @@ function DivergencePanel({
                   </span>
                   . Started {fmtAgo(openEvent.start_time)} at finalized block{' '}
                   <Link
-                    href={`/block/${openEvent.start_finalized_height}`}
+                    href={`/block/${openEvent.start_finalized_height}`} prefetch={false}
                     className="text-cipher-gold hover:underline"
                   >
                     #{openEvent.start_finalized_height.toLocaleString()}
@@ -618,7 +618,7 @@ function DivergencePanel({
                 <>
                   We&apos;ve diverged at finalized block{' '}
                   <Link
-                    href={`/block/${recurringHeight[0]}`}
+                    href={`/block/${recurringHeight[0]}`} prefetch={false}
                     className="text-cipher-gold hover:underline"
                   >
                     #{recurringHeight[0].toLocaleString()}
@@ -661,7 +661,7 @@ function DivergencePanel({
                   <td className="py-2 pr-4 text-secondary">{fmtAgo(e.start_time)}</td>
                   <td className="py-2 pr-4">
                     <Link
-                      href={`/block/${e.start_finalized_height}`}
+                      href={`/block/${e.start_finalized_height}`} prefetch={false}
                       className="text-cipher-gold hover:underline"
                     >
                       #{e.start_finalized_height.toLocaleString()}

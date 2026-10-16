@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { SkeletonTable } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Card, CardHeader, CardBody } from '@/components/ui/Card';
@@ -50,6 +51,14 @@ export function BlockPageSkeleton({
             </>
           )}
         </p>
+        {initialSummary?.isOrphaned && initialSummary.canonicalReplacementHeight != null && (
+          <p className="mt-2 text-xs sm:text-sm text-secondary">
+            Canonical replacement at this height:{' '}
+            <Link href={`/block/${initialSummary.canonicalReplacementHeight}`} prefetch={false} className="text-brand-gold hover:underline">
+              Zcash block #{initialSummary.canonicalReplacementHeight.toLocaleString('en-US')}
+            </Link>.
+          </p>
+        )}
         {/* Server-seeded facts from the SEO resolution fetch — real content
             instead of a shimmer while the full block detail loads client-side. */}
         {initialSummary && (initialSummary.timestamp != null || initialSummary.transactionCount != null || initialSummary.size != null) && (

@@ -89,7 +89,7 @@ export function OutputsSection({
                 <div className="min-w-0 flex-1 overflow-hidden">
                   {outputAddr ? (
                     <div className="flex items-center gap-1 min-w-0">
-                      <Link href={`/address/${outputAddr}`} className="min-w-0 block overflow-hidden">
+                      <Link href={`/address/${outputAddr}`} prefetch={false} className="min-w-0 block overflow-hidden">
                         <code className="text-caption text-primary hover:underline transition-colors font-mono truncate block">
                           {outputAddr}
                         </code>

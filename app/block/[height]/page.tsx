@@ -5,6 +5,7 @@ import {
   getApiUrl,
   getNetwork,
   getBlockResolution,
+  BLOCK_HASH_PATTERN,
   normalizeBlockIdentifier,
   type BlockRecord,
 } from '@/lib/seo';
@@ -92,6 +93,10 @@ export default async function BlockPage({
   const height = Number(block.height);
   const hash = block.hash.toLowerCase();
   const isOrphaned = block.isOrphaned === true;
+  const replacementHash = block.canonicalBlock?.hash;
+  const canonicalReplacementHeight = isOrphaned && typeof replacementHash === 'string'
+    && BLOCK_HASH_PATTERN.test(replacementHash) && replacementHash.toLowerCase() !== hash
+    ? height : null;
   const rawTransactionCount = block.transactionCount ?? block.transaction_count ?? null;
   const transactionCount = rawTransactionCount === null || rawTransactionCount === undefined
     ? null
@@ -104,6 +109,7 @@ export default async function BlockPage({
     height,
     hash,
     isOrphaned,
+    canonicalReplacementHeight,
     timestamp: Number.isFinite(timestamp) ? timestamp : null,
     transactionCount: Number.isFinite(transactionCount) ? transactionCount : null,
     size: Number.isFinite(size) ? size : null,

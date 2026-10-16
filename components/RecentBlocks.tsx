@@ -36,7 +36,7 @@ export const RecentBlocks = memo(function RecentBlocks({ footer }: { footer?: Re
                 style={{ animationDelay: `${i * 30}ms` }}
               >
                 <td className="px-4 sm:px-5 h-12 border-b border-cipher-border">
-                  <Link href={`/block/${block.height}`} className="font-mono text-sm font-medium text-primary group-hover:text-primary transition-colors tabular-nums">
+                  <Link href={`/block/${block.height}`} prefetch={false} className="font-mono text-sm font-medium text-primary group-hover:text-primary transition-colors tabular-nums">
                     #{block.height.toLocaleString()}
                   </Link>
                 </td>

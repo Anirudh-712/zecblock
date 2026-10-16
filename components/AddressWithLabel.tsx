@@ -77,7 +77,7 @@ export function AddressWithLabel({
   if (linkable) {
     return (
       <Link
-        href={`/address/${address}`}
+        href={`/address/${address}`} prefetch={false}
         className="hover:text-primary transition-colors"
       >
         {content}
@@ -104,7 +104,7 @@ export function AddressDisplay({
 
   return (
     <Link
-      href={`/address/${address}`}
+      href={`/address/${address}`} prefetch={false}
       // The address is the identifying fact here (this is the hero flow
       // diagram's node in most call sites), so it rests at text-primary
       // like the block hash / reward addresses elsewhere — hover:underline

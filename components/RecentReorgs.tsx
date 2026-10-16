@@ -114,7 +114,7 @@ export const RecentReorgs = memo(function RecentReorgs({ footer }: { footer?: Re
                 style={{ animationDelay: `${i * 30}ms` }}
               >
                 <td className="px-4 sm:px-5 h-12 border-b border-cipher-border">
-                  <Link href={`/block/${fork.forkHeight}`} className="font-mono text-sm font-medium text-primary hover:underline transition-colors tabular-nums">
+                  <Link href={`/block/${fork.forkHeight}`} prefetch={false} className="font-mono text-sm font-medium text-primary hover:underline transition-colors tabular-nums">
                     #{fork.forkHeight.toLocaleString()}
                   </Link>
                 </td>
