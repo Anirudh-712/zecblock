@@ -44,7 +44,7 @@ function accountingPeriodSql(withAllocations = false) {
     CASE WHEN count(paid)=count(*) AND sum(missing_before)=0 THEN sum(removed)::text END AS fees_to_nsm_zat,
     CASE WHEN count(paid)=count(*) AND sum(missing_before)=0 THEN sum(paid-removed)::text END AS miner_fee_allocation_zat,
     CASE WHEN count(receipts)=count(*) AND sum(missing_before)=0 THEN sum(trunc(receipts))::text END AS miner_receipts_zat,
-    (array_agg(nsm_balance_zat ORDER BY height DESC))[1]::text AS nsm_balance_zat,
+    (array_agg(nsm_balance_zat ORDER BY height DESC) FILTER (WHERE nsm_balance_zat IS NOT NULL))[1]::text AS nsm_balance_zat,
     sum(removed) AS removed_sum, count(*)-count(paid)+sum(missing_before) AS unknown_fees
   FROM exact e CROSS JOIN bounds GROUP BY 1
 ), cumulative AS (
@@ -77,7 +77,10 @@ function accountingPeriodSql(withAllocations = false) {
     CASE WHEN count(paid)=count(*) AND sum(missing_before)=0 THEN sum(removed)::text END AS fees_to_nsm_zat,
     CASE WHEN count(paid)=count(*) AND sum(missing_before)=0 THEN sum(paid-removed)::text END AS miner_fee_allocation_zat,
     CASE WHEN count(receipts)=count(*) AND sum(missing_before)=0 THEN sum(trunc(receipts))::text END AS miner_receipts_zat,
-    (array_agg(nsm_balance_zat ORDER BY height DESC))[1]::text AS nsm_balance_zat
+    (array_agg(nsm_balance_zat ORDER BY height DESC) FILTER (WHERE nsm_balance_zat IS NOT NULL))[1]::text AS nsm_balance_zat,
+    (array_agg(height ORDER BY height DESC) FILTER (WHERE nsm_balance_zat IS NOT NULL))[1] AS nsm_sample_height,
+    (array_agg(hash ORDER BY height DESC) FILTER (WHERE nsm_balance_zat IS NOT NULL))[1] AS nsm_sample_hash,
+    (array_agg(e.timestamp ORDER BY height DESC) FILTER (WHERE nsm_balance_zat IS NOT NULL))[1] AS nsm_sample_timestamp
   FROM exact e CROSS JOIN bounds WHERE $4::bigint IS NULL OR e.timestamp >= $4 GROUP BY 1
 ), baseline AS (
   SELECT b.height,b.hash,a.nsm_balance_zat::text AS balance FROM blocks b
@@ -93,6 +96,9 @@ SELECT (SELECT value FROM totals) AS totals, (SELECT value FROM selected) AS sel
     'missingBlocks',s.missing_blocks,'feesPaidZat',s.fees_paid_zat,'feesToNsmZat',s.fees_to_nsm_zat,
     'minerFeeAllocationZat',s.miner_fee_allocation_zat,'minerReceiptsZat',s.miner_receipts_zat,
     'nsmBalanceZat',CASE WHEN s.missing_blocks=0 THEN s.nsm_balance_zat END,
+    'nsmSampleHeight',CASE WHEN s.missing_blocks=0 THEN s.nsm_sample_height END,
+    'nsmSampleHash',CASE WHEN s.missing_blocks=0 THEN s.nsm_sample_hash END,
+    'nsmSampleTimestamp',CASE WHEN s.missing_blocks=0 THEN s.nsm_sample_timestamp END,
     'cumulativeRemovalZat',c.cumulative_removal_zat) ORDER BY s.timestamp)
     FROM selected_buckets s JOIN cumulative c USING(timestamp)), '[]'::jsonb) AS points`;
 }
@@ -110,7 +116,7 @@ function periodPayload(row, period, schedule, info, observedAt) {
       growthSinceNu7Zat: baseline?.balance != null && balance != null ? (BigInt(balance)-BigInt(baseline.balance)).toString() : null },
     source: 'complete-canonical-indexed-transactions-and-hash-matched-node-observations',
     timeBasis: 'block-header-timestamps-UTC',
-    sampling: 'Reserve is the last block sample in each bucket; missing bucket-end samples remain null. No interpolation.',
+    sampling: 'Reserve is the last recorded canonical observation within each selected bucket, identified by nsmSampleHeight, nsmSampleHash and its block-header nsmSampleTimestamp. Buckets without a sample or with missing canonical blocks remain null. No interpolation or carry-forward from outside the bucket or selected period. Latest reserve and growth still require the exact end-block sample.',
     nsmChangeMeaning: 'Net reserve growth from the preactivation sample, not cumulative fees or gross removal.' };
 }
 

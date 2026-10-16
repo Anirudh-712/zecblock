@@ -119,7 +119,24 @@ test('PostgreSQL buckets retain exact rounding, selected boundaries, gaps and ca
       assert.equal(result.totals.feesPaidZat,'6'); assert.equal(result.totals.feesToNsmZat,'2');
       assert.equal(result.points[0].minerReceiptsZat,'200');
       assert.equal(result.points[0].nsmBalanceZat,'9007199254740995');
+      assert.equal(result.points[0].nsmSampleHeight,101);
+      assert.equal(result.points[0].nsmSampleHash,'b');
+      assert.equal(result.points[0].nsmSampleTimestamp,610);
       assert.equal(result.points[1].nsmBalanceZat,null); assert.equal(result.tip.balance,null);
+      for (const key of ['nsmSampleHeight','nsmSampleHash','nsmSampleTimestamp']) assert.equal(result.points[1][key],null);
+      // A missed bucket-end observation does not erase an earlier real sample.
+      // The exact latest reserve and selected-period boundaries remain strict.
+      await client.query("UPDATE node_accounting_observations SET nsm_balance_zat=NULL WHERE hash='b'");
+      const lastRecorded = (await client.query(PERIOD_SQL, [102,100,'test',null])).rows[0];
+      assert.equal(lastRecorded.points[0].nsmBalanceZat,'9007199254740994');
+      assert.equal(lastRecorded.points[0].nsmSampleHeight,100);
+      assert.equal(lastRecorded.points[0].nsmSampleHash,'a');
+      assert.equal(lastRecorded.points[0].nsmSampleTimestamp,600);
+      assert.equal(lastRecorded.tip.balance,null);
+      const bounded = (await client.query(PERIOD_SQL, [102,100,'test',605])).rows[0];
+      assert.equal(bounded.points[0].nsmBalanceZat,null, 'never carry a sample from before the selected period');
+      for (const key of ['nsmSampleHeight','nsmSampleHash','nsmSampleTimestamp']) assert.equal(bounded.points[0][key],null);
+      await client.query("UPDATE node_accounting_observations SET nsm_balance_zat=9007199254740995 WHERE hash='b'");
       assert.equal(result.points[1].cumulativeRemovalZat,'2');
       assert.equal(result.totals.receiptBlocks, 2); assert.equal(result.selected.receiptBlocks, 2);
       assert.equal(result.points[1].receiptBlocks, 0); assert.equal(result.points[1].minerReceiptsZat, null);
@@ -161,6 +178,7 @@ test('PostgreSQL buckets retain exact rounding, selected boundaries, gaps and ca
       result = (await client.query(PERIOD_SQL, [102,100,'test',null])).rows[0];
       assert.equal(result.totals.missingBlocks,1); assert.equal(result.totals.feesPaidZat,null);
       assert.equal(result.points[1].cumulativeRemovalZat,null);
+      for (const key of ['nsmBalanceZat','nsmSampleHeight','nsmSampleHash','nsmSampleTimestamp']) assert.equal(result.points[1][key],null);
       await client.query(`TRUNCATE blocks,transactions,node_accounting_observations;
         INSERT INTO blocks(height,hash,timestamp,transaction_count) SELECT h,'block-'||h,100000+h*25,2 FROM generate_series(100,6100) h;
         INSERT INTO transactions(txid,block_height,block_hash,is_coinbase,fee,total_output,value_balance_sapling,value_balance_orchard,value_balance_ironwood) SELECT 'coinbase-'||h,h,'block-'||h,true,0,100,0,0,0 FROM generate_series(100,6100) h;

@@ -88,6 +88,13 @@ function rollingAverage(values, window) {
   return out;
 }
 
+function miningNumber(value) {
+  if ((typeof value !== 'number' && typeof value !== 'string')
+    || (typeof value === 'string' && value.trim() === '')) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 async function discoverNextHalving(callZebraRPC, currentHeight, chainInfo) {
   if (!Number.isSafeInteger(currentHeight) || currentHeight < 1) throw new Error('Invalid chain height');
   const info = chainInfo ?? await callZebraRPC('getblockchaininfo');
@@ -195,22 +202,42 @@ function registerNetworkAnalyticsRoutes(router) {
       );
 
       const rows = result.rows.reverse();
-      const intervals = rows.map((r, i) => {
+      const timestamps = rows.map((r) => {
+        const timestamp = miningNumber(r.timestamp);
+        return Number.isSafeInteger(timestamp) && timestamp >= 0 ? timestamp : null;
+      });
+      const heights = rows.map((r) => {
+        const height = miningNumber(r.height);
+        return Number.isSafeInteger(height) && height >= 0 ? height : null;
+      });
+      const intervals = rows.map((_, i) => {
         if (i === 0) return null;
-        const prev = rows[i - 1];
-        const delta = parseInt(r.timestamp, 10) - parseInt(prev.timestamp, 10);
-        return Number(r.height) === Number(prev.height) + 1 ? delta : null;
+        if (timestamps[i] === null || timestamps[i - 1] === null
+          || heights[i] === null || heights[i - 1] === null
+          || heights[i] !== heights[i - 1] + 1) return null;
+        return timestamps[i] - timestamps[i - 1];
       });
 
-      const difficulties = rows.map((r) => parseFloat(r.difficulty) || 0);
-      // Same 2^13 Equihash constant as /api/network/stats — see comment there.
-      const solrates = difficulties.map((d, i) => intervals[i] > 0 ? (d * 8192) / intervals[i] : null);
+      const difficulties = rows.map((r) => {
+        const difficulty = miningNumber(r.difficulty);
+        return Number.isFinite(difficulty) && difficulty > 0 ? difficulty : null;
+      });
       const fees = rows.map((r) => (parseInt(r.total_fees, 10) || 0) / 1e8);
       const txCounts = rows.map((r) => parseInt(r.transaction_count, 10) || 0);
 
       const rollDiff = rollingAverage(difficulties, window);
-      const rollSolrate = rollingAverage(solrates, window);
       const rollBlockTime = rollingAverage(intervals, window);
+      // Estimate the complete window's work over its elapsed header time, not
+      // the mean of instantaneous rates. Canonical headers can share a second
+      // or move backwards; those intervals do not invalidate a positive full
+      // span. rollingAverage still requires every consecutive interval and
+      // every contributing difficulty, so missing data remains unavailable.
+      // The 2^13 difficulty conversion is an estimate, distinct from nBits work.
+      const rollSolrate = rollDiff.map((difficulty, i) => {
+        if (difficulty === null || !(rollBlockTime[i] > 0)) return null;
+        const estimate = difficulty * 8192 / rollBlockTime[i];
+        return Number.isFinite(estimate) ? estimate : null;
+      });
       const rollFees = rollingAverage(fees, window);
       const rollTx = rollingAverage(txCounts, window);
 
@@ -228,6 +255,7 @@ function registerNetworkAnalyticsRoutes(router) {
       res.json({
         success: true,
         window,
+        solrateMethod: 'difficulty-work-over-elapsed-v1',
         latest: {
           solrate: latest.solrate ?? null,
           difficulty: latest.difficulty ?? null,

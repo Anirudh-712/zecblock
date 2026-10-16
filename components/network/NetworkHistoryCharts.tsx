@@ -27,9 +27,9 @@ export function NetworkHistoryCharts({ initialData, initialFetchedAt }: { initia
   const { theme } = useTheme();
   const colors = getChartColors(theme);
 
-  const { data, loading } = useApiQuery<ChainSizeHistoryResponse>(
+  const { data, loading, error } = useApiQuery<ChainSizeHistoryResponse>(
     '/v1/network/chain-size-history',
-    { period: 'all' },
+    { period: '30d' },
     { refreshInterval: 300_000, initialFetchedAt, initialData: initialData ?? undefined },
   );
   const sizePoints = useMemo(
@@ -42,7 +42,7 @@ export function NetworkHistoryCharts({ initialData, initialFetchedAt }: { initia
 
   return (
     <ChartCard title="NODE_STORAGE_HISTORY" height={260} watermarkSize="sm">
-      <p className="text-caption text-muted mb-3">Explorer node disk snapshots · GiB (1,024³ bytes). Storage depends on the node implementation.</p>
+      <p className="text-caption text-muted mb-3">Last 30 days · Explorer node disk snapshots · GiB (1,024³ bytes). Storage depends on the node implementation.</p>
       {loading ? (
         <ChartSkeleton height={260} />
       ) : sizePoints.length > 0 ? (
@@ -63,7 +63,7 @@ export function NetworkHistoryCharts({ initialData, initialFetchedAt }: { initia
           </LineChart>
         </ResponsiveContainer>
       ) : (
-        <ChartEmptyState message="Chain size history is still being collected. Check back soon." />
+        <ChartEmptyState message={error ? "Node storage history is unavailable." : "No node storage snapshots are available for the last 30 days."} />
       )}
     </ChartCard>
   );
