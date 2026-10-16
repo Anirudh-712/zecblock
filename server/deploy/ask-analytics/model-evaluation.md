@@ -5,8 +5,9 @@ Ask API, queued analytics worker and narrative path. They do not change the
 serving model, public capabilities, SQL policy, credentials or existing quotas.
 `ask-model-profile.js` is the single source for evaluation identities:
 `mini-observed` selects `gpt-4o-mini` without reasoning effort; `luna-candidate`
-selects the API model `gpt-6-luna` with `reasoning_effort=none`. These are not Codex
-app model settings. The prior owner-authorized Luna probe is historical evidence,
+selects the API model `gpt-6-luna` with `reasoning_effort=none`; `sol-candidate`
+selects `gpt-6-sol` with `reasoning_effort=none`. These are not Codex app model
+settings. Sol is a compatibility-based candidate, not verified SQL quality. The prior owner-authorized Luna probe is historical evidence,
 not approval to silently change the current `ASK_MODEL`.
 
 ## Prerequisites
@@ -46,13 +47,32 @@ unknown; it never substitutes HTTP request counts for provider attempts.
 Official Standard prices per million tokens: Luna input **$0.10**, output
 **$0.50**; mini input **$0.15**, output **$0.60**. Luna long-context input/output
 are **$0.20/$0.75**; long-context cache writes are **$0.25**. Conservative common
-reservation bounds are `ASK_MAX_INPUT_USD_PER_MILLION=0.25` and
+reservation bounds for mini/Luna are `ASK_MAX_INPUT_USD_PER_MILLION=0.25` and
 `ASK_MAX_OUTPUT_USD_PER_MILLION=0.75` for these Standard global-endpoint runs.
 These are upper reservation rates, not measured charges. Fast/regional modes
 require separate bounds. Existing per-request body and output limits still apply.
 
+Sol Standard prices are **$2 input / $10 output** per million tokens; cache
+writes are **$2.50**. Its profile requires minimum reservation rates of
+`ASK_MAX_INPUT_USD_PER_MILLION=2.5` and
+`ASK_MAX_OUTPUT_USD_PER_MILLION=10`. These bounds rely on the existing hard
+**48,000-byte** serialized request limit plus **4,096** overhead allowance,
+keeping input well below the **272,000-token** long-context threshold, and the
+wrapper's Standard global-processing pin. If that bound or processing mode
+changes, re-review prices; Sol long-context/cache-write bounds would be **5/15**.
+The mini/Luna profiles retain minimum reservation rates **0.25/0.75**; do not
+reuse those lower rates for Sol. All rates are USD per million tokens.
+
+The approved **$1 daily / $5 monthly** allowances remain unchanged. The current
+Sol upper reservation is $0.145240 per maximum-size SQL attempt; twelve such
+attempts would reserve $1.742880. The daily ledger can therefore stop an isolated
+run before its twelve-attempt cap. Do not raise or reset allowances to complete
+a benchmark. A successful small sample still does not prove general quality.
+
 Sources: [Luna model](https://developers.openai.com/api/docs/models/gpt-6-luna),
 [mini model](https://developers.openai.com/api/docs/models/gpt-4o-mini),
+[Sol model and pricing](https://developers.openai.com/api/docs/models/gpt-6-sol),
+[GPT-6 compatibility](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-6-sol),
 [pricing](https://developers.openai.com/api/docs/pricing),
 [Chat Completions processing tiers](https://developers.openai.com/api/reference/python/resources/chat/subresources/completions/methods/create),
 [evaluation guidance](https://developers.openai.com/api/docs/guides/evals).
@@ -75,7 +95,11 @@ case IDs separately for each model, each in a fresh isolated wrapper process:
 ASK_EVAL_API_URL=http://127.0.0.1:3007/v1/ask node server/api/scripts/evaluate-ask-research.js --allow-paid --profile=luna-candidate --max-provider-calls=12
 ```
 
-Use `--profile=mini-observed` for the comparison. Optional fixed IDs are
+Use `--profile=mini-observed` for the comparison or `--profile=sol-candidate`
+for the stronger compatible candidate. `gpt-6-sol` supports Chat Completions,
+strict Structured Outputs and reasoning `none`; `gpt-6.1-sol` does not support
+`none` and is not this profile. The existing 1,500-token SQL output allowance
+stays unchanged and still requires truncation/correctness testing. Optional fixed IDs are
 `annual_2025`, `shielded_baseline`, `fee_units`, `ambiguous_growth` and
 `private_ownership`. There are at most six selected cases and twelve **actual**
 provider attempts; no new retry is introduced. The client pauses thirty-one seconds between live cases to preserve existing
@@ -105,3 +129,5 @@ model/source identity. They do not retain questions, SQL, raw rows, capabilities
 provider bodies or credentials. Cases are reviewed operator fixtures; never build
 an evaluation corpus from raw visitor questions or SQL. Record measured outcomes,
 exact source commit/digest, and remaining failures separately before rollout.
+A comparison with changed prompt/source digests cannot attribute gains solely
+to the model.

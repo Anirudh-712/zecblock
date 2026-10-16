@@ -58,7 +58,7 @@ test('provider output is validated and only the bounded interpretation request i
   const result = await interpret(providerConfig({ ...env, ASK_REASONING_EFFORT: 'none' }), { question: 'show pools', context: null }, new AbortController().signal, async (url, init) => {
     assert.equal(url, 'https://api.openai.com/v1/chat/completions');
     const body = JSON.parse(init.body);
-    assert.equal(body.store, false); assert.equal(body.max_completion_tokens, 500);
+    assert.equal(body.store, false); assert.equal(body.service_tier, 'default'); assert.equal(body.max_completion_tokens, 500);
     assert.equal(body.reasoning_effort, 'none');
     assert.equal(body.messages.length, 2); assert.equal(body.response_format.json_schema.strict, true);
     return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ spec: sample }) } }] });

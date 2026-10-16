@@ -55,7 +55,7 @@ async function interpret(config, input, signal, fetchImpl = fetch, task = { name
     tools: [{ name: task.name, description: task.instruction, input_schema: task.schema }],
     tool_choice: { type: 'tool', name: task.name, disable_parallel_tool_use: true },
   } : {
-    model: config.model, max_completion_tokens: outputTokens, store: false,
+    model: config.model, max_completion_tokens: outputTokens, store: false, service_tier: 'default',
     ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
     messages: [{ role: 'system', content: task.instruction }, { role: 'user', content: JSON.stringify(input) }],
     response_format: { type: 'json_schema', json_schema: { name: task.name, strict: true, schema: task.schema } },

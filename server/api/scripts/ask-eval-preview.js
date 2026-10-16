@@ -37,6 +37,7 @@ function createEvaluation(env,{redis,fetchImpl=fetch,previewFactory}={}){
  if(env.ASK_EVAL_ISOLATED!=='true'||env.ASK_PRIVATE_PREVIEW!=='true'||!redis)throw Error('Explicit isolated evaluation required');
  const profile=modelProfile(env.ASK_EVAL_PROFILE),config=providerConfig({...env,ASK_TURNSTILE_SITE_KEY:DUMMY_SITE_KEY});
  if(!config||config.provider!==profile.provider||config.model!==profile.model||config.reasoningEffort!==profile.reasoningEffort)throw Error('Evaluation profile does not match serving configuration');
+ if(config.inputRate<profile.minimumInputReservationRate||config.outputRate<profile.minimumOutputReservationRate)throw Error('Evaluation reservations below reviewed profile bounds');
  const revision=env.ASK_EVAL_REVISION;
  if(!/^[a-f0-9]{7,40}$/.test(revision||''))throw Error('Verified revision required');
  const limit=Number(env.ASK_EVAL_PROVIDER_ATTEMPT_LIMIT),guard=providerGuard(config,limit,fetchImpl),runId=randomUUID(),digest=sourceDigest();

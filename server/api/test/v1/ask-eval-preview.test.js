@@ -25,4 +25,6 @@ test('operator runtime attests the actual profile and blocks browser origins, wr
  for(const response of [call({origin:'http://127.0.0.1:3003'}),call({host:'example.test'}),call({},'203.0.113.1')])assert.equal(response.status,403);
  call({},'127.0.0.1','/v1/ask');assert.equal(calls,1);
  assert.throws(()=>createEvaluation({...env,ASK_MODEL:'other'},{redis:{}}),/does not match/);
+ assert.throws(()=>createEvaluation({...env,ASK_EVAL_PROFILE:'sol-candidate',ASK_MODEL:'gpt-6-sol'},{redis:{}}),/reservations/);
+ assert.throws(()=>createEvaluation({...env,ASK_MAX_OUTPUT_USD_PER_MILLION:'0.5'},{redis:{}}),/reservations/);
 });

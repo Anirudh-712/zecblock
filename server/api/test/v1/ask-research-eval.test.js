@@ -17,6 +17,16 @@ test('model profiles are explicit evaluation candidates, never a serving default
  for(const id of [undefined,'Luna','gpt-6-luna','__proto__','constructor'])assert.throws(()=>modelProfile(id));
  assert.throws(()=>options(['--allow-paid']));assert.equal(options([]).live,false);
 });
+test('Sol is an explicit none-reasoning evaluation candidate with model-specific reservation floors',()=>{
+ const sol=modelProfile('sol-candidate');
+ assert.equal(sol.model,'gpt-6-sol');assert.equal(sol.reasoningEffort,'none');assert.equal(sol.status,'candidate');
+ assert.equal(sol.minimumInputReservationRate,2.5);assert.equal(sol.minimumOutputReservationRate,10);
+ for(const id of ['mini-observed','luna-candidate']){assert.equal(modelProfile(id).minimumInputReservationRate,0.25);assert.equal(modelProfile(id).minimumOutputReservationRate,0.75);}
+ assert.equal(options(['--allow-paid','--profile=sol-candidate']).profile,sol);
+ assert.equal(attestRuntime(attestation({model:'gpt-6-sol'}),sol,12).model,'gpt-6-sol');
+ assert.throws(()=>attestRuntime(attestation({model:'gpt-6.1-sol'}),sol,12));
+ assert.equal(options([]).live,false);
+});
 test('runtime identity and actual provider counters fail closed',()=>{
  const profile=modelProfile('luna-candidate'),first=attestRuntime(attestation(),profile,12);
  assert.equal(attestRuntime(attestation({providerAttempts:3}),profile,12,first).providerAttempts,3);
