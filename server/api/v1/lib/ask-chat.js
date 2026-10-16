@@ -56,7 +56,7 @@ function answerTaskFor(facts, records, hasAnalysis = false, compact = false) {
 You are interpreting measured data, including when the question is "Explain this page", "Explain this view" or "Explain this chart". Lead with a concrete finding using supplied fact placeholders in the opening sentence. Never open with a description of what the page shows or a glossary definition. Explain what makes the finding significant: concentration, expansion/contraction, a shift in balance, uneven activity, or changing recent pace. Choose the finding relevant to the user's question; for a general pool overview use selectedPools for overall movement and concentration, rather than silently substituting the Orchard/Ironwood pair. For flows lead with the measured public net direction and its size, then peak concentration or recent pace. Support your interpretation with at most one additional observation, preferably recent pace or a dated change; avoid a dump of ending values. For a general all-pool overview stay with that denominator rather than switching to the Orchard/Ironwood pair unless the user asks for that comparison. State the selected pool and observation window naturally so the finding has a clear scope and time frame. A single-pool result must name that pool and must never be presented as all shielded pools. Calm periods and decreases are valid findings: do not manufacture drama, causes, forecasts, buying pressure or recommendations. Definitions belong only where needed to understand the finding. Keep the response around one hundred words in two short paragraphs. Leave limitation empty for ordinary descriptive findings with complete coverage. Use it only for a specific material issue, such as incomplete coverage or a causal inference the question asks about. Do not append stock warnings about hidden wallets or private payments to every answer.` : ''}`);
 }
 const unsupported = {
-  en: 'I can help explain Zcash, supported wallets and nodes, and public network data. Try a question about this page.',
+  en: 'I cannot answer that with the data and tools available here. I can analyze available public Zcash data and explain Zcash, supported wallets and nodes.',
   fr: 'Je peux expliquer Zcash, les portefeuilles et nœuds pris en charge, et les données publiques du réseau.',
   es: 'Puedo explicar Zcash, las billeteras y nodos compatibles y los datos públicos de la red.',
   de: 'Ich kann Zcash, unterstützte Wallets und Nodes sowie öffentliche Netzwerkdaten erklären.',
@@ -67,6 +67,15 @@ const unsupported = {
   ar: 'يمكنني شرح Zcash والمحافظ والعقد المدعومة وبيانات الشبكة العامة.',
   ru: 'Я могу объяснить Zcash, поддерживаемые кошельки и узлы, а также публичные данные сети.',
 };
+// Copy variation only after an unsupported classification, never a data-access
+// or security decision. Keep privacy-specific limits out of unrelated refusals.
+function unsupportedAnswer(question,locale){
+  if(locale!=='en')return unsupported[locale];
+  const text=String(question||''),privateScope=/\b(?:shielded|private)\b/i.test(text);
+  const ownership=privateScope&&/\b(?:wallets?|address(?:es)?)\b/i.test(text)&&/\b(?:owners?|ownership|owns?|owned|belongs?|belonging|whose)\b/i.test(text);
+  const amount=privateScope&&/\b(?:payments?|transactions?)\b/i.test(text)&&/\b(?:amounts?|values?)\b|\bhow\s+much\b/i.test(text)&&!/\b(?:fees?|bytes?|counts?|rates?|public|aggregate)\b/i.test(text);
+  return ownership||amount?'These public datasets cannot identify shielded-wallet owners or reveal private shielded payment amounts. I can analyze the available public Zcash data and explain Zcash, supported wallets and nodes.':unsupported.en;
+}
 // A capability question needs a useful clarification, not an out-of-scope reply.
 // Server-owned copy prevents ungrounded numerical claims or model-provided SQL
 // from reaching the user before the measures and comparison are defined.
@@ -111,7 +120,7 @@ async function chat(input, run, internalClient, signal, analysisInstructions, ca
   const blockShortcut = resolveBlockQuery(input);
   const selection = transactionShortcut ? { intent: 'transactions', transactionQuery: transactionShortcut, locale: input.locale === 'auto' ? 'en' : input.locale } : blockShortcut ? { intent: 'blocks', blockQuery: blockShortcut, locale: input.locale === 'auto' ? 'en' : input.locale } : guideQuestion ? { intent: 'knowledge', spec: null, topics: [pageTopic], locale: input.locale === 'auto' ? 'en' : input.locale } : publicExplain || contextualFollowUp || shortcut ? { intent: shortcut || input.context || page.spec ? 'analysis' : 'knowledge', spec: shortcut || input.context || page.spec || null, topics: [pageTopic], locale: input.locale === 'auto' ? 'en' : input.locale } : await run({ ...input, challenge: undefined, page, catalogue: knowledge.map(({ id, title }) => ({ id, title })), ...(analytics ? { analyticsCatalogue: analytics.catalogue, utcDate: new Date().toISOString().slice(0,10) } : {}) }, selectionTask(analysisInstructions, input.page==='ask'?analytics:analytics?{...analytics,researchEnabled:false}:null));
   const locale = input.locale === 'auto' ? selection.locale : input.locale;
-  if (selection.intent === 'unsupported') return { answer: unsupported[locale], sources: [], spec: null, locale };
+  if (selection.intent === 'unsupported') return { answer: unsupportedAnswer(input.question,locale), sources: [], spec: null, locale };
   if (selection.intent === 'clarify_growth') {
     if (!analytics?.researchEnabled || input.page !== 'ask' || selection.sql !== null || selection.spec !== null || selection.flowQuery !== null || selection.blockQuery !== null || selection.transactionQuery !== null) throw askError('answer');
     return { answer: growthClarification[locale], sources: [], spec: null, locale };

@@ -26,7 +26,7 @@ async function run(args,env,{request=fetch,worker=null,emit=record=>console.log(
  let identity=null,client=worker,ownedClient=false,attestationLost=false;const records=[];
  async function json(url,init={}){
   const response=await request(url,{...init,redirect:'error',signal:AbortSignal.timeout(45000),headers:{'Content-Type':'application/json',...init.headers}});
-  if(!response.ok)throw Object.assign(Error('Evaluation request refused'),{kind:response.status===429?'quota':response.status===401||response.status===403?'authentication':'api-unavailable'});
+  if(!response.ok){await response.body?.cancel();throw Object.assign(Error('Evaluation request refused'),{kind:response.status===429?'quota':response.status===401||response.status===403?'authentication':'api-unavailable'});}
   const reader=response.body?.getReader();if(!reader)return response.json();
   const chunks=[];let bytes=0;try{while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(bytes>280000)throw Error('Evaluation response too large');chunks.push(Buffer.from(part.value));}}finally{await reader.cancel();}
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -61,19 +61,19 @@ async function run(args,env,{request=fetch,worker=null,emit=record=>console.log(
      if(reply?.job){ticket=jobTicketSchema.parse(reply.job);await post('/research/jobs/cancel',ticket);}
      ({passed,checks}=gradeReply(item,reply));
     }
-   }catch(error){checks=[['quota','authentication','attempt-budget','poll-timeout','result-changed'].includes(error.kind)?error.kind:error.kind?.startsWith('worker-')?'worker-failed':'evaluation-unavailable'];}
+   }catch(error){checks=[['quota','authentication','attempt-budget','poll-timeout','result-changed'].includes(error.kind)?error.kind:['worker-timeout','worker-resource','worker-query','worker-source','worker-dataset','worker-quota','worker-unavailable','worker-interrupted','worker-cancelled'].includes(error.kind)?error.kind:'evaluation-unavailable'];}
    finally{
     try{await attest();}catch{checks.push('runtime-attestation-lost');passed=false;fatal=true;attestationLost=true;}
     if(ticket&&!passed)try{await post('/research/jobs/cancel',ticket);}catch{/* No raw response logging. */}
    }
    if(before!==null&&identity&&identity.providerAttempts-before>(item.kind==='research'?3:2)){checks.push('provider-attempt-bound-exceeded');passed=false;fatal=true;}
    const record={kind:'ask-ai-case',case:item.id,passed,checks,elapsedMs:now()-started,providerAttempts:before===null||attestationLost?null:identity?.providerAttempts-before};records.push(record);emit(record);
-   if(fatal)break;
+   if(fatal||checks.some(code=>['quota','authentication','attempt-budget','worker-quota'].includes(code)))break;
    if(item!==config.cases.at(-1))await pause(31000); // Preserve existing per-IP admission; no simulated identities.
   }
  }finally{if(ownedClient)await client?.close();}
  const research=records.filter(record=>config.cases.find(item=>item.id===record.case)?.kind==='research');
- const summary={kind:'ask-ai-evaluation',mode:'live-private',profile:config.profile.id,model:identity.model,reasoningEffort:identity.reasoningEffort,revision:identity.revision,sourceDigest:identity.sourceDigest,cases:config.cases.length,completed:records.length,passed:records.filter(record=>record.passed).length,failed:records.filter(record=>!record.passed).length,providerAttempts:attestationLost?null:identity.providerAttempts,runtimeVerified:!attestationLost,providerAttemptLimit:identity.providerAttemptLimit,receiptFallbacks:research.filter(record=>record.checks.includes('receipt-fallback')).length,accepted:records.length===config.cases.length&&records.every(record=>record.passed),meaning:'Fixed-case result equivalence and finding checks, not general SQL accuracy, causal proof or public launch readiness.'};emit(summary);return summary;
+ const summary={kind:'ask-ai-evaluation',mode:'live-private',profile:config.profile.id,model:identity.model,reasoningEffort:identity.reasoningEffort,revision:identity.revision,sourceDigest:identity.sourceDigest,cases:config.cases.length,completed:records.length,notRun:config.cases.length-records.length,passed:records.filter(record=>record.passed).length,failed:records.filter(record=>!record.passed).length,providerAttempts:attestationLost?null:identity.providerAttempts,runtimeVerified:!attestationLost,providerAttemptLimit:identity.providerAttemptLimit,receiptFallbacks:research.filter(record=>record.checks.includes('receipt-fallback')).length,accepted:records.length===config.cases.length&&records.every(record=>record.passed),meaning:'Fixed-case result equivalence and finding checks, not general SQL accuracy, causal proof or public launch readiness.'};emit(summary);return summary;
 }
 if(require.main===module)run(process.argv.slice(2),process.env).then(summary=>{if(summary.mode==='live-private'&&!summary.accepted)process.exitCode=1;}).catch(()=>{console.error('Private AI evaluation unavailable; no raw question, SQL, row or credential logged');process.exitCode=1;});
 module.exports={options,validateCases,run};

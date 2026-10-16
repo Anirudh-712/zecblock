@@ -116,3 +116,14 @@ test('live cases are paced without simulated identities or admission retries',as
  let attempts=0;const pauses=[],headers=[];const summary=await run(['--allow-paid','--profile=luna-candidate','ambiguous_growth','private_ownership'],{}, {worker:{jobsEnabled:true},pause:async ms=>pauses.push(ms),emit:()=>{},request:async(url,init)=>{headers.push(init.headers);if(url.pathname==='/__ask_eval/runtime')return response(attestation({providerAttempts:attempts}));assert.equal(url.pathname,'/v1/ask/chat');attempts++;const question=JSON.parse(init.body).question;return response({data:{mode:'ai',answer:question.startsWith('What')?'Which transaction metric and baseline window should I compare?':'Private shielded ownership is unavailable from public data.'}});}});
  assert.equal(summary.accepted,true);assert.equal(summary.providerAttempts,2);assert.deepEqual(pauses,[31000]);assert.ok(headers.every(value=>!Object.keys(value).some(key=>/sim|forwarded/i.test(key))));
 });
+
+test('quota stops remaining fixed cases and worker failure categories remain safe and specific',async()=>{
+ const quota=liveFixture({chatError:true});
+ const blocked=await run(liveArgs.slice(0,3),{},{...quota,pause:async()=>{}});
+ assert.equal(blocked.completed,1);assert.equal(blocked.notRun,4);assert.equal(quota.paths.filter(path=>path.endsWith('/chat')).length,1);assert.equal(blocked.accepted,false);
+ const fixture=liveFixture(),request=fixture.request;
+ fixture.request=async(url,init)=>url.pathname.endsWith('/jobs/status')?response({data:{...state(null),state:'failed',error:'resource'}}):request(url,init);
+ const failed=await run(liveArgs,{},{...fixture,pause:async()=>{}});
+ assert.equal(failed.accepted,false);assert.deepEqual(fixture.emitted[0].checks,['worker-resource']);
+ assert.equal(JSON.stringify(fixture.emitted).includes(fee.question),false);
+});
