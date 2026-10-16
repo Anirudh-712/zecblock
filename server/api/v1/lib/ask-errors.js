@@ -2,7 +2,7 @@
 
 // Fixed public categories only. Never forward an upstream message or body.
 const failures = {
-  resource:{code:'ask-resource',status:422,type:'validation-error',detail:'This query exceeded the research disk or result-size budget. Filter each joined table to the requested period and aggregate before joining; your date range has not been changed.'},
+  resource:{code:'ask-resource',status:422,type:'validation-error',detail:'This query could not run within the research resource budget. Try again after backend pressure clears, or filter and aggregate joined tables; your date range has not been changed.'},
   job:{code:'ask-job',status:404,type:'not-found',detail:'This research job is unavailable or has expired.'},
   interrupted:{code:'ask-interrupted',status:503,type:'upstream-error',detail:'Research was interrupted by a worker restart. Run the query again; it was not retried automatically.'},
   query:{code:'ask-query',status:400,type:'validation-error',detail:'This SQL cannot run. Check the catalogue, column names and supported SELECT syntax.'},

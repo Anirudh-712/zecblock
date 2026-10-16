@@ -21,7 +21,7 @@ function createAnalyticsClient(env, fetchImpl) {
     if(env.ASK_RESEARCH_JOBS_ENABLED!=='true'||env.ASK_RESEARCH_ENABLED!=='true'||env.ASK_ANALYTICS_STORE!=='logical_public_core')throw askError('source');
     const body=operation==='submit'?(await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request:jobTicketSchema.parse(input);
     const response=await fetchImpl(new URL('/jobs/'+operation,url),{method:'POST',redirect:'error',signal:AbortSignal.any([...(signal?[signal]:[]),AbortSignal.timeout(5000)]),headers:{'Content-Type':'application/json',Authorization:`Bearer ${env.ASK_ANALYTICS_SERVICE_KEY}`},body:JSON.stringify(body)});
-    if(!response.ok){await response.body?.cancel();throw askError(response.status===404?'job':response.status===429?'quota':'source');}
+    if(!response.ok){await response.body?.cancel();throw askError(response.status===404?'job':response.status===429?'quota':response.status===422?'resource':'source');}
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>270000)throw askError('source');chunks.push(Buffer.from(value));}}finally{await reader.cancel();}
     const value=JSON.parse(Buffer.concat(chunks).toString('utf8'));
