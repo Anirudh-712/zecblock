@@ -198,3 +198,30 @@ test('a stale catalog with a distant deadline cannot overflow the browser timer 
   assert.equal([...banner.intervals.values()][0].delay, 60_000);
   banner.cleanup();
 });
+
+test('shared announcement responses omit per-IP quota headers while the same limit remains enforced', async () => {
+  const { NextRequest, NextResponse } = require('next/server');
+  const { proxy } = load('proxy.ts', {
+    'next/server': { NextResponse },
+    './lib/governance-request': {}, './lib/network': {}, './lib/chart-catalog': {}, './lib/name-validation': {},
+  }, { process: { env: { NODE_ENV: 'production' } }, setInterval: () => {} });
+  const request = path => new NextRequest(`https://zecblock.com${path}`, {
+    headers: { host: 'zecblock.com', 'x-forwarded-for': '192.0.2.123' },
+  });
+  for (let i = 0; i < 300; i++) {
+    const response = await proxy(request('/api/governance/announcement'));
+    assert.equal(response.headers.get('x-middleware-next'), '1');
+    for (const header of ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset']) {
+      assert.equal(response.headers.get(header), null, 'shared responses must not cache a visitor-specific quota');
+    }
+  }
+  const limited = await proxy(request('/api/governance/announcement'));
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get('X-RateLimit-Remaining'), '0');
+  assert.ok(Number(limited.headers.get('Retry-After')) > 0);
+  const other = await proxy(new NextRequest('https://zecblock.com/api/revalidate', {
+    headers: { host: 'zecblock.com', 'x-forwarded-for': '192.0.2.124' },
+  }));
+  assert.equal(other.headers.get('X-RateLimit-Limit'), '300', 'other APIs retain their existing quota contract');
+  assert.equal(other.headers.get('X-RateLimit-Remaining'), '299');
+});

@@ -25,7 +25,7 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-function handleApiRateLimit(request: NextRequest): NextResponse {
+function handleApiRateLimit(request: NextRequest, includeQuotaHeaders = true): NextResponse {
   const ip =
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     request.headers.get('x-real-ip') ||
@@ -63,6 +63,10 @@ function handleApiRateLimit(request: NextRequest): NextResponse {
   }
 
   const response = NextResponse.next();
+  // Shared CDN responses must not replay the first visitor's per-IP quota.
+  // Keep enforcement above; a rejected request still receives its own quota
+  // and Retry-After headers from the uncached 429 response.
+  if (!includeQuotaHeaders) return response;
   const remaining = Math.max(0, RATE_LIMIT.maxRequests - userData.count);
 
   response.headers.set('X-RateLimit-Limit', RATE_LIMIT.maxRequests.toString());
@@ -197,7 +201,7 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith('/api/')) {
-    return handleApiRateLimit(request);
+    return handleApiRateLimit(request, pathname !== '/api/governance/announcement');
   }
 
   // Block pages take their CDN lifetime from ISR (getBlockResolution): one
