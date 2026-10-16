@@ -81,7 +81,7 @@ export function AddressGraph({ address }: { address: string }) {
               <div><dt className="text-muted">Indexed transactions</dt><dd className="mt-1 text-secondary font-mono">{selected.peer.txCount.toLocaleString('en-US')}</dd></div>
             </> : null}
           </dl>
-          <Link href={`/address/${selected.id}`} className="mt-5 inline-flex rounded border border-cipher-border px-3 py-2 text-xs font-mono text-primary hover:bg-cipher-hover">Open address →</Link>
+          <Link href={`/address/${selected.id}`} prefetch={false} className="mt-5 inline-flex rounded border border-cipher-border px-3 py-2 text-xs font-mono text-primary hover:bg-cipher-hover">Open address →</Link>
         </div> : <div><h3 className="text-sm font-semibold text-primary">Inspect a connection</h3><p className="mt-2 text-xs leading-relaxed text-muted">Select a node or choose an address below. Its details stay open while you explore.</p></div>}
         <div className="mt-5 border-t border-cipher-border pt-4">
           <label htmlFor="connection-search" className="text-xs text-muted">Find a displayed address or label</label>

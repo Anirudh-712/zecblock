@@ -117,6 +117,23 @@ export async function proxy(request: NextRequest) {
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, follow' },
     });
   }
+  // One cache identity per identifier. These aliases already share canonical
+  // metadata, but otherwise cause separate on-demand page generations. Keep
+  // block-hash lookups (including persistent orphans) distinct from heights.
+  const detailPath = request.nextUrl.pathname.match(/^\/(tx|block)\/([^/]+)$/);
+  if (detailPath) {
+    const [, kind, identifier] = detailPath;
+    const isHash = /^[a-fA-F0-9]{64}$/.test(identifier);
+    const isHeight = kind === 'block' && /^\d+$/.test(identifier)
+      && Number(identifier) <= 100_000_000;
+    const normalized = isHash ? identifier.toLowerCase()
+      : isHeight ? String(Number(identifier)) : identifier;
+    if (normalized !== identifier) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/${kind}/${normalized}`;
+      return NextResponse.redirect(url, 308);
+    }
+  }
   // Keep filtered archives dynamic and the unfiltered list on its ISR route.
   // Vercel permits at most 16 has/missing conditions per static routing rule.
   if (request.nextUrl.pathname === '/blocks') {
@@ -190,5 +207,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/name/:path*', '/api/:path*', '/block/:path*', '/blocks', '/governance/:path*', '/charts/:slug'],
+  // Canonical lowercase tx URLs bypass Proxy; only uppercase aliases need it.
+  matcher: ['/name/:path*', '/api/:path*', '/tx/:txid((?=[a-fA-F0-9]{0,63}[A-F])[a-fA-F0-9]{64})', '/block/:path*', '/blocks', '/governance/:path*', '/charts/:slug'],
 };

@@ -161,7 +161,7 @@ const txColumns: DataTableColumn<Transaction>[] = [
     align: 'right',
     className: 'hidden sm:table-cell',
     cell: (tx) => (
-      <Link href={`/block/${tx.block_height}`} className="font-mono text-xs text-muted hover:text-primary transition-colors">
+      <Link href={`/block/${tx.block_height}`} prefetch={false} className="font-mono text-xs text-muted hover:text-primary transition-colors">
         #{tx.block_height.toLocaleString()}
       </Link>
     ),
@@ -228,7 +228,7 @@ const shieldedColumns: DataTableColumn<ShieldedFlow>[] = [
     align: 'right',
     className: 'hidden sm:table-cell',
     cell: (flow) => (
-      <Link href={`/block/${flow.blockHeight}`} className="font-mono text-xs text-muted hover:text-primary transition-colors">
+      <Link href={`/block/${flow.blockHeight}`} prefetch={false} className="font-mono text-xs text-muted hover:text-primary transition-colors">
         #{flow.blockHeight.toLocaleString()}
       </Link>
     ),

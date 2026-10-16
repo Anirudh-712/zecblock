@@ -184,7 +184,7 @@ export function BlockActivityChart({
             <div className="mt-4 h-16 flex items-center justify-center">
               {hoveredBlock ? (
                 <Link
-                  href={`/block/${hoveredBlock.height}`}
+                  href={`/block/${hoveredBlock.height}`} prefetch={false}
                   className="card px-4 py-2.5 flex items-center gap-4 hover:border-cipher-gold transition-colors"
                 >
                   <div>
@@ -283,7 +283,7 @@ function BlockBar({
 
   return (
     <Link
-      href={`/block/${block.height}`}
+      href={`/block/${block.height}`} prefetch={false}
       className={`relative shrink-0 w-[6px] sm:w-[8px] rounded-t-sm border-t ${color} transition-[height,transform,box-shadow] ${
         isHovered ? 'ring-1 ring-cipher-gold' : ''
       } ${isVoting ? 'animate-pulse' : ''}`}
