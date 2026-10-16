@@ -8,9 +8,14 @@ permitted reward, and does not reconstruct historical NSM/supply/pool snapshots.
 ## Release order
 
 1. Reconcile the intended explorer/API commit with serving main/testnet sources.
-   Apply **036_block_subsidy_allocations.sql** from the canonical Rust migration
-   directory (the API release includes an identical deployment copy). Check the
-   migration ledger and actual API/job role grants. No Rust binary or node update
+   Apply **036_block_subsidy_allocations.sql**, then
+   **037_block_subsidy_allocation_privileges.sql** from the canonical Rust migration
+   directory (the API release includes identical deployment copies). Check both
+   ledger entries and effective API/job role grants: PostgreSQL default ACLs can
+   grant more than 036 explicitly requests. Migration 037 removes all non-owner
+   cache rights, including version-specific MAINTAIN, then restores existing
+   named-role SELECT/INSERT only. Source-table/default ACLs and data are unchanged.
+   No Rust binary or node update
    is required. The API supports an absent allocation table during rollout.
 2. Deploy the API and frontend from the tested commit. `receiptBlocks` is additive
    on period points, selected/lifetime totals and legacy coverage. Receipts use
@@ -68,7 +73,7 @@ missing data must never become zero or a connected line.
 
 Rollback the API/frontend and disable both new timers if needed. Remove the API
 health-file setting when rolling back the monitor. The additive
-cache can remain: old readers do not reference it, no original observations are
+cache and its narrowed grants can remain: old readers do not reference it, no original observations are
 rewritten, and valid historical records are idempotent by hash. Preserve release
 and migration evidence; do not delete the table to hide an unexplained mismatch.
 
