@@ -10,14 +10,67 @@ const {cacheKey,readCached,saveCached,PREFIX:CACHE_PREFIX}=require('../../v1/lib
 const {askError}=require('../../v1/lib/ask-errors');
 const env={ASK_RESEARCH_ENABLED:'true',ASK_RESEARCH_JOBS_ENABLED:'true',ASK_ANALYTICS_STORE:'logical_public_core',ASK_ANALYTICS_ENABLED:'true',ASK_ANALYTICS_SERVICE_KEY:'fixture-private-worker-key-at-least-thirty-two-characters'};
 const query={version:3,sql:'SELECT height,fees FROM blocks ORDER BY height DESC LIMIT 5',limit:5};
-async function fixture(t){
+async function fixture(t,{spawnImpl,createClientImpl=createClient,startupTimeout=5000}={}){
  const {spawn}=require('node:child_process'),{mkdtemp,rm}=require('node:fs/promises'),{tmpdir}=require('node:os'),{join}=require('node:path');
  const dir=await mkdtemp(join(tmpdir(),'ask-jobs-redis-')),socket=join(dir,'redis.sock');
- const child=spawn('redis-server',['--port','0','--unixsocket',socket,'--save','','--appendonly','no'],{stdio:['ignore','pipe','pipe']});
- await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Redis start timeout')),5000);child.once('error',reject);child.stdout.on('data',chunk=>{if(chunk.toString().includes('Ready to accept connections')){clearTimeout(timer);resolve();}});});
- const redis=createClient({socket:{path:socket}});redis.on('error',()=>{});await redis.connect();
- t.after(async()=>{await redis.quit();child.kill();await once(child,'exit');await rm(dir,{recursive:true,force:true});});return redis;
+ let child,redis,cleanup;
+ const exitedWithin=milliseconds=>new Promise(resolve=>{
+  if(child.exitCode!==null||child.signalCode!==null)return resolve(true);
+  const finish=value=>{clearTimeout(timer);child.off('exit',exited);resolve(value);},exited=()=>finish(true);
+  const timer=setTimeout(()=>finish(false),milliseconds);child.once('exit',exited);
+ });
+ const close=()=>cleanup??=(async()=>{
+  if(redis?.isOpen)redis.destroy();
+  if(child?.pid&&child.exitCode===null&&child.signalCode===null){
+   child.kill('SIGTERM');
+   if(!await exitedWithin(1000)){child.kill('SIGKILL');if(!await exitedWithin(1000))throw Error('Redis fixture did not exit');}
+  }
+  await rm(dir,{recursive:true,force:true});
+ })();
+ // Register cleanup before startup or connection can fail. A readiness timeout
+ // must not leave a live Redis child keeping the whole test process open.
+ t.after(close);
+ try{
+  child=(spawnImpl||spawn)('redis-server',['--port','0','--unixsocket',socket,'--save','','--appendonly','no'],{stdio:['ignore','pipe','pipe']});
+  child.on('error',()=>{});child.stderr.resume();
+  await new Promise((resolve,reject)=>{
+   let output='';
+   const finish=error=>{clearTimeout(timer);child.off('error',failed);child.off('exit',exited);child.stdout.off('data',data);child.stdout.resume();if(error)reject(error);else resolve();};
+   const failed=error=>finish(error),exited=()=>finish(Error('Redis exited before readiness'));
+   const data=chunk=>{output=(output+chunk.toString()).slice(-2048);if(/ready to accept connections/i.test(output))finish();};
+   const timer=setTimeout(()=>finish(Error('Redis start timeout')),startupTimeout);
+   child.once('error',failed);child.once('exit',exited);child.stdout.on('data',data);
+  });
+  redis=createClientImpl({socket:{path:socket,connectTimeout:5000,reconnectStrategy:false}});redis.on('error',()=>{});await redis.connect();
+  return redis;
+ }catch(error){await close();throw error;}
 }
+test('Redis fixture accepts split Redis 7 Unix-socket readiness and releases its child',async t=>{
+ const {spawn}=require('node:child_process'),fs=require('node:fs/promises'),path=require('node:path');let child,dir;
+ const client={isOpen:false,on(){},async connect(){this.isOpen=true;},destroy(){this.isOpen=false;}};
+ assert.equal(await fixture(t,{createClientImpl:()=>client,spawnImpl:(_command,args,options)=>{
+  dir=path.dirname(args[args.indexOf('--unixsocket')+1]);
+  child=spawn(process.execPath,['-e',"process.stdout.write('The server is now ready to accept con');setTimeout(()=>process.stdout.write('nections at /tmp/fixture\\n'),10);setInterval(()=>{},1000)"],options);return child;
+ }}),client);
+ t.after(async()=>{assert.equal(client.isOpen,false);assert.ok(child.exitCode!==null||child.signalCode!==null);await assert.rejects(fs.access(dir),{code:'ENOENT'});});
+});
+test('Redis fixture readiness timeout kills a never-ready child and removes its socket directory',async t=>{
+ const {spawn}=require('node:child_process'),fs=require('node:fs/promises'),path=require('node:path');let child,dir;
+ await assert.rejects(fixture(t,{startupTimeout:30,spawnImpl:(_command,args,options)=>{
+  dir=path.dirname(args[args.indexOf('--unixsocket')+1]);child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],options);return child;
+ }}),/Redis start timeout/);
+ assert.ok(child.exitCode!==null||child.signalCode!==null);await assert.rejects(fs.access(dir),{code:'ENOENT'});
+});
+test('Redis fixture rejects child exit or spawn failure and removes its directory',async t=>{
+ const {spawn}=require('node:child_process'),fs=require('node:fs/promises'),path=require('node:path');
+ for(const missing of [false,true]){
+  let dir;
+  await assert.rejects(fixture(t,{spawnImpl:(_command,args,options)=>{
+   dir=path.dirname(args[args.indexOf('--unixsocket')+1]);return missing?spawn(path.join(dir,'missing-redis'),[],options):spawn(process.execPath,['-e','process.exit(7)'],options);
+  }}),missing?{code:'ENOENT'}:/Redis exited before readiness/);
+  await assert.rejects(fs.access(dir),{code:'ENOENT'});
+ }
+});
 async function evidence(input){const c=await compileResearchSQL(input);return{result:researchEvidence(c,[['9007199254740993',null]],[{name:'height',dataTypeID:20},{name:'fees',dataTypeID:1700}],{indexed_through:'2026-10-06T00:00:00Z'},'2026-10-06T00:00:01Z')};}
 const wait=async(predicate)=>{const end=Date.now()+5000;while(Date.now()<end){if(await predicate())return;await new Promise(r=>setTimeout(r,10));}throw Error('Fixture condition timed out');};
 test('queue authenticates per job, bounds pending/retained records and never executes rejected SQL',async t=>{
