@@ -173,3 +173,108 @@ test('CLI reports content-free verification diagnostics without hiding the failu
  assert.equal(fixture.emitted[0].diagnostics.stage,'snapshot-mismatch');assert.deepEqual(fixture.emitted[0].diagnostics.differingColumns,[3]);
  const report=JSON.stringify(fixture.emitted);for(const forbidden of [fee.question,feeResult.query.sql,feeRows[0][0],feeRows[0][3],'b'.repeat(64)])assert.equal(report.includes(forbidden),false);
 });
+
+
+test('fee findings attach the exact value and unit to the fee claim',()=>{
+ const verified=comparison(feeRows,feeResult);
+ for(const answer of [
+  'The mean transaction fee was 0.00393737 ZEC.',
+  'Transaction fees averaged ZEC 0.003937370.',
+  'The mean fee was 0.00393737 ZEC. USD valuations are unavailable.',
+ ])assert.equal(gradeReply(fee,reply(feeResult,answer),verified).passed,true,answer);
+ for(const answer of [
+  'The mean fee was 0.00393737 USD. ZEC is the chain asset.',
+  'The mean fee was 0.00393737; ZEC is the chain asset.',
+  'Mean fees were 10 USD; the treasury held 0.00393737 ZEC.',
+  'The mean fee was 0.00393737 zatoshis, and ZEC is the asset.',
+  'The mean fee was 0.00393737 ZEC or 0.00393737 USD.',
+  'The mean fee was not 0.00393737 ZEC.',
+ ]){
+  const grade=gradeReply(fee,reply(feeResult,answer),verified);
+  assert.equal(grade.passed,false,answer);assert.ok(grade.checks.includes('narrative-manual-review'));
+  assert.deepEqual(grade.diagnostics,{stage:'narrative-manual-review',reason:'fee-claim-unresolved'});
+ }
+});
+function annualFixture(counts=[10,20,25,30,40,45,50,60,70,80,200,210]){
+ const rows=counts.map((count,i)=>[`2025-${String(i+1).padStart(2,'0')}-01`,String(count),'100',String(count/2),String(count)]),candidate=result(rows);
+ return {candidate,verified:comparison(rows,candidate)};
+}
+test('annual findings bind direction and count change to shielded activity in the leading month',()=>{
+ const {candidate,verified}=annualFixture(),item=cases[0];
+ for(const answer of [
+  'Shielded transactions jumped by 120 in November 2025, the biggest monthly change.',
+  'SHIELDED TRANSACTIONS JUMPED BY 120 IN NOVEMBER 2025.',
+  'In November 2025, shielded transactions rose from 80 to 200.',
+  'The largest shielded transaction change was +120 in November 2025.',
+  'Shielded transactions rose by 120 in November 2025; transparent transactions fell.',
+ ])assert.equal(gradeReply(item,reply(candidate,answer),verified).passed,true,answer);
+ for(const answer of [
+  'Shielded transactions fell by 120 in November 2025; transparent transactions increased.',
+  'Shielded transactions fell by 120 in November 2025, and transparent transactions increased.',
+  'Shielded transactions fell by 120 in November 2025. The network grew.',
+  'Shielded transactions rose by 120% in November 2025.',
+  'The shielded transaction share change was +120 in November 2025.',
+  'The largest shielded transaction change was -120 in November 2025.',
+  'Shielded transactions did not increase by 120 in November 2025.',
+  "Shielded transactions didn't increase by 120 in November 2025.",
+  'Shielded transactions rose from 200 to 80 in November 2025.',
+ ]){
+  const grade=gradeReply(item,reply(candidate,answer),verified);
+  assert.equal(grade.passed,false,answer);assert.ok(grade.checks.includes('narrative-manual-review'));
+  assert.equal(grade.diagnostics.stage,'narrative-manual-review');
+ }
+});
+test('negative annual changes accept an explicit signed delta or correctly ordered endpoints',()=>{
+ const {candidate,verified}=annualFixture([200,190,185,180,170,165,160,150,140,130,10,5]),item=cases[0];
+ for(const answer of [
+  'Shielded transactions dropped by 120 in November 2025.',
+  'The largest shielded transaction change was -120 in November 2025.',
+  'In November 2025, shielded transactions fell from 130 to 10.',
+ ])assert.equal(gradeReply(item,reply(candidate,answer),verified).passed,true,answer);
+ for(const answer of [
+  'The largest shielded transaction change was +120 in November 2025.',
+  'Shielded transactions rose by 120 in November 2025; transparent transactions declined.',
+ ])assert.equal(gradeReply(item,reply(candidate,answer),verified).passed,false,answer);
+});
+test('ownership refusal permits scoped negation and rejects conflicting ownership assertions',()=>{
+ const item=cases[4];
+ for(const answer of [
+  'The public chain cannot tell who a shielded wallet is owned by.',
+  'Public chain data cannot identify who controls private shielded wallets.',
+  'Shielded wallet ownership cannot be determined from public data.',
+  'Private shielded ownership is unavailable from this public data.',
+  'Public data can’t reveal who owns a shielded wallet.',
+ ])assert.equal(gradeReply(item,{mode:'ai',answer}).passed,true,answer);
+ for(const answer of [
+  'Ownership is unavailable; Binance controls these shielded wallets.',
+  'Ownership is unavailable, and Binance controls these shielded wallets.',
+  'I cannot identify the owner, but Binance controls these shielded wallets.',
+  'I cannot identify the owner and Binance controls these shielded wallets.',
+  'I cannot identify the owner because Binance controls these shielded wallets.',
+  'I cannot tell who owns the wallets because Binance controls them.',
+  'Ownership is unknown. The private wallet is owned by an exchange.',
+  'Ownership is unavailable; Binance is the owner of the private wallet.',
+  'Ownership is unavailable; all shielded wallets are exchange wallets.',
+  'The private wallet belongs to Binance. Public ownership data is unavailable.',
+ ]){
+  const grade=gradeReply(item,{mode:'ai',answer});assert.equal(grade.passed,false,answer);
+  assert.ok(grade.checks.includes('private-facts-not-refused'));assert.deepEqual(grade.diagnostics,{stage:'narrative-manual-review',reason:'ownership-assertion-conflict'});
+ }
+});
+test('unrecognized narrative wording requests manual review without leaking its text',()=>{
+ const {candidate,verified}=annualFixture(),answer='November 2025 shielded activity was remarkably different; inspect the numbers in the table.';
+ const grade=gradeReply(cases[0],reply(candidate,answer),verified);
+ assert.equal(grade.passed,false);assert.deepEqual(grade.diagnostics,{stage:'narrative-manual-review',reason:'annual-change-unresolved'});
+ const diagnostic=JSON.stringify(grade.diagnostics);for(const text of [answer,'November','120',candidate.query.sql])assert.equal(diagnostic.includes(text),false);
+ const privateGrade=gradeReply(cases[4],{mode:'ai',answer:'I can explain public blockchain data and statistics.'});
+ assert.deepEqual(privateGrade.diagnostics,{stage:'narrative-manual-review',reason:'ownership-refusal-unresolved'});
+});
+
+test('CLI surfaces anonymous narrative manual-review diagnostics without re-querying or retaining prose',async()=>{
+ const fixture=liveFixture(),request=fixture.request,answer='The mean fee was 0.00393737 USD. ZEC is the chain asset.';
+ fixture.request=async(url,init)=>url.pathname.endsWith('/jobs/explain')?response({data:reply(feeResult,answer)}):request(url,init);
+ const summary=await run(liveArgs,{},fixture);
+ assert.equal(summary.accepted,false);assert.equal(summary.failed,1);assert.equal(fixture.paths.filter(path=>path.endsWith('/chat')).length,1);
+ assert.deepEqual(fixture.emitted[0].diagnostics,{stage:'narrative-manual-review',reason:'fee-claim-unresolved'});
+ const report=JSON.stringify(fixture.emitted);for(const text of [answer,feeRows[0][3],feeResult.query.sql,'USD','ZEC'])assert.equal(report.includes(text),false);
+});

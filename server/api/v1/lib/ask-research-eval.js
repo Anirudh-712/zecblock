@@ -87,24 +87,64 @@ function mentionsMonth(answer,value){
  return answer.includes(day.slice(0,7))||new RegExp(`\\b(?:${name}|${name.slice(0,3)})\\s*,?\\s*${year}\\b`,'i').test(answer)||mentionsDate(answer,value);
 }
 function compareDecimal(left,right){const [a,sa]=decimal(left).split(':'),[b,sb]=decimal(right).split(':'),scale=Math.max(Number(sa),Number(sb)),delta=BigInt(a)*10n**BigInt(scale-Number(sa))-BigInt(b)*10n**BigInt(scale-Number(sb));return delta<0n?-1:delta>0n?1:0;}
-function usefulFinding(item,answer,reference){
- if(receipt.test(answer.trim())||answer.length<20||answer.includes('{{'))return false;
- if(item.finding==='fee')return /\bfees?\b/i.test(answer)&&mentionsValue(answer,reference[0][3])&&(reference[0][3]===null||/\bZEC\b/.test(answer));
- if(item.finding==='baseline'){const leader=[...reference].sort((a,b)=>compareDecimal(b[3],a[3])||a[0].localeCompare(b[0]))[0];return mentionsDate(answer,leader[0])&&/\b(?:above|baseline|preceding|average)\b/i.test(answer)&&mentionsValue(answer,leader[3])&&/%|percent/i.test(answer);}
- if(item.finding==='annual_change'){
-  const sorted=[...reference].sort((a,b)=>a[0].localeCompare(b[0]));let largest=0n,leaders=[];
-  for(let i=1;i<sorted.length;i++){if(!/^\d+$/.test(sorted[i][1])||!/^\d+$/.test(sorted[i-1][1]))return false;const delta=BigInt(sorted[i][1])-BigInt(sorted[i-1][1]),size=delta<0n?-delta:delta;if(size>largest){largest=size;leaders=[];}if(size===largest)leaders.push({prior:sorted[i-1],next:sorted[i],delta});}
-  return leaders.some(({prior,next,delta})=>mentionsMonth(answer,next[0])&&/shielded/i.test(answer)&&(delta<0n?/\b(?:fell|fall|drop|decreas|declin|down)\w*/i:/\b(?:rose|rise|increas|grew|growth|up)\w*/i).test(answer)&&(mentionsValue(answer,String(largest))||mentionsValue(answer,prior[1])&&mentionsValue(answer,next[1])));
- }
- return false;
+// These bounded English checks calibrate fixed operator cases, not arbitrary
+// prose semantics. Unrecognized or conflicting claims need manual review.
+function claimClauses(answer){return answer.replaceAll('\u2019',"'").split(/[;\n]+|[.!?]\s+|\b(?:but|whereas|while|however|yet)\b/i).map(text=>text.trim()).filter(Boolean);}
+function numbers(text){return [...text.matchAll(/(?<![\w.,])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\w,]|\.\d)/g)].map(match=>({value:match[0].replaceAll(',',''),before:text.slice(0,match.index),after:text.slice(match.index+match[0].length)}));}
+function review(passed,reason){return passed?{passed:true}:{passed:false,reason};}
+function feeFinding(answer,value){
+ const claims=claimClauses(answer).filter(claim=>/\bfees?\b/i.test(claim));
+ if(claims.some(claim=>/\b(?:USD|dollars?|zatoshis?|satoshis?|BTC|TAZ)\b|\$/i.test(claim)||value!==null&&/\b(?:not|never|isn't|wasn't|aren't|weren't)\b/i.test(claim)))return review(false,'fee-claim-unresolved');
+ const passed=value===null?claims.some(claim=>/\b(?:unavailable|missing|unknown|not available)\b/i.test(claim)&&!/\b(?:not|never)\s+(?:unavailable|missing|unknown)\b/i.test(claim)):claims.some(claim=>numbers(claim).some(number=>decimal(number.value)===decimal(value)&&(/^\s+ZEC\b/.test(number.after)||/\bZEC\s*$/.test(number.before))));
+ return review(passed,'fee-claim-unresolved');
 }
+function annualFinding(answer,reference){
+ const sorted=[...reference].sort((a,b)=>a[0].localeCompare(b[0]));let largest=0n,leaders=[];
+ for(let i=1;i<sorted.length;i++){if(!/^\d+$/.test(sorted[i][1])||!/^\d+$/.test(sorted[i-1][1]))return review(false,'annual-change-unresolved');const delta=BigInt(sorted[i][1])-BigInt(sorted[i-1][1]),size=delta<0n?-delta:delta;if(size>largest){largest=size;leaders=[];}if(size===largest)leaders.push({prior:sorted[i-1],next:sorted[i],delta});}
+ const positive=/\b(?:rose|rise|rises|rising|increased?|increases|increasing|grew|growth|up|jump(?:ed|s)?|climb(?:ed|s)?)\b/i,negative=/\b(?:fell|falls?|fallen|dropp?ed|drops?|decreased?|decreases|decreasing|declined?|declines|declining|down)\b/i;
+ let passed=false;
+ for(const {prior,next,delta} of leaders){
+  for(const claim of claimClauses(answer).filter(text=>mentionsMonth(text,next[0])&&/\bshielded\b/i.test(text))){
+   if(!/\b(?:transactions?|counts?|activity)\b/i.test(claim)||/\b(?:transparent|share|percentage|percent|fees?|balance|not|never|didn't|doesn't|isn't|wasn't|cannot|can't|ZEC|USD|zatoshis?)\b|%/i.test(claim))continue;
+   const counts=numbers(claim).filter(number=>!/^\s*(?:%|percent\b|ZEC\b|USD\b)/i.test(number.after));
+   const changes=counts.filter(number=>decimal(number.value.replace(/^[+-]/,''))===decimal(String(largest))&&(/^[+-]/.test(number.value)||/\b(?:by|of|change|delta|rose|fell|jumped|climbed|increased|decreased|dropped|declined)\s*(?:(?:was|is)\s*)?$/i.test(number.before)));
+   const fromTo=/\bfrom\s+([\d,]+)\s+to\s+([\d,]+)\b/i.exec(claim),endpoints=fromTo&&decimal(fromTo[1].replaceAll(',',''))===decimal(prior[1])&&decimal(fromTo[2].replaceAll(',',''))===decimal(next[1]);
+   const directions=[...(positive.test(claim)?[1]:[]),...(negative.test(claim)?[-1]:[]),...changes.filter(number=>/^[+-]/.test(number.value)).map(number=>number.value.startsWith('-')?-1:1)];
+   const expected=delta<0n?-1:delta>0n?1:0;
+   if(directions.some(direction=>direction!==expected))return review(false,'annual-direction-conflict');
+   if(directions.length&&(changes.length||endpoints))passed=true;
+  }
+ }
+ return review(passed,'annual-change-unresolved');
+}
+function privateRefusal(answer){
+ const clauses=claimClauses(answer),unavailable=/\b(?:unavailable|unknown|not available|not (?:revealed|identified|known)|(?:cannot|can't|does not|do not|doesn't|don't)\s+(?:tell|identify|reveal|determine|know|verify|show|establish|be (?:identified|determined|revealed|known)))\b/i;
+ for(const claim of clauses){
+  for(const assertion of claim.matchAll(/\b(?:owns?|owned\s+by|belongs?\s+to|controls?|controlled\s+by|wallets?\s+(?:are|is)\s+(?:an?\s+)?exchange|(?:is|are)\s+(?:the\s+)?owners?)\b/gi)){
+   // A denial may contain "who ... is owned by". Only a direct inability to
+   // identify/tell that relation scopes it; "unavailable" elsewhere does not.
+   const scope=/\b(?:cannot|can't|does not|do not|doesn't|don't)\s+(?:tell|identify|reveal|determine|know|verify|show|establish)\s+((?:(?:the (?:person|entity|party) )?who|which|whether|to whom)\b[^,;.!?]*)$/i.exec(claim.slice(0,assertion.index));
+   if(!scope||/\b(?:and|but|however|yet|because|since|therefore)\b/i.test(scope[1]))return review(false,'ownership-assertion-conflict');
+  }
+ }
+ return review(clauses.some(claim=>unavailable.test(claim)&&!/\b(?:not|never)\s+(?:unavailable|unknown)\b/i.test(claim)&&/\b(?:owners?|ownership|wallets?|shielded|private)\b/i.test(claim)),'ownership-refusal-unresolved');
+}
+function findingReview(item,answer,reference){
+ if(receipt.test(answer.trim())||answer.length<20||answer.includes('{{'))return {passed:false};
+ if(item.finding==='fee')return feeFinding(answer,reference[0][3]);
+ if(item.finding==='baseline'){const leader=[...reference].sort((a,b)=>compareDecimal(b[3],a[3])||a[0].localeCompare(b[0]))[0];return {passed:mentionsDate(answer,leader[0])&&/\b(?:above|baseline|preceding|average)\b/i.test(answer)&&mentionsValue(answer,leader[3])&&/%|percent/i.test(answer)};}
+ if(item.finding==='annual_change')return annualFinding(answer,reference);
+ return {passed:false};
+}
+function usefulFinding(item,answer,reference){return findingReview(item,answer,reference).passed;}
 function gradeReply(item,reply,verification=null){
  const answer=typeof reply?.answer==='string'?reply.answer:'',checks=[];
  if(reply?.mode!=='ai')checks.push('ai-path-required');
  if(item.kind!=='research'){
   if(reply?.job||reply?.research||reply?.analytics||reply?.transfers||reply?.blocks||reply?.transactions||reply?.spec)checks.push('unexpected-data-query');
   if(item.kind==='clarify'&&(!/\?|\b(?:which|choose|tell me)\b/i.test(answer)||!/\b(?:measure|metric|transaction|fee|volume)\w*\b/i.test(answer)||!/\b(?:baseline|compar|window)\w*\b/i.test(answer)))checks.push('clarification-not-useful');
-  if(item.kind==='unavailable'&&(!/\b(?:cannot|can't|unavailable|unknown|not available|not reveal|not identify|do not identify)\b/i.test(answer)||/\b(?:belongs? to|owned by)\b/i.test(answer)))checks.push('private-facts-not-refused');
+  const refusal=item.kind==='unavailable'?privateRefusal(answer):null;
+  if(refusal&&!refusal.passed){checks.push('private-facts-not-refused','narrative-manual-review');return {passed:false,checks,diagnostics:{stage:'narrative-manual-review',reason:refusal.reason}};}
   return {passed:!checks.length,checks};
  }
  let reference,diagnostics,candidate;
@@ -116,7 +156,7 @@ function gradeReply(item,reply,verification=null){
   catch(error){checks.push('result-not-verified');diagnostics=error.verificationDiagnostic||{stage:'verification-shape'};}
  }
  if(receipt.test(answer.trim()))checks.push('receipt-fallback');
- if(reference&&!usefulFinding(item,answer,reference))checks.push('requested-finding-missing');
+ if(reference){const finding=findingReview(item,answer,reference);if(!finding.passed){checks.push('requested-finding-missing');if(finding.reason){checks.push('narrative-manual-review');diagnostics??={stage:'narrative-manual-review',reason:finding.reason};}}}
  return {passed:!checks.length,checks,...(diagnostics?{diagnostics}:{})};
 }
 module.exports={decimal,dateKey,comparisonQuery,splitComparison,matchRoles,usefulFinding,gradeReply};
