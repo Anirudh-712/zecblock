@@ -49,6 +49,8 @@ jobs:
         run: npm ci --prefix server/api --no-audit --no-fund
       - name: Run the local/CI frontend verification contract
         run: npm run verify:frontend
+      - name: Protected staging proxy regressions
+        run: node --test server/tests/ask-staging-proxy.test.js server/tests/staging-data-proxy.test.js
       - name: Inbox orchestration and worker lifecycle regressions
         run: node --test server/tests/inbox-scan.test.js server/tests/scan-worker-pool.test.js
       - name: Supply-map accounting regressions
@@ -100,6 +102,29 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
+      - name: Install native Redis fixture runtime
+        # The Docker service supplies TEST_REDIS_URL, while the Ask isolation
+        # fixtures launch their own redis-server with port 0/private Unix sockets.
+        # Suppress package service startup so it cannot contend for TCP 6379.
+        run: |
+          sudo apt-get update
+          fixture_policy_dir="$(mktemp -d)"
+          if sudo test -e /usr/sbin/policy-rc.d || sudo test -L /usr/sbin/policy-rc.d; then
+            sudo cp -a /usr/sbin/policy-rc.d "$fixture_policy_dir/original"
+          fi
+          restore_fixture_policy() {
+            sudo rm -f /usr/sbin/policy-rc.d
+            if sudo test -e "$fixture_policy_dir/original" || sudo test -L "$fixture_policy_dir/original"; then
+              sudo cp -a "$fixture_policy_dir/original" /usr/sbin/policy-rc.d
+            fi
+            rm -rf "$fixture_policy_dir"
+          }
+          trap restore_fixture_policy EXIT
+          printf '#!/bin/sh\nexit 101\n' > "$fixture_policy_dir/deny-service-start"
+          sudo rm -f /usr/sbin/policy-rc.d
+          sudo install -o root -g root -m 0755 "$fixture_policy_dir/deny-service-start" /usr/sbin/policy-rc.d
+          sudo apt-get install -y --no-install-recommends redis-server
+          redis-server --version
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
       - name: Install shared inventory-test dependencies

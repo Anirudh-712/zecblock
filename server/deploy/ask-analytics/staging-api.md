@@ -9,8 +9,9 @@ must not be exposed through this staging listener.
 
 The intended path is: authenticated Vercel preview → same-origin Node gateway →
 mutually authenticated HTTPS at `135.181.17.198:8443` → staging Ask router →
-existing loopback worker3015 → restricted analytics PostgreSQL reader. Other
-explorer reads retain their existing public API origin. Staging setup does not
+existing loopback worker3015 → restricted analytics PostgreSQL reader.
+Ask chart/stats browser reads use the protected, fixed-origin GET bridge described
+below; server rendering retains the explicit public API origin. Staging setup does not
 change the public guided API, source feed, PostgreSQL grants or query budgets.
 
 ## Explicit admission contract
@@ -63,14 +64,17 @@ Required new values:
 ASK_STAGING_ENABLED=true
 ASK_PRIVATE_PREVIEW=false
 ASK_PREVIEW_SIMULATE_IPS=false
-ASK_STAGING_CA_FILE=/etc/zecblock/ask-staging/ca.pem
-ASK_STAGING_CERT_FILE=/etc/zecblock/ask-staging/server.pem
-ASK_STAGING_KEY_FILE=/etc/zecblock/ask-staging/server.key
+ASK_STAGING_CA_FILE=/etc/zecblock-ask-staging/ca.pem
+ASK_STAGING_CERT_FILE=/etc/zecblock-ask-staging/server.pem
+ASK_STAGING_KEY_FILE=/etc/zecblock-ask-staging/server.key
 ASK_STAGING_CLIENT_FINGERPRINT256=APPROVED_CLIENT_LEAF_SHA256
 ```
 
 The fingerprint accepts exactly64hex digits or OpenSSL's colon-separated SHA256
-format. Certificate/key files must be regular files of at most64KiB. The server
+format. Every certificate directory parent must allow traversal by `ask_stage`;
+keep the existing root-only `/etc/zecblock` directory private and put the
+service-readable TLS material in `/etc/zecblock-ask-staging` (root:ask_stage0750).
+Certificate/key files must be regular files of at most64KiB. The server
 key may be root:ask_stage mode0640; it must have no group-write or other-user
 access. Public certificates can use root:ask_stage0640. The CA **private key**
 stays in a separate root-only operator location; it is never an application or
@@ -101,6 +105,22 @@ request/idle/keep-alive times and active connections are bounded. The API uses
 private/no-store and noindex/nofollow headers, generic failures, fresh request
 IDs and abort signals. Questions, SQL, tokens, certificates and raw exceptions
 must not be added to access/application logging.
+
+## Browser public-data bridge
+
+Protected previews have a different Origin from production. Do not weaken the
+public API CORS policy to make the preview work. With preview-only
+`ASK_STAGING_ENABLED=true` and browser mainnet `NEXT_PUBLIC_ASK_STAGING=true`,
+`/api/staging-data/*` admits only the exact public GETs used by Ask evidence,
+network statistics and freshness. It fixes the upstream to
+`https://api.zecblock.com`, forwards only Accept and the bounded query string,
+never credentials or the browser Origin, rejects redirects, and bounds the
+complete JSON response to1MiB/9s including body consumption. Both JSON and
+problem+json preserve status and Retry-After. All responses are no-store/noindex.
+This allowance covers Ask acceptance, not every API on other preview pages.
+Configure `NEXT_PUBLIC_WS_URL=wss://api.zecblock.com` explicitly so the relative
+GET base is never interpreted as a WebSocket URL. If the public event feed
+refuses the preview Origin, HTTP polling remains the data path.
 
 ## Acceptance and rollback
 

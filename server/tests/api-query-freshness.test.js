@@ -6,7 +6,7 @@ const ts = require('typescript');
 
 // Exercise the actual hook's effects/registry with deterministic time and
 // network responses; each mounted component has its own React ref slots.
-function harness({ hidden = false, fetchImpl } = {}) {
+function harness({ hidden = false, fetchImpl, apiUrl = 'https://api.example.test', browserOrigin, requestPath = '/stats' } = {}) {
   let now = 1_000_000;
   let id = 0;
   let active;
@@ -26,11 +26,11 @@ function harness({ hidden = false, fetchImpl } = {}) {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('hooks/useApiQuery.ts', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, {
-    exports, document, URL, AbortController, console,
+    exports, document, URL, AbortController, console, window: browserOrigin ? { location: { origin: browserOrigin } } : undefined,
     Date: { now: () => now },
     require(name) {
       if (name === 'react') return react;
-      if (name === '@/lib/api-config') return { getApiUrl: () => 'https://api.example.test' };
+      if (name === '@/lib/api-config') return { getApiUrl: () => apiUrl };
       // Assay uses the versioned API envelope; freshness behavior is shared.
       if (name === '@/lib/api-client') return { readApiData: response => response.json() };
       throw new Error(`Unexpected import ${name}`);
@@ -52,7 +52,7 @@ function harness({ hidden = false, fetchImpl } = {}) {
       const render = () => {
         active = component;
         component.index = 0;
-        return exports.useApiQuery('/stats', undefined, options);
+        return exports.useApiQuery(requestPath, undefined, options);
       };
       render();
       const cleanups = component.effects.map(effect => effect());
@@ -134,4 +134,13 @@ test('unseeded queries still fetch once and a recent shared response is not fetc
   assert.equal(live.calls, 1);
   assert.equal(first.render().data.height, 101);
   assert.equal(second.render().data.height, 101);
+});
+
+test('browser polling resolves the relative protected staging API base against the deployment origin', async () => {
+  const urls = [];
+  const live = harness({ apiUrl: '/api/staging-data', browserOrigin: 'https://review.vercel.app', requestPath: '/v1/network/stats', fetchImpl: async url => { urls.push(url); return { ok: true, json: async () => ({ height: 103 }) }; } });
+  const view = live.mount({ refreshInterval: 60_000 });
+  await flush();
+  assert.deepEqual(urls, ['https://review.vercel.app/api/staging-data/v1/network/stats']);
+  assert.equal(view.render().data.height, 103);
 });

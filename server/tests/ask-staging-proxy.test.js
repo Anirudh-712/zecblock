@@ -125,10 +125,20 @@ test('request bodies are bounded before transport and malformed JSON is rejected
   assert.equal(f.calls.length, 0);
 });
 
+test('Ask quota problem JSON preserves the status, code and retry time through the mTLS bridge', async () => {
+  const problem = { type: 'rate-limit', code: 'ask-quota-minute', detail: 'Request limit reached.' };
+  const f = fixture({ status: 429, body: JSON.stringify(problem), headers: { 'content-type': 'application/problem+json; charset=utf-8', 'retry-after': '60' } });
+  const response = await createStagingProxy(enabled, f.transport)(incoming());
+  assert.equal(response.status, 429); privateResponse(response);
+  assert.equal(response.headers.get('content-type'), 'application/problem+json');
+  assert.equal(response.headers.get('retry-after'), '60');
+  assert.deepEqual(await response.json(), problem);
+});
+
 test('TLS failures, redirects, non-JSON and oversized upstream replies fail safely without following a location', async () => {
   for (const options of [
     { error: 'ERR_TLS_CERT_ALTNAME_INVALID' }, { error: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' },
-    { status: 302, headers: { location: 'https://elsewhere.test' } }, { headers: { 'content-type': 'text/html' } },
+    { status: 302, headers: { location: 'https://elsewhere.test' } }, { status: 205 }, { headers: { 'content-type': 'text/html' } },
     { body: '{invalid' }, { body: 'x'.repeat(307201) }, { headers: { 'content-length': '307201' } },
   ]) {
     const f = fixture(options), response = await createStagingProxy(enabled, f.transport)(incoming());
