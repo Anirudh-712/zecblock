@@ -1,0 +1,18 @@
+[Unit]
+Description=Refresh 30 completed UTC dates of attributed testnet miner payouts
+After=network-online.target postgresql.service
+ConditionPathExists=/etc/cipherscan/subsidy-allocations.env
+[Service]
+Type=oneshot
+WorkingDirectory=/root/cipherscan
+Environment=NODE_PATH=/root/cipherscan/server/api/node_modules
+EnvironmentFile=/etc/cipherscan/subsidy-allocations.env
+Environment=NETWORK=testnet
+ExecStart=/usr/bin/node server/jobs/snapshot-mining-behavior.js --days=30
+TimeoutStartSec=600
+TimeoutStopSec=5
+Nice=15
+CPUWeight=10
+IOWeight=10
+MemoryMax=256M
+UMask=0077

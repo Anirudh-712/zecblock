@@ -63,7 +63,7 @@ export function MiningSoftwareSection() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
   const palette = getMiningSoftwareColors(theme);
-  const [period, setPeriod] = useState("all");
+  const [period, setPeriod] = useState("30d");
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [bucket, setBucket] = useState("auto");
   const [data, setData] = useState<History | null>(null);

@@ -1,0 +1,8 @@
+[Unit]
+Description=Fill missing canonical historical subsidy allocations every minute
+[Timer]
+OnBootSec=60
+OnUnitInactiveSec=60
+AccuracySec=5
+[Install]
+WantedBy=timers.target

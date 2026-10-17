@@ -13,7 +13,7 @@ import {
   XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend,
 } from 'recharts';
 import { ChartTooltip as Tooltip } from '@/components/charts/ChartTooltip';
-import { getApiUrl } from '@/lib/api-config';
+import { getApiUrl, NETWORK } from '@/lib/api-config';
 import { useTheme } from '@/contexts/ThemeContext';
 import { categoryColor } from '@/lib/category-colors';
 import { getChartColors } from '@/lib/chart-theme';
@@ -119,7 +119,7 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
 
 function DistributionSection() {
   const { theme } = useTheme();
-  const [period, setPeriod] = useState<Period>('7d');
+  const [period, setPeriod] = useState<Period>('30d');
   const [data, setData] = useState<PoolDist[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -169,7 +169,7 @@ function DistributionSection() {
 
 function RankingSection() {
   const { theme } = useTheme();
-  const [period, setPeriod] = useState<Period>('7d');
+  const [period, setPeriod] = useState<Period>('30d');
   const [ranking, setRanking] = useState<PoolRank[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -316,7 +316,7 @@ function ChartModeToggle({ mode, onChange }: { mode: ChartMode; onChange: (m: Ch
 function HashrateShareSection() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
-  const [period, setPeriod] = useState<Period>('all');
+  const [period, setPeriod] = useState<Period>('30d');
   const [chartMode, setChartMode] = useState<ChartMode>('line');
   const [series, setSeries] = useState<HashratePoint[]>([]);
   const [allPools, setAllPools] = useState<string[]>([]);
@@ -514,25 +514,41 @@ function HashrateShareSection() {
 function MinerBehaviorSection() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
-  const [period, setPeriod] = useState<Period>('all');
+  const [period, setPeriod] = useState<Period>('30d');
   const [series, setSeries] = useState<BehaviorPoint[]>([]);
   const [summary, setSummary] = useState<BehaviorSummary | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [coverage, setCoverage] = useState<{ firstDate: string; lastDate: string; refreshedAt: string | null; freshness: 'current' | 'stale' | 'unknown' } | null>(null);
   const [loading, setLoading] = useState(true);
+  const currency = NETWORK === 'mainnet' ? 'ZEC' : 'TAZ';
 
   useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
-    fetch(`${getApiUrl()}/v1/mining/miner-behavior?period=${period}`)
-      .then(r => r.ok ? readApiData(r) : null)
-      .then(res => {
-        if (res) {
-          setSeries(res.series || []);
-          setSummary(res.summary || null);
-          setMessage(res.message || null);
-        }
-        setLoading(false);
+    setSeries([]);
+    setSummary(null);
+    setMessage(null);
+    setCoverage(null);
+    fetch(`${getApiUrl()}/v1/mining/miner-behavior?period=${period}`, { signal: controller.signal })
+      .then(async response => {
+        if (!response.ok) throw new Error('Miner behavior unavailable');
+        return readApiData(response);
       })
-      .catch(() => setLoading(false));
+      .then(data => {
+        if (controller.signal.aborted) return;
+        if (!data || !Array.isArray(data.series)) throw new Error('Invalid miner behavior response');
+        setSeries(data.series);
+        setSummary(data.series.length ? data.summary || null : null);
+        setCoverage(data.coverage || null);
+        setMessage(data.series.length ? null : data.message || 'No miner reward spending snapshots are available for this period.');
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setMessage('Miner behavior data is temporarily unavailable. Try again later.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, [period]);
 
   const chartData = series.map(p => ({
@@ -560,8 +576,8 @@ function MinerBehaviorSection() {
           </Link>
         </div>
         <p className="text-xs text-secondary mt-1 font-sans">
-          How much of their block rewards miners move vs leave unspent. A high moved ratio means rewards changed address
-          quickly; it does not prove they were sold. The{' '}
+          Spending of attributed miner payout outputs, grouped by the date the reward was earned. A movement means
+          an output was spent; it does not prove a sale. Amounts reflect current indexed spending when refreshed, rather than spending on the reward date. Unattributed payouts are excluded. The{' '}
           <Link href="/zodl" className="text-cipher-gold hover:underline">ZODL leaderboard</Link> breaks each pool&apos;s spending down by destination (shielded vs. exchange vs. transparent), showing observed transfers rather than proving sales.
         </p>
       </div>
@@ -572,7 +588,7 @@ function MinerBehaviorSection() {
             <CardBody className="py-3">
               <p className="text-caption font-mono text-muted uppercase mb-1">Total Earned</p>
               <p className="text-lg font-semibold font-mono tabular-nums text-primary">
-                {formatZec(summary.totalEarnedZat)} ZEC
+                {formatZec(summary.totalEarnedZat)} {currency}
               </p>
             </CardBody>
           </Card>
@@ -580,7 +596,7 @@ function MinerBehaviorSection() {
             <CardBody className="py-3">
               <p className="text-caption font-mono text-muted uppercase mb-1">Total Moved</p>
               <p className="text-lg font-semibold font-mono tabular-nums text-cipher-orange">
-                {formatZec(summary.totalSpentZat)} ZEC
+                {formatZec(summary.totalSpentZat)} {currency}
               </p>
             </CardBody>
           </Card>
@@ -588,13 +604,13 @@ function MinerBehaviorSection() {
             <CardBody className="py-3">
               <p className="text-caption font-mono text-muted uppercase mb-1">Still Held</p>
               <p className="text-lg font-semibold font-mono tabular-nums text-cipher-green">
-                {formatZec(summary.totalHeldZat)} ZEC
+                {formatZec(summary.totalHeldZat)} {currency}
               </p>
             </CardBody>
           </Card>
           <Card>
             <CardBody className="py-3">
-              <p className="text-caption font-mono text-muted uppercase mb-1">Sell Ratio</p>
+              <p className="text-caption font-mono text-muted uppercase mb-1">Moved Ratio</p>
               <p className="text-lg font-semibold font-mono tabular-nums text-primary">
                 {(summary.overallSellRatio * 100).toFixed(1)}%
               </p>
@@ -610,11 +626,10 @@ function MinerBehaviorSection() {
       >
         {loading ? (
           <ChartSkeleton height={320} />
-        ) : message ? (
+        ) : message || !chartData.length ? (
           <div className="flex items-center justify-center h-[320px]">
             <div className="text-center">
-              <p className="text-sm text-muted font-mono">{message}</p>
-              <p className="text-caption text-muted mt-2">Run the snapshot job to populate this data.</p>
+              <p className="text-sm text-muted font-mono">{message || 'No miner reward spending snapshots are available for this period.'}</p>
             </div>
           </div>
         ) : (
@@ -634,7 +649,7 @@ function MinerBehaviorSection() {
                 stroke={colors.axis}
                 tick={{ fill: colors.axis, fontSize: 12 }}
                 tickFormatter={(v: number) => `${v.toFixed(0)}`}
-                label={{ value: 'ZEC', angle: -90, position: 'insideLeft', fill: colors.axis, fontSize: 12 }}
+                label={{ value: currency, angle: -90, position: 'insideLeft', fill: colors.axis, fontSize: 12 }}
               />
               <Tooltip
                 cursor={{ fill: 'rgba(255,255,255,0.03)' }}
@@ -648,14 +663,14 @@ function MinerBehaviorSection() {
                 itemStyle={{ color: colors.tooltipText }}
                 labelStyle={{ color: colors.tooltipText, marginBottom: 4 }}
                 formatter={(value, name) => {
-                  const label = name === 'earned' ? 'Earned' : name === 'spent' ? 'Moved/Sold' : 'Held';
-                  return [`${Number(value).toFixed(2)} ZEC`, label];
+                  const label = name === 'earned' ? 'Earned' : name === 'spent' ? 'Moved' : 'Held';
+                  return [`${Number(value).toFixed(2)} ${currency}`, label];
                 }}
                 labelFormatter={(label) => String(label)}
               />
               <Legend
                 wrapperStyle={{ fontSize: 12, fontFamily: 'var(--font-geist-mono), monospace' }}
-                formatter={(value) => value === 'earned' ? 'Earned' : value === 'spent' ? 'Moved/Sold' : 'Held'}
+                formatter={(value) => value === 'earned' ? 'Earned' : value === 'spent' ? 'Moved' : 'Held'}
               />
               <Bar dataKey="earned" fill={colors.gold} fillOpacity={0.3} stroke={colors.gold} />
               <Bar dataKey="spent" fill={colors.deshielding} fillOpacity={0.7} />
@@ -664,6 +679,13 @@ function MinerBehaviorSection() {
           </ResponsiveContainer>
         )}
       </ChartCard>
+      {coverage && series.length > 0 && (
+        <p className="text-caption text-muted mt-3">
+          Available reward dates: {coverage.firstDate}–{coverage.lastDate}.
+          {coverage.refreshedAt && ` Oldest snapshot refresh: ${new Date(coverage.refreshedAt).toLocaleString(undefined, { timeZone: 'UTC' })} UTC.`}
+          {coverage.freshness === 'stale' && ' Some snapshots are more than 48 hours old.'}
+        </p>
+      )}
     </section>
   );
 }

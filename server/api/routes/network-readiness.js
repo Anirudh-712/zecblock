@@ -3,8 +3,9 @@ const { cadencePoints } = require('../lib/block-cadence');
 const { signedZat, blockAccounting } = require('../lib/network-accounting');
 const { supplyZat } = require('../lib/network-issuance');
 const { logSafeError } = require('../lib/safe-log');
-const { HISTORY_SQL, historyPoints } = require('../lib/accounting-history');
-const { PERIOD_SQL, periodPayload } = require('../lib/accounting-period');
+const { accountingHistorySql, historyPoints } = require('../lib/accounting-history');
+const { accountingPeriodSql, periodPayload } = require('../lib/accounting-period');
+const { hasSubsidyAllocations } = require('../lib/subsidy-allocations');
 const cadenceCache = new WeakMap();
 const accountingPeriodCache = new WeakMap();
 
@@ -70,7 +71,8 @@ function registerNetworkReadinessRoutes(router) {
           const observedAt = new Date().toISOString();
           const seconds = { '1d': 86400, '7d': 604800, '30d': 2592000 }[period];
           const since = seconds ? Math.floor(Date.now()/1000)-seconds : null;
-          cached = { expires: Date.now()+60000, promise: pool.query(PERIOD_SQL, [info.blocks, schedule.nu7Height, info.chain, since])
+          cached = { expires: Date.now()+60000, promise: hasSubsidyAllocations(pool)
+            .then(enabled => pool.query(accountingPeriodSql(enabled), [info.blocks, schedule.nu7Height, info.chain, since]))
             .then(({ rows }) => ({ row: rows[0], observedAt })) };
           cache.set(key, cached);
           cached.promise.catch(() => cache.delete(key));
@@ -101,7 +103,8 @@ function registerNetworkReadinessRoutes(router) {
       const { pool, callZebraRPC } = req.app.locals;
       const info = await callZebraRPC('getblockchaininfo');
       const schedule = networkSchedule(info);
-      const { rows } = await pool.query(HISTORY_SQL, [info.blocks, before, limit]);
+      const withAllocations = await hasSubsidyAllocations(pool);
+      const { rows } = await pool.query(accountingHistorySql(withAllocations), [info.blocks, before, limit, info.chain]);
       const last = rows.at(-1);
       if (last && await callZebraRPC('getblockhash', [Number(last.height)]) !== last.hash) {
         return res.status(503).json({ success: false, error: 'Indexed history is reconciling with the node' });
@@ -111,6 +114,7 @@ function registerNetworkReadinessRoutes(router) {
         observedAt: new Date().toISOString(), schedule, points,
         nextBefore: rows.length === limit ? Number(rows[0].height) : null,
         coverage: { blocks: points.length, feeBlocks: points.filter(p => p.feesPaidZat !== null).length,
+          receiptBlocks: points.filter(p => p.minerReceiptsZat !== null).length,
           nsmSamples: points.filter(p => p.nsmBalanceZat !== null).length },
         source: 'canonical-indexed-transactions-and-hash-matched-node-observations',
         nsmChangeMeaning: 'Net reserve change between consecutive observed blocks, not gross fee removal or reissuance.',

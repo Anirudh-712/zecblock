@@ -14,12 +14,13 @@ type Accounting = { schedule: { network: string; nu7Height: number | null } | nu
   block: { height: number; feesPaidZat: number | string | null; feesToNsmZat: number | string | null; minerFeeAllocationZat: number | string | null;
     minerSubsidyZat: number | string | null; minerReceiptsZat: number | string | null; reissuanceZat: number | string | null } | null };
 
-type Totals = { blocks: number; feeBlocks: number; nsmSamples: number; missingBlocks: number; feesPaidZat: string | null;
+type Totals = { blocks: number; feeBlocks: number; receiptBlocks?: number; nsmSamples: number; missingBlocks: number; feesPaidZat: string | null;
   feesToNsmZat: string | null; minerFeeAllocationZat: string | null; firstHeight: number | null; lastHeight: number | null;
   firstTimestamp: number | null; lastTimestamp: number | null };
-type Point = { timestamp: number; firstHeight: number; lastHeight: number; blocks: number; feeBlocks: number; nsmSamples: number;
+type Point = { timestamp: number; firstHeight: number; lastHeight: number; blocks: number; feeBlocks: number; receiptBlocks?: number; nsmSamples: number;
   missingBlocks: number; feesPaidZat: string | null; feesToNsmZat: string | null; minerFeeAllocationZat: string | null;
-  minerReceiptsZat: string | null; nsmBalanceZat: string | null; cumulativeRemovalZat: string | null };
+  minerReceiptsZat: string | null; nsmBalanceZat: string | null; cumulativeRemovalZat: string | null;
+  nsmSampleHeight?: number | null; nsmSampleHash?: string | null; nsmSampleTimestamp?: number | null };
 type Period = '1d' | '7d' | '30d' | 'all';
 type History = { period: Period; schedule: Accounting['schedule']; nodeHeight: number; indexedHeight: number | null;
   bucketSeconds: number; points: Point[]; totals: Totals; selected: Totals;
@@ -54,20 +55,25 @@ export function NetworkAccounting() {
     Number.isSafeInteger(activationHeight) && activationHeight > 0 && activationHeight <= 499_999_999 &&
     Number.isSafeInteger(data.nodeHeight) && data.nodeHeight >= activationHeight && data.nodeHeight <= 499_999_999;
   const [metric, setMetric] = useState<keyof typeof historySeries>('fees');
-  const [period, setPeriod] = useState<Period>('1d');
+  const [period, setPeriod] = useState<Period>('30d');
   const history = useApiQuery<History>('/v1/network/accounting/history', { period }, { enabled: nu7Active, refreshInterval: 30_000 });
   // The hook retains previous query data. Never label an old range or network
   // as the newly selected period while its request is still in flight.
   const historySnapshot = history.data?.schedule?.network === expectedChain && history.data.schedule.nu7Height === activationHeight ? history.data : null;
   const selected = historySnapshot?.period === period ? historySnapshot : null;
   const points = (selected?.points ?? []).flatMap((point, i, all) => {
-    const plotted = { ...point, ...Object.fromEntries(Object.entries(point).filter(([key]) => key.endsWith('Zat'))
+    const plotted = { ...point, chartTimestamp: metric === 'reserve' ? point.nsmSampleTimestamp ?? point.timestamp : point.timestamp,
+      ...Object.fromEntries(Object.entries(point).filter(([key]) => key.endsWith('Zat'))
       .map(([key, value]) => [key + 'Display', value == null || !Number.isFinite(Number(value)) ? null : Number(value) / 1e8])) };
     return i > 0 && point.timestamp - all[i-1].timestamp > selected!.bucketSeconds
-      ? [{ timestamp: all[i-1].timestamp + selected!.bucketSeconds }, plotted] : [plotted];
+      ? [{ chartTimestamp: all[i-1].timestamp + selected!.bucketSeconds }, plotted] : [plotted];
   });
   const series = historySeries[metric];
   const hasValues = selected?.points.some(point => series.some(([key]) => point[key] != null));
+  const completeReceiptBuckets = selected?.points.filter(point => point.minerReceiptsZat != null && Number.isFinite(Number(point.minerReceiptsZat))).length ?? 0;
+  const reserveBuckets = selected?.points.filter(point => point.nsmBalanceZat != null).length ?? 0;
+  const receiptBlocks = selected?.selected.receiptBlocks;
+  const hasReceiptCoverage = Number.isSafeInteger(receiptBlocks) && receiptBlocks! >= 0 && receiptBlocks! <= (selected?.selected.blocks ?? 0);
   if (!nu7Active) return null;
   const block = data.block;
   const bucketLabel = selected ? selected.bucketSeconds < 3600 ? `${selected.bucketSeconds/60}-minute` : selected.bucketSeconds < 86400
@@ -113,7 +119,7 @@ export function NetworkAccounting() {
       {hasValues ? <ResponsiveContainer width="100%" height={280} initialDimension={{ width: 400, height: 280 }}>
         <ComposedChart data={points} margin={{ top: 12, right: 24, bottom: 12, left: 0 }} barCategoryGap="15%">
           <CartesianGrid vertical={false} stroke={colors.grid} />
-          <XAxis dataKey="timestamp" type="number" domain={['dataMin', 'dataMax']} tickFormatter={v => utc(Number(v), period === '1d')}
+          <XAxis dataKey="chartTimestamp" type="number" domain={['dataMin', 'dataMax']} tickFormatter={v => utc(Number(v), period === '1d')}
             minTickGap={45} padding={{ left: 12, right: 32 }} tick={{ fill: colors.axis, fontSize: 12 }} tickLine={false} axisLine={false} />
           <YAxis width={metric === 'reserve' ? 112 : 78} domain={metric === 'reserve' ? ['auto', 'auto'] : [0, 'auto']}
             tickFormatter={v => Number(v).toLocaleString('en-US', metric === 'reserve' ? { maximumFractionDigits: 8 } : { maximumSignificantDigits: 4 })}
@@ -121,11 +127,18 @@ export function NetworkAccounting() {
           <Tooltip labelFormatter={(timestamp, payload) => <div>{utc(Number(timestamp))} UTC
             {payload?.[0]?.payload?.firstHeight != null && <div className="text-caption mt-1">Blocks {payload[0].payload.firstHeight.toLocaleString()}–{payload[0].payload.lastHeight.toLocaleString()}
               {metric === 'fees' && <div>Fees paid: {zec(payload[0].payload.feesPaidZat)}</div>}</div>}
+            {metric === 'reserve' && payload?.[0]?.payload?.nsmSampleHeight != null && <div className="text-caption mt-1">
+              Recorded at block {payload[0].payload.nsmSampleHeight.toLocaleString()}
+              <div className="font-mono break-all">{payload[0].payload.nsmSampleHash}</div>
+              <div>Block-header time: {new Date(payload[0].payload.nsmSampleTimestamp * 1000).toISOString()}</div>
+              {payload[0].payload.lastHeight > payload[0].payload.nsmSampleHeight && <div>{payload[0].payload.lastHeight - payload[0].payload.nsmSampleHeight} blocks before this bucket’s last block</div>}
+            </div>}
           </div>} formatter={(_value, name, item) => [zec(item.payload[String(item.dataKey).replace(/Display$/, '')]), name]} />
-          {series.map(([key, name, color]) => metric === 'fees'
-            ? <Bar key={key} dataKey={key + 'Display'} name={name} fill={colors[color]} stackId="fees" isAnimationActive={false} />
-            : <Line key={key} dataKey={key + 'Display'} name={name} stroke={colors[color]} type={metric === 'receipts' ? 'linear' : 'stepAfter'}
-              dot={false} connectNulls={false} isAnimationActive={false} strokeWidth={2} />)}
+          {series.map(([key, name, color]) => metric === 'fees' || metric === 'receipts'
+            ? <Bar key={key} dataKey={key + 'Display'} name={name} fill={colors[color]} stackId={metric === 'fees' ? 'fees' : undefined}
+              maxBarSize={metric === 'receipts' ? 18 : undefined} isAnimationActive={false} />
+            : <Line key={key} dataKey={key + 'Display'} name={name} stroke={colors[color]} type="stepAfter"
+              dot={metric === 'reserve' ? { r: 2, fill: colors[color], strokeWidth: 0 } : false} connectNulls={false} isAnimationActive={false} strokeWidth={2} />)}
         </ComposedChart>
       </ResponsiveContainer> : <p role="status" className="min-h-[280px] flex items-center justify-center text-center text-sm text-muted">{history.loading || (!selected && !history.error)
         ? 'Loading selected accounting period…' : history.error ? 'Accounting history unavailable.' : 'No complete observations for this metric in this period.'}</p>}
@@ -133,10 +146,12 @@ export function NetworkAccounting() {
         {series.map(([key, name, color]) => <li key={key} className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-3 h-0.5" style={{ backgroundColor: colors[color] }} />{name}</li>)}
       </ul>}
       <p className="text-caption text-muted">{metric === 'fees' ? 'Total column height = fees paid.' : metric === 'cumulative' ? 'Cumulative minimum removal starts at NU7 activation, including earlier blocks outside the selected range.'
-        : metric === 'reserve' ? 'Reserve balance at the last block sampled in each bucket.' : 'Actual miner receipts summed within each bucket.'} Amounts in {CURRENCY}; exact values in tooltips.</p>
+        : metric === 'reserve' ? 'Last recorded reserve observation within each bucket, plotted at its block-header time. Sample block and time are in tooltips.' : 'Each column sums actual miner receipts in a complete bucket.'} Amounts in {CURRENCY}; exact values in tooltips.</p>
       {selected && <div className="text-caption text-muted mt-2 space-y-1">
         <p>{bucketLabel} buckets · Block-header times in UTC · {selected.selected.firstTimestamp != null ? `${utc(selected.selected.firstTimestamp)}–${utc(selected.selected.lastTimestamp!)}` : 'No blocks in this period'}.</p>
-        <p>{selected.selected.feeBlocks.toLocaleString()} of {selected.selected.blocks.toLocaleString()} blocks have complete fees · {selected.selected.nsmSamples.toLocaleString()} reserve samples{selected.selected.missingBlocks ? ` · ${selected.selected.missingBlocks.toLocaleString()} missing blocks` : ''}. Missing observations remain gaps.</p>
+        {metric === 'receipts' ? <p>{hasReceiptCoverage ? `${receiptBlocks!.toLocaleString()} of ${selected.selected.blocks.toLocaleString()} blocks have miner receipts` : 'Block receipt coverage unavailable'} · {completeReceiptBuckets.toLocaleString()} of {selected.points.length.toLocaleString()} reported buckets have complete receipts{selected.selected.missingBlocks ? ` · ${selected.selected.missingBlocks.toLocaleString()} missing blocks` : ''}. Incomplete receipt buckets remain gaps.</p>
+          : metric === 'reserve' ? <p>{selected.selected.nsmSamples.toLocaleString()} recorded reserve samples · {reserveBuckets.toLocaleString()} of {selected.points.length.toLocaleString()} reported buckets have a reserve observation{selected.selected.missingBlocks ? ` · ${selected.selected.missingBlocks.toLocaleString()} missing blocks` : ''}. Buckets without observations remain gaps; values are not interpolated.</p>
+            : <p>{selected.selected.feeBlocks.toLocaleString()} of {selected.selected.blocks.toLocaleString()} blocks have complete fees{selected.selected.missingBlocks ? ` · ${selected.selected.missingBlocks.toLocaleString()} missing blocks` : ''}. Incomplete fee observations remain gaps.</p>}
         {selected.selected.firstHeight === activationHeight && period !== 'all' && <p>Available history begins at NU7 activation; this period is not yet fully elapsed.</p>}
       </div>}
       {(history.error || (selected?.indexedHeight != null && selected.nodeHeight > selected.indexedHeight)) && <p role="status" className="text-caption text-warning mt-2">{history.error ? 'History refresh unavailable. Displayed data may be stale.' : `History is ${selected!.nodeHeight - selected!.indexedHeight!} blocks behind the node.`}</p>}
@@ -156,7 +171,7 @@ export function NetworkAccounting() {
         <p>All ranges include only blocks at or after the serving node’s NU7 activation height. Since NU7 includes the full available activation history. Amounts require complete indexed transactions; missing blocks or fees make the affected total unavailable.</p>
         <p>Actual miner receipts exclude funding and founders’ payouts. Subsidy allocations are shown once in Issuance below.</p>
         <p>The signed NSM reserve is separate from circulating supply and cumulative fees. Reserve growth subtracts the hash-matched sample immediately before activation from the latest indexed block sample. Missing baseline or end samples make growth unavailable. The current node reserve can be newer than the history.</p>
-        <p>Reserve and miner-receipt samples begin when collection is enabled. Missing bucket-end reserve samples remain gaps. The RPC does not separately report reissuance.</p>
+        <p>Reserve history uses the last recorded canonical observation within each bucket and selected period. Sample-free buckets or missing canonical blocks remain gaps. Each point identifies its actual sample block and header time; no values are interpolated or carried into empty buckets. Miner receipts use complete indexed coinbase payouts and retained or historical node subsidy allocations. The RPC does not separately report reissuance.</p>
       </div>
     </details>
   </CardBody></Card></section>;

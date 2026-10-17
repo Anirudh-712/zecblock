@@ -1,0 +1,9 @@
+[Unit]
+Description=Keep testnet miner reward spending snapshots refreshed hourly
+[Timer]
+OnBootSec=120
+OnCalendar=*-*-* *:20:00 UTC
+RandomizedDelaySec=30
+Persistent=true
+[Install]
+WantedBy=timers.target

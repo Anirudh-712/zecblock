@@ -16136,7 +16136,7 @@
     "/v1/mining/miner-behavior": {
       "get": {
         "operationId": "get_mining_Miner-behavior",
-        "summary": "Miner behavior heuristics.",
+        "summary": "Attributed miner payout reward-date cohorts with exact earned, moved and unspent zatoshis.",
         "tags": [
           "mining"
         ],
@@ -16157,7 +16157,7 @@
         "x-cipherscan-v1-status": "adapter",
         "responses": {
           "200": {
-            "description": "Miner behavior heuristics.",
+            "description": "Attributed miner payout reward-date cohorts with exact earned, moved and unspent zatoshis.",
             "content": {
               "application/json": {
                 "schema": {

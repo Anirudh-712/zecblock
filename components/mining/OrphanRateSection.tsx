@@ -43,7 +43,7 @@ function utc(value: string) {
 }
 
 export function OrphanRateSection() {
-  const [period, setPeriod] = useState<Period>('7d');
+  const [period, setPeriod] = useState<Period>('30d');
   const { data, loading, error } = useApiQuery<OrphanRates>('/v1/mining/orphan-rates', undefined, { refreshInterval: 60_000 });
   const supported = data?.method === 'observed-indexer-reorg-v1' || data?.method === 'observed-block-capture-v2';
   const selected = supported ? data.periods.find(window => window.period === period) : null;

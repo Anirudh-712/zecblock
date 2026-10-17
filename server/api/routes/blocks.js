@@ -12,6 +12,7 @@ const { decodeCoinbaseText } = require('../coinbase-data');
 const { applyListCacheHeaders, createListCache } = require('../list-cache');
 const { parseSafeListPagination, offsetExceededError } = require('../lib/pagination');
 const { logSafeError } = require('../lib/safe-log');
+const { readAllocationHealth } = require('../lib/subsidy-allocation-health');
 
 const disabledListCache = createListCache({ enabled: false });
 
@@ -96,6 +97,7 @@ router.get('/health', (req, res) => {
 
 // Deep health check — external monitoring (Better Stack, status page)
 router.get('/health/deep', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
   const checks = {};
   let critical = false;
   let degraded = false;
@@ -214,6 +216,11 @@ router.get('/health/deep', async (req, res) => {
   } catch {
     checks.node = { status: 'down' };
     critical = true;
+  }
+
+  if (process.env.SUBSIDY_ALLOCATION_HEALTH_FILE) {
+    checks.subsidy_allocations = await readAllocationHealth(process.env.SUBSIDY_ALLOCATION_HEALTH_FILE, networkName());
+    if (checks.subsidy_allocations.status !== 'up') critical = true;
   }
 
   const status = critical ? 'unhealthy' : degraded ? 'degraded' : 'healthy';
