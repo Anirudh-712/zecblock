@@ -38,6 +38,10 @@ test('aliases cannot relabel raw zatoshis, counts or USD as ZEC',async()=>{
  }
  const {result,inferred}=await fixture('SELECT sum(usd) AS balance_zec FROM swaps',['42'],['balance_zec']);
  assert.equal(researchValueSummary(result,inferred,'en'),null);
+ for(const label of ['meanFeeZEC','meanFeeZatoshi','balanceUSD']){
+  const {result,inferred}=await fixture(`SELECT count(*) AS "${label}" FROM blocks`,['42'],[label]);
+  assert.equal(researchValueSummary(result,inferred,'en'),null,label);
+ }
 });
 test('unresolved units, mismatched names and widths, duplicate or unsafe labels abstain',async()=>{
  const {result,inferred}=await fixture();

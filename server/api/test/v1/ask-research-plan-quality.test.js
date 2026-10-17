@@ -154,6 +154,11 @@ test('isolated PG16 reviewed baselines and pool windows preserve dates and missi
  INSERT INTO analytics_public.daily_query SELECT DATE '2025-12-25'+i,(1000-10*i)::numeric*100000000,(100+12*i)::numeric*100000000 FROM generate_series(0,16) i;`);
  const {benchmarks}=require('../../v1/lib/ask-research-benchmarks');
  const run=async id=>{const c=await compileResearchSQL({version:3,sql:benchmarks.find(x=>x.id===id).sql,limit:100},{extended:true});return(await pool.query(c.text,c.values)).rows;};
+ await t.test('known monetary averages exclude null observations but retain genuine zero observations',async()=>{
+  const {rows}=await pool.query(`SELECT avg(fees)::text AS known_average,avg(coalesce(fees,0))::text AS zero_filled_average,coalesce(avg(fees),0)::text AS aggregate_default,count(fees)::text AS known,count(*) FILTER(WHERE fees IS NULL)::text AS missing,count(*) FILTER(WHERE fees=0)::text AS zeros FROM(VALUES(100::numeric),(NULL::numeric),(0::numeric)) observations(fees)`);
+  assert.equal(Number(rows[0].known_average),50);assert.match(rows[0].zero_filled_average,/^33\.333/);assert.equal(Number(rows[0].aggregate_default),50);
+  assert.equal(rows[0].known,'2');assert.equal(rows[0].missing,'1');assert.equal(rows[0].zeros,'1');
+ });
  await t.test('September output keeps August lookback and ranks the known spike',async()=>{
   const rows=await run('shielded_30d_baseline');assert.equal(rows.length,10);assert.equal(rows[0].date,'2026-09-01');assert.equal(rows[0].shielded_transactions,'1000');assert.equal(rows[0].preceding_30_day_average,'100.00');assert.equal(rows[0].percentage_above_baseline,'900.00');assert.equal(rows[0].shielded_transaction_share_percent,'50.00');
  });
@@ -173,4 +178,69 @@ test('locale-formatted date facts keep all their punctuation inside a complete r
   const date=new Date('2026-09-03T00:00:00Z').toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
   assert.ok(reply.answer.includes(date));assert.ok(reply.answer.includes('22,283'));assert.ok(reply.answer.endsWith('Completed finding.'));
  }
+});
+
+
+const zeroFilledFeeDraft='WITH latest_blocks AS (SELECT height,hash,fees FROM analytics_public.blocks_query AS blocks ORDER BY height DESC LIMIT 100) SELECT count(CASE WHEN fees IS NOT NULL THEN 1 END) AS known_fees_count,count(CASE WHEN fees IS NULL THEN 1 END) AS missing_fees_count,avg(COALESCE(fees,0))::numeric/100000000 AS average_known_fee_zec FROM latest_blocks';
+test('AI averages diagnose zero-filled monetary observations through numeric casts and resolved sources',async()=>{
+ const statements=[
+  zeroFilledFeeDraft,
+  'SELECT avg(coalesce(fees,0)) AS measured_fee FROM blocks',
+  'SELECT avg(coalesce(t.fees,0))::numeric/100000000 AS average_fee_zec FROM transactions t',
+  'SELECT round(avg((coalesce(fees::numeric,0::numeric))::numeric)/100000000,8) AS fee_zec FROM blocks',
+  "SELECT avg(coalesce(fees,'0'::numeric)) AS fee FROM blocks",
+  'SELECT avg(coalesce(fees,-0.0::numeric)) AS fee FROM blocks',
+  'SELECT avg(coalesce(f.amount,0)) AS amount FROM flows f',
+  'SELECT avg(coalesce(orchard,0)) AS orchard FROM daily',
+  'SELECT avg(coalesce(s.usd,0)) AS valuation FROM swaps s',
+  'WITH converted AS(SELECT fees::numeric/100000000 AS fee FROM blocks) SELECT avg(coalesce(c.fee,0)) AS fee_zec FROM converted c',
+  'SELECT (SELECT avg(coalesce(t.fees,0)) FROM transactions t WHERE t.height=b.height) AS fee FROM blocks b',
+  'SELECT avg(coalesce(b.fees,0)) FROM blocks b JOIN transactions t ON t.height=b.height WHERE t.fees IS NOT NULL',
+  'SELECT avg(coalesce(fees,0)) FROM blocks WHERE fees IS NOT NULL OR height>100',
+ ];
+ for(const sql of statements){
+  const compiled=await compileResearchSQL({version:3,sql,limit:100},{extended:true});
+  assert.ok((await draftDiagnostics(compiled.request.sql,{extended:true})).some(issue=>/AVG\(COALESCE/.test(issue)),sql);
+ }
+});
+test('the monetary-average guard leaves ordinary averages, unknown lineage and proven local nonnull observations unchanged',async()=>{
+ const statements=[
+  'SELECT avg(fees)::numeric/100000000 AS fee_zec FROM blocks',
+  'SELECT coalesce(avg(fees),0) AS fee FROM blocks',
+  'SELECT avg(coalesce(transactions,0)) AS transaction_count FROM activity_daily',
+  'WITH counts AS(SELECT transactions AS fees FROM activity_daily) SELECT avg(coalesce(fees,0)) AS mean_count FROM counts',
+  'WITH transformed AS(SELECT sqrt(fees) AS fee FROM blocks) SELECT avg(coalesce(fee,0)) FROM transformed',
+  'SELECT avg(coalesce(fees,1)) FROM blocks',
+  'SELECT avg(coalesce(fees,1e-999)) FROM blocks',
+  'SELECT avg(coalesce(fees,0)) FROM blocks WHERE fees IS NOT NULL',
+  'SELECT avg(coalesce(b.fees::numeric,0)) FROM blocks b WHERE height>100 AND b.fees::numeric IS NOT NULL',
+  'SELECT avg(coalesce(fees,0)) FILTER(WHERE fees IS NOT NULL) FROM blocks',
+  'SELECT avg(fees) OVER(PARTITION BY coalesce(fees,0)) FROM blocks',
+  'SELECT avg(fees) FILTER(WHERE coalesce(fees,0)>0) FROM blocks',
+ ];
+ for(const sql of statements){
+  const compiled=await compileResearchSQL({version:3,sql,limit:100},{extended:true});
+  assert.deepEqual(await draftDiagnostics(compiled.request.sql,{extended:true}),[],sql);
+ }
+ // Ambiguous or absent fields must not become monetary merely from a name.
+ for(const sql of ['SELECT avg(coalesce(fees,0)) FROM blocks b JOIN transactions t ON t.height=b.height','SELECT avg(coalesce(fees,0)) FROM unavailable_source'])assert.deepEqual(await draftDiagnostics(sql),[],sql);
+ const {benchmarks}=require('../../v1/lib/ask-research-benchmarks');
+ for(const benchmark of benchmarks){const compiled=await compileResearchSQL({version:3,sql:benchmark.sql,limit:100},{extended:true});assert.deepEqual(await draftDiagnostics(compiled.request.sql,{extended:true}),[],benchmark.id);}
+});
+test('zero-filled monetary draft gets one bounded repair while direct SQL remains admitted unchanged',async()=>{
+ const question='For the latest 100 blocks, show known and missing fees and the average known fee in ZEC.';
+ const fixedSQL=zeroFilledFeeDraft.replace('avg(COALESCE(fees,0))','avg(fees)');
+ const direct=await compileResearchSQL({version:3,sql:zeroFilledFeeDraft,limit:100},{extended:true});
+ assert.match(direct.request.sql,/COALESCE/i,'quality guidance never rewrites or rejects direct user SQL');
+ let calls=0;
+ const query=await compileResearchDraft(zeroFilledFeeDraft,{question},async(input,task)=>{
+  calls++;assert.equal(input.question,question);assert.equal(input.sql,zeroFilledFeeDraft);assert.equal(task.name,'research_sql');
+  assert.ok(input.diagnostics.some(issue=>/AVG ignores NULL and retains genuine zeros/.test(issue)));
+  return {sql:fixedSQL};
+ },{extended:true});
+ assert.equal(calls,1);assert.doesNotMatch(query.sql,/COALESCE/i);assert.match(query.sql,/100/);assert.match(query.sql,/known_fees_count/);assert.match(query.sql,/missing_fees_count/);assert.match(query.sql,/average_known_fee_zec/);
+ calls=0;
+ await assert.rejects(compileResearchDraft(zeroFilledFeeDraft,{question},async()=>{calls++;return {sql:zeroFilledFeeDraft};},{extended:true}),error=>error.askKind==='answer');assert.equal(calls,1);
+ calls=0;
+ await assert.rejects(compileResearchDraft(zeroFilledFeeDraft,{question},async()=>{calls++;return {sql:null};},{extended:true}),error=>error.askKind==='answer');assert.equal(calls,1);
 });

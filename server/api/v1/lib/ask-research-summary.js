@@ -12,7 +12,7 @@ function researchValueSummary(result,inferred,locale){
   labels.add(column.label.toLowerCase());
   // A query alias must not make unconverted zatoshis look like ZEC, or make a
   // count/USD valuation look like a ZEC-denominated amount.
-  const hints=column.label.toLowerCase().split('_').filter(part=>/^(?:zec|usd|zatoshis?|zats?)$/.test(part));
+  const hints=column.label.replace(/([a-z0-9])([A-Z])/g,'$1_$2').toLowerCase().split('_').filter(part=>/^(?:zec|usd|zatoshis?|zats?)$/.test(part));
   if(hints.some(hint=>(hint==='zec'?'zec':hint==='usd'?'usd':'zatoshi')!==info.unit))return null;
   if(value!==null&&(typeof value!=='string'||!/^[-+]?\d+(?:\.\d+)?$/.test(value)))return null;
   let formatted='Unavailable';

@@ -24,7 +24,18 @@ function sameUnits(values){
  if(!known.length)return values[0]||unknown();
  return known.every(v=>v.unit===known[0].unit)?unit(known[0].unit):unknown();
 }
-function unitsFromTree(tree){
+const numericCasts=new Set(['int2','int4','int8','smallint','integer','bigint','numeric','decimal','real','float4','float8','double precision']);
+const numericUnwrap=n=>n?.TypeCast&&numericCasts.has(n.TypeCast.typeName?.names?.at(-1)?.String?.sval)?numericUnwrap(n.TypeCast.arg):n;
+function zeroLiteral(n,castString=false){
+ if(n?.TypeCast&&numericCasts.has(n.TypeCast.typeName?.names?.at(-1)?.String?.sval))return zeroLiteral(n.TypeCast.arg,true);
+ if(n?.A_Expr&&!n.A_Expr.lexpr&&['+','-'].includes(n.A_Expr.name?.[0]?.String?.sval))return zeroLiteral(n.A_Expr.rexpr,castString);
+ const c=n?.A_Const;if(!c)return false;
+ if(c.ival)return (c.ival.ival??0)===0;
+ const text=c.fval?.fval??(castString?c.sval?.sval:undefined);
+ // Exact literal inspection avoids underflow such as Number('1e-999') === 0.
+ return typeof text==='string'&&/^[+-]?0+(?:\.0+)?(?:e[+-]?\d+)?$/i.test(text);
+}
+function unitsFromTree(tree,issues){
  const targets=[];
  const baseColumns=name=>{
   const dataset=researchCatalogue.find(d=>d.id===canonical(name));
@@ -51,6 +62,15 @@ function unitsFromTree(tree){
    const find=list=>list.filter(source=>ref.length===1||source.alias===ref[0]).flatMap(source=>source.columns.filter(c=>c.name===ref.at(-1)));
    const local=find(sources),matches=local.length?local:find(outer);
    return matches.length===1?unit(matches[0].unit):unknown();
+  };
+  const localIdentity=ref=>{
+   if(!ref?.length)return null;
+   const matches=sources.flatMap((source,index)=>(ref.length===1||source.alias===ref[0])?source.columns.filter(c=>c.name===ref.at(-1)).map(()=>index+':'+ref.at(-1)):[]);
+   return matches.length===1?matches[0]:null;
+  };
+  const excludesNull=(value,filter)=>{
+   const identity=localIdentity(column(numericUnwrap(value)));if(identity===null)return false;
+   return andTerms(filter).some(term=>term?.NullTest?.nulltesttype==='IS_NOT_NULL'&&localIdentity(column(numericUnwrap(term.NullTest.arg)))===identity);
   };
   function expression(n){
    if(!n)return unknown();
@@ -80,6 +100,10 @@ function unitsFromTree(tree){
    }
    if(n.FuncCall){
     const f=n.FuncCall,name=f.funcname?.at(-1)?.String?.sval;
+    // Inspect only AVG's immediate zero-filled argument through numeric casts.
+    // This does not prove arbitrary CTE nullability or conditional averages.
+    const filled=numericUnwrap(f.args?.[0])?.CoalesceExpr;
+    if(issues&&name==='avg'&&f.args?.length===1&&filled?.args?.length===2&&zeroLiteral(filled.args[1])&&['zatoshi','zec','usd'].includes(expression(filled.args[0]).unit)&&!excludesNull(filled.args[0],s.whereClause)&&!excludesNull(filled.args[0],f.agg_filter))issues.add('Zero-filling a monetary observation inside AVG(COALESCE(value,0)) can count missing observations as measured zero and change the average. Average the nullable observation directly: AVG ignores NULL and retains genuine zeros. Return a separate missing-observation count when needed. Preserve the requested source, filters, limit and denomination; do not replace missing fees, amounts or USD valuations with zero.');
     if(['count','row_number','rank','dense_rank','ntile'].includes(name))return unit('count');
     if(['percent_rank','cume_dist','date_part','extract','length'].includes(name))return scalar();
     if(['date_trunc','to_timestamp'].includes(name))return unit('date');
@@ -149,7 +173,7 @@ async function draftDiagnostics(sql,{extended=false}={}){
  const tree=await parse(sql),issues=new Set();
  // Only proven raw monetary values trigger a draft repair. Aliases mentioning
  // an asset, counts, USD, and unresolved expressions never imply zatoshis.
- for(const target of unitsFromTree(tree).targets)if(/(?:^|_)zec(?:_|$)/i.test(target.name||'')&&target.unit==='zatoshi')issues.add('A column labelled ZEC must convert zatoshis in its own expression by dividing by 100000000, for example sum(fees)::numeric/100000000 AS fees_zec. Otherwise keep a zatoshi label.');
+ for(const target of unitsFromTree(tree,issues).targets)if(/(?:^|_)zec(?:_|$)/i.test(target.name||'')&&target.unit==='zatoshi')issues.add('A column labelled ZEC must convert zatoshis in its own expression by dividing by 100000000, for example sum(fees)::numeric/100000000 AS fees_zec. Otherwise keep a zatoshi label.');
  function select(s,inherited=new Map(),requirements=new Map()){
   const scope=new Map(inherited);
   const requestedCounts=new Map();
