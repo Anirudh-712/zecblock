@@ -24,7 +24,10 @@ redis.call('INCR', KEYS[1]); redis.call('EXPIRE', KEYS[1], 120)
 redis.call('INCR', KEYS[2]); redis.call('EXPIRE', KEYS[2], 172800)
 return 1`;
 function money(value) { return /^\d+(\.\d{1,6})?$/.test(value || '') ? Math.round(Number(value) * 1e6) : NaN; }
-function budgetConfig(env) {
+function budgetConfig(env, { authenticatedStaging = false } = {}) {
+  // Constructor-only opt-in, coupled to a separate staging entrypoint flag.
+  // A request body/header can never change the admission mode.
+  const staging = authenticatedStaging === true && env.ASK_STAGING_ENABLED === 'true';
   const dailyBudget = money(env.ASK_DAILY_BUDGET_USD);
   const monthlyBudget = money(env.ASK_MONTHLY_BUDGET_USD);
   const inputRate = Number(env.ASK_MAX_INPUT_USD_PER_MILLION);
@@ -32,8 +35,8 @@ function budgetConfig(env) {
   if (![dailyBudget, monthlyBudget].every(value => Number.isSafeInteger(value) && value > 0 && value <= 1e9)
     || ![inputRate, outputRate].every(value => Number.isFinite(value) && value > 0 && value <= 1000)
     || !env.ASK_ABUSE_SECRET || env.ASK_ABUSE_SECRET.length < 32
-    || !env.ASK_TURNSTILE_SECRET || !env.ASK_TURNSTILE_HOSTNAME || !env.ASK_TURNSTILE_SITE_KEY) return null;
-  return { dailyBudget, monthlyBudget, inputRate, outputRate, abuseSecret: env.ASK_ABUSE_SECRET, challengeSecret: env.ASK_TURNSTILE_SECRET, challengeHostname: env.ASK_TURNSTILE_HOSTNAME, siteKey: env.ASK_TURNSTILE_SITE_KEY };
+    || !staging && (!env.ASK_TURNSTILE_SECRET || !env.ASK_TURNSTILE_HOSTNAME || !env.ASK_TURNSTILE_SITE_KEY)) return null;
+  return { dailyBudget, monthlyBudget, inputRate, outputRate, abuseSecret: env.ASK_ABUSE_SECRET, challengeSecret: staging ? null : env.ASK_TURNSTILE_SECRET, challengeHostname: staging ? null : env.ASK_TURNSTILE_HOSTNAME, siteKey: staging ? null : env.ASK_TURNSTILE_SITE_KEY, ...(staging ? { authenticatedStaging: true } : {}) };
 }
 function maximumCost(config, body) {
   const bytes = Buffer.byteLength(body, 'utf8');
@@ -71,6 +74,10 @@ async function admit(redis, config, req, fetchImpl = fetch) {
       error.retryAfter = Math.max(1, Math.ceil((window - now % window) / 1000));
     }
     throw error;
+  }
+  if (config.authenticatedStaging === true) {
+    if (req.v1?.authenticatedStaging !== true) throw askError('verification');
+    return; // Pinned authenticated mTLS gateway replaces CAPTCHA only here.
   }
   const token = req.body?.challenge;
   if (typeof token !== 'string' || !token || token.length > 2048) throw askError('verification');

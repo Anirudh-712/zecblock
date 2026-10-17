@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { analysisSchema, resolveShortcut, starters, type AnalysisSpec } from '@/lib/ask/contract';
-import { getApiUrl } from '@/lib/api-config';
+import { getAskApiUrl, isAuthenticatedAskStaging } from '@/lib/ask/api-base';
 import { readApiResponse } from '@/lib/api-client';
 import styles from './ask.module.css';
 import { useResearchTools, ResearchLibrary, ResearchEditor, ResearchPanel, ResearchData, ResearchDashboard, SharedResearchDraft } from './ResearchWorkbench';
@@ -18,7 +18,7 @@ import { AskBlocks } from '@/components/ask/AskBlocks';
 import { AskTransfers } from '@/components/ask/AskTransfers';
 import { AskSources } from '@/components/ask/AskSources';
 import { AskAnalytics } from '@/components/ask/AskAnalytics';
-import { askChat, peekAskHandoff, clearAskHandoff } from '@/lib/ask/client';
+import { askChat, peekAskHandoff, clearAskHandoff, type AskCapability } from '@/lib/ask/client';
 import type { AskReply, AskSource } from '@/lib/ask/chat';
 import { sqlDraft } from '@/lib/ask/composer';
 import { AskFeedback, AskFailureFeedback, useAskFeedback } from '@/components/ask/AskFeedback';
@@ -29,7 +29,7 @@ import { readResearchLink, type ResearchShare } from '@/lib/ask/research-share';
 const categories = ['Featured', 'Pools', 'Ironwood', 'Cross-chain', 'Network'];
 type Message = { state?: 'pending' | 'complete' | 'failed' | 'cancelled'; sql?: string; research?: ResearchResult; analytics?: AskReply['analytics']; transactions?: AskReply['transactions']; blocks?: AskReply['blocks']; dataContext?: AskReply['dataContext']; id: number; question: string; answer: string; spec?: AnalysisSpec; viewSpec?: AnalysisSpec; sources?: AskSource[]; transfers?: AskReply['transfers']; locale?: string; scope?: string };
 type Session = { transaction?: string; block?: string; id: number; title: string; messages: Message[]; spec: AnalysisSpec | null; page?: string };
-type Capability = { mode: 'guided' | 'ai'; provider: string | null; siteKey?: string | null; researchEnabled?: boolean; jobsEnabled?: boolean; researchExtended?:boolean };
+type Capability = AskCapability;
 const initialSession: Session = { id: 0, title: 'New analysis', messages: [], spec: null };
 const analysisScopeKey = (spec: AnalysisSpec | null) => spec ? JSON.stringify([spec.metric, spec.period, spec.pool, spec.start, spec.end]) : '';
 
@@ -58,6 +58,8 @@ export function AskWorkspace() {
   const [jobStatus,setJobStatus]=useState<ResearchJobStatus|null>(null);
   const [jobClock,setJobClock]=useState(()=>Date.now());
   const [capability, setCapability] = useState<Capability>({ mode: 'guided', provider: null });
+  const authenticatedStaging = isAuthenticatedAskStaging(capability);
+  const verified = authenticatedStaging || !!token;
   const [capabilityReady, setCapabilityReady] = useState(false);
   const [connectionFailed, setConnectionFailed] = useState(false);
   const reconnect = useRef<() => void>(() => {});
@@ -104,7 +106,7 @@ export function AskWorkspace() {
     const refreshCapability = () => {
       if (pending || controller.signal.aborted) return;
       pending = true;
-      fetch(`${getApiUrl()}/v1/ask`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]), cache: 'no-store' })
+      fetch(getAskApiUrl(), { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]), cache: 'no-store' })
         .then(res => readApiResponse<Capability>(res))
         .then(({ data, meta }) => {
           if (!controller.signal.aborted && meta.network === 'mainnet' && ['guided', 'ai'].includes(data.mode)) { setCapability(data); setCapabilityReady(true); setConnectionFailed(false); }
@@ -157,7 +159,7 @@ export function AskWorkspace() {
     const detected = capability.researchEnabled ? sqlDraft(trimmed) : null;
     if (detected) { selectSQL(detected); return; }
     const next = resolveShortcut(trimmed, context);
-    if (!trimmed || trimmed.length > 1000 || feedback.blocked && !next || busy || request.current || !capabilityReady && !next || capability.mode === 'ai' && !token && !next) return;
+    if (!trimmed || trimmed.length > 1000 || feedback.blocked && !next || busy || request.current || !capabilityReady && !next || capability.mode === 'ai' && !verified && !next) return;
     setInputMode('ask'); setQuestion(''); setBusy(true); setPhase('thinking'); setNotice(''); feedback.clear(); setChatError('');
     const controller = new AbortController();
     request.current = controller;
@@ -172,7 +174,7 @@ export function AskWorkspace() {
       spec: research || analytics || transfers || blocks || transactions ? null : next ?? item.spec,
     } : item));
     try {
-      if (!next || capability.mode === 'ai' && token && !feedback.blocked) {
+      if (!next || capability.mode === 'ai' && verified && !feedback.blocked) {
         let reply = await askChat(trimmed, session.page || 'ask', context, 'auto', session.messages.filter(message => !message.sql && (!message.state || message.state === 'complete')).map(message => message.question), token, controller.signal, context ? undefined : session.block, context ? undefined : session.transaction, !context && analytics?.plan.version === 2 ? analytics.plan : undefined, !context && capability.researchEnabled ? research?.query : undefined);
         if(reply.job){
           const ticket=jobTicketSchema.parse(reply.job);
@@ -213,7 +215,7 @@ export function AskWorkspace() {
   }
   async function runSQL() {
     if(busy||request.current||tools.importing||feedback.blocked||!sqlInput.trim()||!capabilityReady)return;
-    if(!token){setChatError('Verification is still loading. Retry verification before running SQL.');return;}
+    if(!verified){setChatError('Verification is still loading. Retry verification before running SQL.');return;}
     const query={version:3 as const,sql:sqlInput,limit:sqlLimit};
     const id=++serial.current, title=tools.title;
     setSQLInput('');setBusy(true);setPhase('submitting');setNotice('');feedback.clear();setChatError('');
@@ -258,7 +260,7 @@ export function AskWorkspace() {
   }
   const researchEditor=capability.researchEnabled?<ResearchEditor extended={capability.researchExtended===true} tools={tools} busy={busy} onOpen={openSaved}/>:null;
   const sqlMode = inputMode === 'sql';
-  const canSend = sqlMode ? capabilityReady && !!token && !!sqlInput.trim() && !tools.importing && !feedback.blocked : !!question.trim() && ((!feedback.blocked && capabilityReady && (capability.mode !== 'ai' || !!token)) || !!resolveShortcut(question, spec));
+  const canSend = sqlMode ? capabilityReady && verified && !!sqlInput.trim() && !tools.importing && !feedback.blocked : !!question.trim() && ((!feedback.blocked && capabilityReady && (capability.mode !== 'ai' || verified)) || !!resolveShortcut(question, spec));
   const submit = () => sqlMode ? void runSQL() : void ask(question);
   const statusTitle = jobStatus?.state === 'queued' ? 'Waiting for a query slot…' : jobStatus?.state === 'running' ? 'Running your query…' : phase === 'explaining' ? 'Explaining the results…' : phase === 'submitting' ? 'Submitting your query…' : 'Thinking…';
   const statusDetail = jobStatus?.state === 'queued' ? jobStatus.queuePosition > 1 ? `${jobStatus.queuePosition - 1} queries ahead. You can stop while waiting.` : 'Your query is queued. It will start when a worker is available.' : jobStatus?.state === 'running' ? 'Reading the public analytics data. Your previous results stay available.' : phase === 'explaining' ? 'The query is complete. Preparing an explanation from its results.' : phase === 'submitting' ? 'Checking the SQL and requesting a query slot. No AI is used.' : 'Interpreting your question and checking public sources.';
@@ -278,7 +280,7 @@ export function AskWorkspace() {
     </div>
   </form><p id="ask-input-hint" className={styles.inputHint}>{sqlMode ? 'Direct SQL · no AI · Ctrl / ⌘ + Enter to run' : !capabilityReady ? 'Connecting to Ask…' : capability.mode === 'ai' ? 'Ask AI · Enter to send · Shift + Enter for a new line' : 'Guides & public data · Enter to send'}</p>
     <div ref={composerStatus}>{busy && !hasMessages ? <AskFeedback working title={statusTitle} detail={statusDetail} extra={jobStatus?.state === 'running' ? `${Math.max(0,Math.floor((jobClock-Date.parse(jobStatus.startedAt || new Date(jobClock).toISOString()))/1000))}s elapsed · ${jobStatus.maxRunSeconds}s execution limit` : undefined}/> : feedback.failure ? <AskFailureFeedback failure={feedback.failure} blocked={feedback.blocked} onRetry={submit}/> : connectionFailed ? <AskFeedback error title="Could not connect to Ask" detail="Your draft is still here. Check your connection and try again." onRetry={() => {setConnectionFailed(false);reconnect.current();}} retryLabel="Reconnect"/> : chatError ? <AskFeedback error title="Check your request" detail={chatError}/> : notice ? <AskFeedback title={notice}/> : null}</div>
-    <AskChallenge siteKey={capability.siteKey} onToken={setToken} reset={challengeReset}/>
+    {authenticatedStaging ? null : <AskChallenge siteKey={capability.siteKey} onToken={setToken} reset={challengeReset}/>}
   </div>;
 
   return <div className={styles.workspace} ref={workspace}>
@@ -324,7 +326,7 @@ export function AskWorkspace() {
                 const previous = message.viewSpec || message.spec!;
                 const validated = analysisSchema.parse(next.period !== previous.period || next.pool !== previous.pool || next.metric !== previous.metric ? {...next, start:null, end:null} : next);
                 setSessions(all => all.map(item => item.id === activeId ? {...item, spec:validated, messages:item.messages.map(turn => turn.id === message.id ? {...turn, viewSpec:validated} : turn)} : item));
-              }} onExplain={() => void ask('Explain this view', message.viewSpec || message.spec!)} canExplain={capability.mode === 'ai' && !!token && !feedback.blocked} busy={busy}/> : null}
+              }} onExplain={() => void ask('Explain this view', message.viewSpec || message.spec!)} canExplain={capability.mode === 'ai' && verified && !feedback.blocked} busy={busy}/> : null}
               {message.research || message.analytics || message.blocks || message.transactions || message.transfers ? <article className={styles.resultCard} aria-label="Query results"><div className={styles.resultActions}>{message.research ? <button disabled={busy} onClick={()=>editQuery(message)}>Edit query</button> : null}<button aria-haspopup="dialog" onClick={()=>setExpanded(message)}>Expand results ↗</button></div>{renderRecords(message)}</article> : message.sql && message.state !== 'pending' ? <button className={styles.followup} disabled={busy} onClick={()=>editQuery(message)}>Edit query</button> : null}
             </div>)}
 

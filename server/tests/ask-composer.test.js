@@ -5,7 +5,7 @@ const {renderToStaticMarkup}=require('react-dom/server');
 const {sqlDraft}=require('../../lib/ask/composer');
 function load(file,imports={}){const filename=path.resolve(__dirname,'../../'+file),m=new Module(filename,module);m.filename=filename;m.paths=Module._nodeModulePaths(path.dirname(filename));const base=m.require.bind(m);m.require=name=>Object.hasOwn(imports,name)?imports[name]:name.endsWith('.module.css')?new Proxy({},{get:(_,key)=>key}):base(name);m._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.CommonJS}}).outputText,filename);return m.exports;}
 const {ApiError}=load('lib/api-client.ts');
-const client=load('lib/ask/client.ts',{'@/lib/api-client':{ApiError},'@/lib/api-config':{getApiUrl:()=>''}});
+const client=load('lib/ask/client.ts',{'@/lib/api-client':{ApiError},'./api-base':{getAskApiUrl:()=>'/v1/ask'}});
 const {AskFeedback,AskFailureFeedback}=load('components/ask/AskFeedback.tsx',{'@/lib/ask/client':client});
 test('SQL detection preserves full query and routes SQL fences/comments/CTEs away from AI; ordinary questions remain questions',()=>{
  const sql='-- notes\nWITH bounded AS (SELECT height FROM blocks LIMIT 100) SELECT * FROM bounded';

@@ -7,11 +7,11 @@ function workspace(handoff) {
   const filename = path.join(root, 'app/ask/AskWorkspace.tsx');
   const m = new Module(filename, module); m.filename = filename; m.paths = Module._nodeModulePaths(path.dirname(filename));
   const base = m.require.bind(m);
-  const record = key => ({result}) => result ? React.createElement('p', {'data-record':key}, result.label) : null;
+  const record = key => function Record({result}) { return result ? React.createElement('p', {'data-record':key}, result.label) : null; };
   const imports = {
     'next/link': {default:({children, ...props}) => React.createElement('a', props, children)},
     '@/lib/ask/contract': require('../../lib/ask/contract'),
-    '@/lib/api-config': {getApiUrl:() => ''}, '@/lib/api-client': {},
+    '@/lib/ask/api-base': {getAskApiUrl:() => '/v1/ask', isAuthenticatedAskStaging:() => false}, '@/lib/api-client': {},
     './ResearchWorkbench': {useResearchTools:() => ({library:{documents:[]}, importing:false, title:'Analysis'}), ResearchLibrary:() => null, ResearchEditor:() => null, ResearchDashboard:() => null, ResearchPanel:record('research'), ResearchData:record('research')},
     '@/lib/ask/research-job-contract': {}, '@/lib/ask/research-client': {}, '@/lib/ask/research-contract': {},
     '@/components/ask/AskChallenge': {AskChallenge:() => null},

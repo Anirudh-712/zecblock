@@ -2,6 +2,9 @@ import { MetadataRoute } from 'next';
 import { getBaseUrl, getNetwork } from '@/lib/seo';
 
 export default function robots(): MetadataRoute.Robots {
+  if (process.env.VERCEL_ENV === 'preview' && process.env.ASK_STAGING_ENABLED === 'true') {
+    return { rules: { userAgent: '*', allow: '/', disallow: ['/api/'] } };
+  }
   const network = getNetwork();
   const baseUrl = getBaseUrl();
 

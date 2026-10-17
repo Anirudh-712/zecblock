@@ -265,7 +265,7 @@ test('Ask sources separate observed dates, retrieval time and guide review dates
 
 test('Ask client presents actionable safe failures and never echoes upstream text', () => {
   const api = load('lib/api-client.ts');
-  const { askErrorMessage } = load('lib/ask/client.ts', { '@/lib/api-client': api, '@/lib/api-config': {} });
+  const { askErrorMessage } = load('lib/ask/client.ts', { '@/lib/api-client': api, './api-base': {} });
   const error = (status, code) => new api.ApiError('private backend secret', status, undefined, undefined, null, code);
   assert.match(askErrorMessage(error(403, 'ask-verification')), /Verification/);
   assert.match(askErrorMessage(error(429, 'ask-quota')), /allowance/);

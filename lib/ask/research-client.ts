@@ -1,4 +1,4 @@
-import {getApiUrl} from '@/lib/api-config';
+import {getAskApiUrl} from './api-base';
 import {readApiResponse} from '@/lib/api-client';
 import {ApiError} from '@/lib/api-client';
 import type {AskReply} from './chat';
@@ -7,7 +7,7 @@ import type {ResearchJobTicket,ResearchJobStatus} from './research-job-contract'
 import {researchResultSchema,sqlQuerySchema} from './research-contract';
 import type {ResearchQuery,ResearchResult} from './research-contract';
 async function request<T = {result?:ResearchResult;query?:ResearchQuery|null}>(path:string,body:unknown,signal:AbortSignal){
- const response=await fetch(`${getApiUrl()}/v1/ask/research/${path}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal});
+ const response=await fetch(`${getAskApiUrl()}/research/${path}`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal});
  const {data,meta}=await readApiResponse<T>(response);
  if(meta.network!=='mainnet')throw Error('Wrong network');return data;
 }
