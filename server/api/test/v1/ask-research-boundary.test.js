@@ -138,9 +138,14 @@ test('row counts and figures without placeholders cannot surface as misleading n
 test('prose artifacts reject period runs and unattached marks while retaining normal Unicode',async()=>{
  const {researchReply}=require('../../v1/lib/ask-research-reply');const {answerTaskFor}=require('../../v1/lib/ask-chat');
  const result={query:{version:3,sql:'SELECT count(*) AS total FROM transactions',limit:100},columns:[{key:'c0',label:'total',type:'number'}],rows:[['542746']],truncated:false,datasets:['transactions'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-15T00:00:00Z',indexedThrough:'2026-10-15T00:00:00Z',coverage:'verified canonical records',units:'exact'};
- const answer=async(summary,evidence=result)=>(await researchReply(evidence,{question:'Explain the count',history:[]},async(_,task)=>task.validator.parse({summary,observations:[],limitation:'',sources:['transactions']}),'en',answerTaskFor)).answer;
- const receipt='Your query returned 1 record. The results are available in the table below.';
- for(const summary of ['In ťhis analysis the count was {{row_a_a}} in \u0305 ǣ ........','The count is {{row_a_a}}....','\u0305The count is {{row_a_a}}.','The count is {{row_a_a}} in \u0305 currency.','The count is {{row_a_a}}.\n\u0305A fragment.'])assert.equal(await answer(summary),receipt,summary);
+ const answer=async(summary,evidence=result)=>{
+  const reply=await researchReply(evidence,{question:'Explain the count',history:[]},async(_,task)=>task.validator.parse({summary,observations:[],limitation:'',sources:['transactions']}),'en',answerTaskFor);
+  assert.deepEqual(reply.research,evidence);assert.equal(reply.evidenceKey,evidence.fingerprint);return reply.answer;
+ };
+ const fallback='Returned query values:\ntotal: 542,746\n\nThe generated explanation could not be verified.';
+ for(const summary of ['In ťhis analysis the count was {{row_a_a}} in \u0305 ǣ ........','The count is {{row_a_a}}....','\u0305The count is {{row_a_a}}.','The count is {{row_a_a}} in \u0305 currency.','The count is {{row_a_a}}.\n\u0305A fragment.']){
+  const text=await answer(summary);assert.equal(text,fallback,summary);assert.doesNotMatch(text,/\p{M}|\.{4,}|ťhis|fragment/iu);
+ }
  for(const summary of ['José reports {{row_a_a}} transactions.','Jose\u0301 reports {{row_a_a}} transactions.','The count is {{row_a_a}}... The window is complete.','The count is {{row_a_a}} … within the completed window.','The count {{row_a_a}} is ≥ the benchmark; x\u0305 names the average.'])assert.equal(await answer(summary),summary.replace('{{row_a_a}}','542,746'),summary);
  // Exact evidence stays outside this prose-only check, including an accent
  // attached directly to a fact placeholder rather than a literal base letter.
@@ -154,26 +159,35 @@ test('a unit attached to a research value must match its column conversion',asyn
  const base={query:{version:3,sql:'SELECT avg(fees) AS average_fee_per_block FROM blocks',limit:100},truncated:false,datasets:['blocks'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-07T01:43:06Z',indexedThrough:'2026-10-07T01:43:05Z',coverage:'verified canonical records',units:'exact'};
  const zatoshis={...base,columns:[{key:'c0',label:'average_fee_per_block',type:'number'}],rows:[['225510.400000000000']]};
  const zec={...base,query:{...base.query,sql:'SELECT avg(fees)::numeric/100000000 AS average_fee_zec FROM blocks'},columns:[{key:'c0',label:'average_fee_zec',type:'number'}],rows:[['0.002255104']]};
- const answer=async(result,summary)=>(await researchReply(result,{question:'Average fee?',history:[]},async()=>({summary,observations:[],limitation:''}),'en',answerTaskFor)).answer;
+ const answer=async(result,summary)=>{
+  const reply=await researchReply(result,{question:'Average fee?',history:[]},async()=>({summary,observations:[],limitation:''}),'en',answerTaskFor);
+  assert.deepEqual(reply.research,result);assert.equal(reply.evidenceKey,result.fingerprint);return reply.answer;
+ };
  const receipt='Your query returned 1 record. The results are available in the table below.';
+ const zatoshiFallback='Returned query values:\naverage_fee_per_block: 225,510.4 zatoshis\n\nThe generated explanation could not be verified.';
+ const zecFallback='Returned query values:\naverage_fee_zec: 0.002255104 ZEC\n\nThe generated explanation could not be verified.';
  // Observed live: a zatoshi average was published as 225,510.4 ZEC.
- assert.equal(await answer(zatoshis,'The average fee per block is {{row_a_a}} ZEC.'),receipt);
+ const wrongZEC=await answer(zatoshis,'The average fee per block is {{row_a_a}} ZEC.');
+ assert.equal(wrongZEC,zatoshiFallback);assert.doesNotMatch(wrongZEC,/225,510\.4 ZEC|average fee per block is/i);
  assert.equal(await answer(zatoshis,'The average fee per block is {{row_a_a}} zatoshis.'),'The average fee per block is 225,510.4 zatoshis.');
  assert.equal(await answer(zec,'The average fee per block is {{row_a_a}} ZEC.'),'The average fee per block is 0.002255104 ZEC.');
- assert.equal(await answer(zec,'The average fee per block is {{row_a_a}} zatoshis.'),receipt);
+ const wrongZatoshis=await answer(zec,'The average fee per block is {{row_a_a}} zatoshis.');
+ assert.equal(wrongZatoshis,zecFallback);assert.doesNotMatch(wrongZatoshis,/0\.002255104 zatoshis|average fee per block is/i);
  // Observed live: "in ZEC" echoed from the question over an unconverted
  // max(fees), and masked figures standing in for unavailable numbers.
  const largest={...base,columns:[{key:'c0',label:'largest_block_fee',type:'number'}],rows:[['1174068']]};
  assert.equal(await answer(largest,'The largest single block fee in ZEC is {{row_a_a}}.'),receipt);
  assert.equal(await answer(largest,'The largest single block fee is {{row_a_a}} zatoshis.'),'The largest single block fee is 1,174,068 zatoshis.');
- assert.equal(await answer(zec,'Over the last ******* blocks the average fee is {{row_a_a}} ZEC.'),receipt);
+ const artifact=await answer(zec,'Over the last ******* blocks the average fee is {{row_a_a}} ZEC.');
+ assert.equal(artifact,zecFallback);assert.doesNotMatch(artifact,/\*|Over the last|average fee is/);
  // ZEC as an asset name stays valid for counts and USD-denominated swaps.
  const count={...base,query:{...base.query,sql:'SELECT count(fees) AS transaction_count FROM transactions'},datasets:['transactions'],columns:[{key:'c0',label:'transaction_count',type:'number'}],rows:[['42']]};
  assert.equal(await answer(count,'There were {{row_a_a}} ZEC transactions.'),'There were 42 ZEC transactions.');
  const swaps={...base,query:{...base.query,sql:'SELECT chain,sum(usd) AS usd_volume FROM swaps GROUP BY chain'},datasets:['swaps'],columns:[{key:'c0',label:'chain',type:'text'},{key:'c1',label:'usd_volume',type:'number'}],rows:[['ethereum','5000']]};
  assert.equal(await answer(swaps,'{{row_a_a}} led swaps into ZEC with {{row_a_b}} USD.'),'ethereum led swaps into ZEC with 5,000 USD.');
  // Observed live: degraded decoding produced fluent text citing no value.
- assert.equal(await answer(count,'In the last ized to igrate zatoshis.'),receipt);
+ const uncited=await answer(count,'In the last ized to igrate zatoshis.');
+ assert.equal(uncited,'Returned query values:\ntransaction_count: 42\n\nThe generated explanation could not be verified.');assert.doesNotMatch(uncited,/ized|igrate|zatoshis/);
  assert.match(await answer({...count,rows:[]},'No transactions matched the requested window.'),/returned no matching rows/);
 });
 
@@ -192,7 +206,8 @@ test('research facts preserve exact figures and legitimate ranks, dates and repe
  assert.equal(await answer(base,'There were {{row_a_a}} transactions. The total remains {{row_a_a}} transactions.'),'There were 542,746 transactions. The total remains 542,746 transactions.');
  const rank={...base,query:{...base.query,sql:'SELECT row_number() OVER(ORDER BY height) AS rank,transactions FROM blocks'},datasets:['blocks'],columns:[{key:'c0',label:'rank',type:'number'},{key:'c1',label:'transactions',type:'number'}],rows:[['1','542746']]};
  assert.equal(await answer(rank,'Rank {{row_a_a}} has {{row_a_b}} transactions.'),'Rank 1 has 542,746 transactions.');
- assert.equal(await answer(rank,'Transactions amounted to {{row_a_a}} {{row_a_b}}.'),'Your query returned 1 record. The results are available in the table below.');
+ const fused=await answer(rank,'Transactions amounted to {{row_a_a}} {{row_a_b}}.');
+ assert.equal(fused,'Returned query values:\nrank: 1\ntransactions: 542,746\n\nThe generated explanation could not be verified.');assert.doesNotMatch(fused,/Transactions amounted to|1 542,746/);
  const pools={...base,query:{...base.query,sql:'SELECT pool,sum(amount) AS amount FROM flows GROUP BY pool'},datasets:['flows'],columns:[{key:'c0',label:'pool',type:'text'},{key:'c1',label:'amount',type:'number'}],rows:[['Orchard','100']]};
  assert.equal(await answer(pools,'{{row_a_a}} leads with {{row_a_b}} zatoshis. {{row_a_a}} is the leading returned pool.'),'Orchard leads with 100 zatoshis. Orchard is the leading returned pool.');
  const dated={...base,query:{...base.query,sql:'SELECT date,transactions FROM activity_daily'},datasets:['activity_daily'],columns:[{key:'c0',label:'date',type:'text'},{key:'c1',label:'transactions',type:'number'}],rows:[['2026-09-03','22283']]};
@@ -206,13 +221,18 @@ test('research facts preserve exact figures and legitimate ranks, dates and repe
 test('research monetary units follow expressions through aliases and mixed datasets',async()=>{
  const {researchReply}=require('../../v1/lib/ask-research-reply');const {answerTaskFor}=require('../../v1/lib/ask-chat');
  const base={query:{version:3,sql:'SELECT b.fees::numeric/100000000 AS fee_2026 FROM blocks b',limit:100},columns:[{key:'c0',label:'fee_2026',type:'number'}],rows:[['0.002255104']],truncated:false,datasets:['blocks'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-15T00:00:00Z',indexedThrough:'2026-10-15T00:00:00Z',coverage:'verified canonical records',units:'exact'};
- const answer=async(result,summary)=>(await researchReply(result,{question:'Explain the result',history:[]},async()=>({summary,observations:[],limitation:''}),'en',answerTaskFor)).answer;
+ const answer=async(result,summary)=>{
+  const reply=await researchReply(result,{question:'Explain the result',history:[]},async()=>({summary,observations:[],limitation:''}),'en',answerTaskFor);
+  assert.deepEqual(reply.research,result);assert.equal(reply.evidenceKey,result.fingerprint);return reply.answer;
+ };
  const receipt='Your query returned 1 record. The results are available in the table below.';
  assert.equal(await answer(base,'The fee is {{row_a_a}} ZEC.'),'The fee is 0.002255104 ZEC.');
- assert.equal(await answer(base,'The fee is {{row_a_a}} zatoshis.'),receipt);
+ const wrongZatoshis=await answer(base,'The fee is {{row_a_a}} zatoshis.');
+ assert.equal(wrongZatoshis,'Returned query values:\nfee_2026: 0.002255104 ZEC\n\nThe generated explanation could not be verified.');assert.doesNotMatch(wrongZatoshis,/zatoshis|The fee is/);
  assert.equal(await answer(base,'The fee in ZEC is {{row_a_a}}.'),'The fee in ZEC is 0.002255104.');
  const mixed={...base,query:{...base.query,sql:'SELECT avg(b.fees) AS fee_2026,(SELECT sum(s.usd) FROM swaps s) AS usd FROM blocks b'},datasets:['blocks','swaps'],columns:[{key:'c0',label:'fee_2026',type:'number'},{key:'c1',label:'usd',type:'number'}],rows:[['225510.4','5000']]};
- assert.equal(await answer(mixed,'The average block fee is {{row_a_a}} ZEC.'),receipt);
+ const wrongZEC=await answer(mixed,'The average block fee is {{row_a_a}} ZEC.');
+ assert.equal(wrongZEC,'Returned query values:\nfee_2026: 225,510.4 zatoshis\nusd: 5,000 USD\n\nThe generated explanation could not be verified.');assert.doesNotMatch(wrongZEC,/225,510\.4 ZEC|average block fee is/i);
  assert.equal(await answer(mixed,'The average block fee is {{row_a_a}} zatoshis, while tracked swaps total {{row_a_b}} USD.'),'The average block fee is 225,510.4 zatoshis, while tracked swaps total 5,000 USD.');
  const share={...base,query:{...base.query,sql:"SELECT 100*sum(amount) FILTER(WHERE pool='orchard')/nullif(sum(amount),0) AS orchard_share_percent FROM flows"},datasets:['flows'],columns:[{key:'c0',label:'orchard_share_percent',type:'number'}],rows:[['42']]};
  assert.equal(await answer(share,'The Orchard share of public ZEC flow is {{row_a_a}} percent.'),'The Orchard share of public ZEC flow is 42 percent.');

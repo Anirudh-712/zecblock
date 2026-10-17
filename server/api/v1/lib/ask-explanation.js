@@ -79,6 +79,35 @@ async function loadExplanationEvidence(spec, internalClient, signal) {
   return { evidenceKey, facts, dataContext: { start: summary.start, end: summary.end, retrievedAt: evidence.receivedAt, source: evidence.source, label: evidence.sourceLabel }, input: { metric: spec.metric, pool: spec.pool, rankings, period: spec.period, units: evidence.unit, integerEncoding: evidence.csvUnit, window: { start: summary.start, end: summary.end }, series, analysis: insights.analysis, facts, methodology: evidence.note, coverage: { observedThrough: '{{end_date}}', meaning: 'Latest returned observation date, not a verified indexer refresh time. Describe this date when recency matters; do not invent a freshness status.' } } };
 }
 
+// Only a numeric server fact can supply a unit. Bare SQL cells, dates and
+// labels stay untouched: their surrounding prose may still need a unit.
+const unitNames = 'percentage points?|percent(?:age)?|transactions?|address(?:es)?|records?|blocks?|swaps?|days?|hours?|minutes?|seconds?|bytes?|zatoshis?|zats?|ZEC|USD|%';
+const factUnit = new RegExp(`^[+\\-−]?[\\p{N}][\\p{N}\\p{Zs}.,'’\\u066b\\u066c]*\\s*(${unitNames})$`, 'iu');
+const followingUnit = new RegExp(`^[^\\S\\r\\n]*(${unitNames})(?![\\p{L}\\p{N}_\\p{Pd}])`, 'iu');
+function unitKey(unit) {
+  const value = unit.toLowerCase().replace(/\s+/g, ' ');
+  if (/^(?:%|percent(?:age)?)$/.test(value)) return '%';
+  if (/^percentage points?$/.test(value)) return 'percentage point';
+  if (/^(?:zatoshis?|zats?)$/.test(value)) return 'zatoshi';
+  if (/^(?:address|addresses)$/.test(value)) return 'address';
+  return /^(?:transactions?|records?|blocks?|swaps?|days?|hours?|minutes?|seconds?|bytes?)$/.test(value) ? value.replace(/s$/, '') : value;
+}
+function substituteFacts(text, facts) {
+  let rendered = '', cursor = 0;
+  for (const match of text.matchAll(/\{\{([a-z_]+)\}\}/g)) {
+    const value = facts[match[1]], unit = typeof value === 'string' ? factUnit.exec(value)?.[1] : null;
+    rendered += text.slice(cursor, match.index) + value;
+    cursor = match.index + match[0].length;
+    if (!unit) continue;
+    let suffix;
+    while ((suffix = followingUnit.exec(text.slice(cursor)))) {
+      if (unitKey(suffix[1]) !== unitKey(unit)) throw new Error('Conflicting evidence unit');
+      cursor += suffix[0].length;
+    }
+  }
+  return rendered + text.slice(cursor);
+}
+
 function renderExplanation(raw, facts) {
   const parsed = explanationSchema.parse(raw);
   function render(text) {
@@ -87,7 +116,7 @@ function renderExplanation(raw, facts) {
       return '';
     });
     if (/[\p{N}\p{So}{}<>]|https?:|www\./iu.test(remainder)) throw new Error('Unvalidated numerical claim or markup');
-    return text.replace(/\{\{([a-z_]+)\}\}/g, (_, id) => facts[id]);
+    return substituteFacts(text, facts);
   }
   return { summary: render(parsed.summary), observations: parsed.observations.map(render), limitation: render(parsed.limitation) };
 }

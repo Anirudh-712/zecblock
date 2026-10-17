@@ -4,6 +4,7 @@ const {researchResultSchema}=require('../../../../lib/ask/research-contract');
 const {getKnowledge,publicSources}=require('./ask-knowledge');
 const {renderExplanation}=require('./ask-explanation');
 const {researchUnitsFor}=require('./ask-research-plan-quality');
+const {researchValueSummary}=require('./ask-research-summary');
 const {askError}=require('./ask-errors');
 function display(value,type,locale){
  if(value===null)return 'Unavailable';
@@ -11,7 +12,7 @@ function display(value,type,locale){
   const [whole,fraction]=value.split('.');const tail=fraction?.replace(/0+$/,'');
   return whole.replace(/\B(?=(\d{3})+(?!\d))/g,',')+(tail?'.'+tail:'');
  }
- if(/^20\d{2}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value)))return new Date(value+'T00:00:00Z').toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
+ if(/^20\d{2}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value)return new Date(value+'T00:00:00Z').toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
  return value.slice(0,160);
 }
 // Keep complete sentences when a constrained model ends with a stray fragment.
@@ -118,7 +119,7 @@ async function researchReply(raw,input,run,locale,answerTaskFor){
  // A date or label alone does not cite a numerical measure.
  const uncited=result.rows.length>0&&columns.some(c=>c.type==='number')&&!templates.some(text=>[...text.matchAll(/\{\{([a-z_]+)\}\}/g)].some(([,id])=>numericFact(id)));
  const total=result.rows.length;
- const answer=(!summary||malformedTable||fusedNumbers||decodingArtifact||unitMislabel||uncited)?`Your query returned ${total} ${total===1?'record':'records'}. The results are available in the table below.`:paragraphs.join('\n\n').replace(/[ \t]{2,}/g,' ');
+ const answer=(!summary||malformedTable||fusedNumbers||decodingArtifact||unitMislabel||uncited)?researchValueSummary(result,inferred,locale)||`Your query returned ${total} ${total===1?'record':'records'}. The results are available in the table below.`:paragraphs.join('\n\n').replace(/[ \t]{2,}/g,' ');
  return {answer,sources:publicSources(records),spec:null,locale,research:result,evidenceKey:result.fingerprint};
 }
 module.exports={researchReply,completeSummary};
