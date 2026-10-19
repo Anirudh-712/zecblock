@@ -94,10 +94,16 @@ This is a prepared local repair, not a deployment record.
 3. Prepare the collector from base `b595b07dd450cfa02ad40a05a6a2fdd2fd1689dd`
    using `crawler-chain-proof.patch` (tested source `d3f5c14cd54d1e83d1308af20ec452062c86d97c`). The patch SHA-256 is
    `e8f33c720e254a085056e4efb61ce63d91b0b4bcd3cb1d29baab957a8e0ed416`. Build/test/checksum the exact Linux
-   artifact before installing it. Run an isolated canary against genuine
-   Zebra/Zakura/zcashd and an actual shared-magic Flux peer; record successes,
+   artifact before installing it. Run an isolated canary against current
+   Zebra/Zakura and an actual shared-magic Flux peer; record qualification,
    rejection/unverified behavior, bounded runtime, and no unqualified gossip.
-   Mock-P2P fixtures do not replace this live acceptance gate.
+   Check a reachable legacy zcashd responder separately: unmodified zcashd
+   6.20.0 halted at height 3,417,100, below this checkpoint, and does not support
+   NU6.3 ([official deprecation record](https://z.cash/support/zcashd-deprecation/)).
+   It must remain an unverified candidate. A historical-header protocol probe
+   can establish that interoperability separately; it is not a current-chain
+   qualification pass. Do not lower the checkpoint to manufacture one.
+   Mock-P2P fixtures do not replace these live acceptance checks.
 4. Coordinate API/ingester and both collector cutovers. During an API-first
    cutover, legacy collectors contribute zero qualified crawler observations.
    Prevent the new proof-aware watchdog from repeatedly restarting an old
