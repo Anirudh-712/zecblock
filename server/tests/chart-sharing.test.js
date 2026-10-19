@@ -10,12 +10,25 @@ test('every catalog chart has one base sitemap URL and no range variants',()=>{
  assert.equal(sharing.findShareChart('../secrets'),undefined);
 });
 test('share selections are allowlisted, canonical path independent of filters',()=>{
- assert.equal(sharing.normalizeChartRange('https://evil.test'),'all');
+ assert.equal(sharing.normalizeChartRange('https://evil.test'),'30d');
  assert.equal(sharing.chartSharePath('shielded-supply','1y'),'/charts/shielded-supply?range=1y');
  assert.equal(sharing.chartImagePath('/charts/supply?range=1y'),'/charts/supply/image?range=1y');
  const source=CHART_CATALOG.find(c=>c.id==='supply');
  assert.deepEqual(sharing.selectedChartSeries(source,'shielded,other').series.map(s=>s.key),['shielded']);
  assert.equal(sharing.selectedChartSeries(source,'other'),source);
+});
+test('shared charts default to 30 days while explicit all-history selections round-trip',()=>{
+ for (const value of [undefined,null,'']) assert.equal(sharing.normalizeChartRange(value),'30d');
+ assert.equal(sharing.chartSharePath('supply'),'/charts/supply?range=30d');
+ for (const range of ['30d','all']) {
+  const path=sharing.chartSharePath('supply',range,['shielded']);
+  assert.equal(path,`/charts/supply?range=${range}&series=shielded`);
+  for (const target of [path,sharing.chartImagePath(path)]) {
+   const query=new URL(target,'https://zecblock.com').searchParams;
+   assert.equal(sharing.normalizeChartRange(query.get('range')),range);
+   assert.equal(query.get('series'),'shielded');
+  }
+ }
 });
 test('range filtering follows observations, retaining zero and missing values',()=>{
  const rows=[{x:Date.parse('2026-01-01'),shieldedSupplyPct:5},{x:Date.parse('2026-01-24'),shieldedSupplyPct:0},{x:Date.parse('2026-01-30'),shieldedSupplyPct:null}];

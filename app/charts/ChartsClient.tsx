@@ -26,7 +26,7 @@ const TOOLS=[
   {title:'Turnstile tracker',href:'/turnstile',description:'Follow the publicly observable path of value after deshielding.'},
 ];
 
-export function CatalogCard({chart, initialData, initialFetchedAt, initialRange='all', initialSeries, standalone=false}:{chart:CatalogChart; initialData?: unknown; initialFetchedAt?: number; initialRange?: ChartRange; initialSeries?: string[]; standalone?: boolean}) {
+export function CatalogCard({chart, initialData, initialFetchedAt, initialRange='30d', initialSeries, standalone=false}:{chart:CatalogChart; initialData?: unknown; initialFetchedAt?: number; initialRange?: ChartRange; initialSeries?: string[]; standalone?: boolean}) {
   const ref=useRef<HTMLElement>(null);
   const [visible,setVisible]=useState(standalone);
   const [width,setWidth]=useState(500);
@@ -47,15 +47,16 @@ export function CatalogCard({chart, initialData, initialFetchedAt, initialRange=
   const hasData=!!latest;
   const dateAxis=useMemo(()=>poolDateAxis(chart.axis?[]:rows.map(r=>new Date(Number(r.x)).toISOString()),width-85),[chart.axis,rows,width]);
   const isDate=!chart.axis;
+  const windowLabel=isDate?(range==='all'?'All available history':`${range.toUpperCase()} within available history`):chart.window;
   const label=(x:unknown)=>isDate?new Date(Number(x)).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric',timeZone:'UTC'}):chart.axis==='height'?`Block ${Number(x).toLocaleString('en-US')}`:String(x);
   const sharePath=chartSharePath(chart.id,range,hidden.length?shown.map(s=>s.key):undefined);
   const exportData=useMemo(()=>({chart:{...chart,series:chart.series.filter(s=>!hidden.includes(s.key))},rows,network:NETWORK,asOf:chart.axis==='category'?chartSnapshotLabel(data):undefined}),[chart,rows,hidden,data]);
   const category=chart.axis==='category';
   const height=expanded?Math.max(340,category?rows.length*30:400):240;
   return <article ref={ref} id={chart.id} className={`min-w-0 scroll-mt-56 sm:scroll-mt-36 ${expanded?'xl:col-span-2':''}`}>
-    <ShareableCard title={chart.title} shareText={`${chart.title} · ${chartDateRange(chart,rows)}`} sharePath={sharePath} exportData={exportData} expandedToolbar={expanded} fileName={`zecblock-${chart.id}.png`} branding="compact" compact className="h-full" exportDisabled={!hasData || loading} footerNote={latest&&!category?`Latest observation · ${label(latest.x)}`:chart.window}>
+    <ShareableCard title={chart.title} shareText={`${chart.title} · ${chartDateRange(chart,rows)}`} sharePath={sharePath} exportData={exportData} expandedToolbar={expanded} fileName={`zecblock-${chart.id}.png`} branding="compact" compact className="h-full" exportDisabled={!hasData || loading} footerNote={latest&&!category?`Latest observation · ${label(latest.x)}`:windowLabel}>
       <p className="text-xs text-muted leading-relaxed min-h-12 mb-3">{chart.description}</p>
-      <div className="flex flex-wrap justify-between gap-2 text-caption font-mono text-muted mb-3"><span>{chart.unit}</span><span>{chart.window}</span></div>
+      <div className="flex flex-wrap justify-between gap-2 text-caption font-mono text-muted mb-3"><span>{chart.unit}</span><span>{windowLabel}</span></div>
       {expanded&&!chart.axis&&<div className="mb-4 flex flex-wrap items-center gap-2" aria-label="Chart observation range"><span className="text-caption text-muted mr-2">Within available history</span>{CHART_RANGES.map(value=><button key={value} type="button" className={`filter-btn ${range===value?'filter-btn-active':''}`} aria-pressed={range===value} onClick={()=>setRange(value)}>{value==='all'?'All':value.toUpperCase()}</button>)}</div>}
       {!visible||loading?<ChartSkeleton height={height}/>:!hasData?<div role="status" className="min-h-[240px] flex flex-col items-center justify-center gap-3 text-xs text-muted text-center"><span>{error?'Could not load this data.':'No verified observations available.'}</span><Link href={chart.href} className="underline underline-offset-4">View source analysis →</Link></div>:
         <div role="img" aria-label={`${chart.title}. ${chart.description} Units: ${chart.unit}.`}>

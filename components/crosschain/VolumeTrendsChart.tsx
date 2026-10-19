@@ -63,7 +63,7 @@ function TrendTooltip({ active, payload, colors, unit, zecPrice }: {
 export function VolumeTrendsChart({ unit = 'usd', zecPrice = null }: { unit?: DisplayUnit; zecPrice?: number | null }) {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
-  const [period, setPeriod] = useState<Period>('all');
+  const [period, setPeriod] = useState<Period>('30d');
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
 
   const { data, loading } = useApiQuery<TrendsResponse>('/v1/crosschain/trends', { period, granularity: 'daily' });
