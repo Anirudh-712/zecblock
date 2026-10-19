@@ -24,7 +24,7 @@ const { log, loadEnv, withAdvisoryLock } = require('../lib/job-utils');
 const { getPool } = require('../lib/db-pool');
 const { callZebraRPC } = require('../lib/zebra-rpc');
 const { parsePeerClient, parsePeerAddress } = require('../lib/peer-client');
-const { CENSUS_VERSION, validateCrawlSnapshot, mergeVerifiedNodes, livePeerNodes, COMBINED_ELIGIBILITY } = require('../lib/node-census');
+const { CENSUS_VERSION, validateCrawlSnapshot, mergeVerifiedNodes, livePeerNodes, COMBINED_ELIGIBILITY, CRAWL_PROOF_MATCH, CRAWL_ELIGIBILITY } = require('../lib/node-census');
 
 const execFileAsync = promisify(execFile);
 
@@ -179,10 +179,27 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
   metrics.node_addrs = verified.map(node => node.addr);
   metrics.num_good_nodes = verified.length;
   metrics.node_network_types = verified.map(() => 'Zcash');
+  // Legacy all_* snapshots have no chain-qualified advertiser provenance. Even
+  // after filtering node_info, passing them through would retain Flux as grey
+  // "off" vertices and contaminate centrality. Quarantine that whole graph.
+  // The qualified core's filtered nodes_indices may retain real gossip links.
+  metrics.all_node_addrs = [];
+  metrics.all_nodes_indices = [];
+  metrics.all_node_reachable = [];
 
   const enriched = await crunch(metrics);
   if (!enriched || !Array.isArray(enriched.nodes)) {
     throw new Error('Cruncher returned invalid output');
+  }
+  // Qualified node membership does not establish the old graph's provenance.
+  // Keep geography/client enrichment, but publish no connectivity measurements.
+  enriched.edges = [];
+  enriched.topo_nodes = [];
+  enriched.topo_edges = [];
+  for (const node of enriched.nodes) {
+    node.betweenness = null;
+    node.closeness = null;
+    node.degree = null;
   }
 
   log(`Cruncher enriched ${enriched.nodes.length} nodes`);
@@ -212,14 +229,21 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
         const peerObservation = peerByHost.get(ip);
         if (!crawlObservation && !peerObservation) continue;
         const crawlTime = crawlObservation?.last_verified_at_ms;
+        const chainTime = crawlObservation?.chain_verified_at_ms;
         const peerTime = peerObservation?.last_peer_seen_at_ms;
-        const observedAt = Math.max(crawlTime || 0, peerTime || 0);
+        const observedAt = Math.max(chainTime || 0, peerTime || 0);
         const port = parseInt(portStr) || 8233;
         const isOnion = ip.endsWith('.onion');
         const isTor = isOnion || torExitIPs.has(ip);
         const torType = isOnion ? 'relay' : (isTor ? 'exit' : null);
 
         const parsed = parsePeerClient(node.user_agent || '');
+        const previousObservation = `GREATEST(${targetTable}.last_chain_verified_at, ${targetTable}.last_peer_seen_at)`;
+        const latestObservation = `(${previousObservation} IS NULL OR EXCLUDED.last_seen >= ${previousObservation})`;
+        const latestProof = `EXCLUDED.last_chain_verified_at IS NOT NULL AND (${targetTable}.last_chain_verified_at IS NULL OR EXCLUDED.last_chain_verified_at >= ${targetTable}.last_chain_verified_at)`;
+        const preservePeerIdentity = `EXCLUDED.user_agent IS NULL AND EXCLUDED.last_peer_seen_at IS NULL AND ${targetTable}.observed_via = 'peer'
+          AND ${targetTable}.last_peer_seen_at > NOW() - INTERVAL '15 minutes' AND ${targetTable}.last_peer_seen_at <= NOW()`;
+        const replaceIdentity = `${latestObservation} AND NOT COALESCE((${preservePeerIdentity}), FALSE)`;
 
         const result = await client.query(`
           INSERT INTO ${targetTable} (
@@ -227,48 +251,51 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
             ping_ms, is_tor, is_active, user_agent, client_impl,
             client_version, protocol_version, observed_via, onion_address,
             tor_type, betweenness, closeness, degree, network_type,
-            start_height, services, crawl_seen_count, last_verified_at, last_seen, last_peer_seen_at, inbound
+            start_height, services, crawl_seen_count, last_verified_at, last_seen, last_peer_seen_at, inbound,
+            last_chain_verified_at, chain_block_hash, chain_proof
           )
           VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE,
             $11, $12, $13, $14, $27, $15, $16, $17, $18, $19, $20,
-            $21, $22, CASE WHEN $23::timestamptz IS NULL THEN 0 ELSE 1 END, $23, $24, $25, $26
+            $21, $22, CASE WHEN $23::timestamptz IS NULL THEN 0 ELSE 1 END, $23, $24, $25, $26,
+            $28, $29, $30
           )
           ON CONFLICT (ip) DO UPDATE SET
-            port = EXCLUDED.port,
+            port = CASE WHEN ${latestObservation} THEN EXCLUDED.port ELSE ${targetTable}.port END,
             country = COALESCE(EXCLUDED.country, ${targetTable}.country),
             country_code = COALESCE(EXCLUDED.country_code, ${targetTable}.country_code),
             city = COALESCE(EXCLUDED.city, ${targetTable}.city),
             lat = COALESCE(EXCLUDED.lat, ${targetTable}.lat),
             lon = COALESCE(EXCLUDED.lon, ${targetTable}.lon),
             isp = COALESCE(EXCLUDED.isp, ${targetTable}.isp),
-            ping_ms = EXCLUDED.ping_ms,
+            ping_ms = CASE WHEN ${latestProof} THEN EXCLUDED.ping_ms ELSE ${targetTable}.ping_ms END,
             is_tor = EXCLUDED.is_tor,
             is_active = TRUE,
-            user_agent = COALESCE(EXCLUDED.user_agent, ${targetTable}.user_agent),
-            client_impl = CASE WHEN EXCLUDED.user_agent IS NOT NULL THEN EXCLUDED.client_impl ELSE ${targetTable}.client_impl END,
-            client_version = CASE WHEN EXCLUDED.user_agent IS NOT NULL THEN EXCLUDED.client_version ELSE ${targetTable}.client_version END,
-            protocol_version = COALESCE(EXCLUDED.protocol_version, ${targetTable}.protocol_version),
-            observed_via = EXCLUDED.observed_via,
-            inbound = COALESCE(EXCLUDED.inbound, ${targetTable}.inbound),
+            user_agent = CASE WHEN ${replaceIdentity} THEN EXCLUDED.user_agent ELSE ${targetTable}.user_agent END,
+            client_impl = CASE WHEN ${replaceIdentity} THEN EXCLUDED.client_impl ELSE ${targetTable}.client_impl END,
+            client_version = CASE WHEN ${replaceIdentity} THEN EXCLUDED.client_version ELSE ${targetTable}.client_version END,
+            protocol_version = CASE WHEN ${latestObservation} THEN COALESCE(EXCLUDED.protocol_version, ${targetTable}.protocol_version) ELSE ${targetTable}.protocol_version END,
+            observed_via = CASE WHEN ${preservePeerIdentity} THEN ${targetTable}.observed_via WHEN ${latestObservation} THEN EXCLUDED.observed_via ELSE ${targetTable}.observed_via END,
+            inbound = CASE WHEN EXCLUDED.last_peer_seen_at >= ${targetTable}.last_peer_seen_at OR ${targetTable}.last_peer_seen_at IS NULL THEN COALESCE(EXCLUDED.inbound, ${targetTable}.inbound) ELSE ${targetTable}.inbound END,
             last_peer_seen_at = GREATEST(EXCLUDED.last_peer_seen_at, ${targetTable}.last_peer_seen_at),
-            last_seen = EXCLUDED.last_seen,
-            last_verified_at = GREATEST(EXCLUDED.last_verified_at, ${targetTable}.last_verified_at),
+            last_seen = GREATEST(EXCLUDED.last_seen, ${previousObservation}),
+            last_verified_at = CASE WHEN ${latestProof} THEN EXCLUDED.last_verified_at ELSE ${targetTable}.last_verified_at END,
+            last_chain_verified_at = CASE WHEN ${latestProof} THEN EXCLUDED.last_chain_verified_at ELSE ${targetTable}.last_chain_verified_at END,
+            chain_block_hash = CASE WHEN ${latestProof} THEN EXCLUDED.chain_block_hash ELSE ${targetTable}.chain_block_hash END,
+            chain_proof = CASE WHEN ${latestProof} THEN EXCLUDED.chain_proof ELSE ${targetTable}.chain_proof END,
             onion_address = COALESCE(EXCLUDED.onion_address, ${targetTable}.onion_address),
             tor_type = COALESCE(EXCLUDED.tor_type, ${targetTable}.tor_type),
-            betweenness = EXCLUDED.betweenness,
-            closeness = EXCLUDED.closeness,
-            degree = EXCLUDED.degree,
-            network_type = EXCLUDED.network_type,
-            start_height = COALESCE(EXCLUDED.start_height, ${targetTable}.start_height),
-            services = COALESCE(EXCLUDED.services, ${targetTable}.services),
-            crawl_seen_count = CASE WHEN EXCLUDED.last_verified_at IS NULL THEN COALESCE(${targetTable}.crawl_seen_count, 0)
-              WHEN ${targetTable}.last_verified_at IS NULL THEN 1
-              WHEN EXCLUDED.last_verified_at > ${targetTable}.last_verified_at THEN COALESCE(${targetTable}.crawl_seen_count, 0) + 1
+            betweenness = NULL,
+            closeness = NULL,
+            degree = NULL,
+            network_type = CASE WHEN ${latestObservation} THEN EXCLUDED.network_type ELSE ${targetTable}.network_type END,
+            start_height = CASE WHEN ${latestObservation} THEN COALESCE(EXCLUDED.start_height, ${targetTable}.start_height) ELSE ${targetTable}.start_height END,
+            services = CASE WHEN ${latestObservation} THEN COALESCE(EXCLUDED.services, ${targetTable}.services) ELSE ${targetTable}.services END,
+            crawl_seen_count = CASE WHEN EXCLUDED.last_chain_verified_at IS NULL THEN COALESCE(${targetTable}.crawl_seen_count, 0)
+              WHEN ${targetTable}.last_chain_verified_at IS NULL THEN 1
+              WHEN EXCLUDED.last_chain_verified_at > ${targetTable}.last_chain_verified_at THEN COALESCE(${targetTable}.crawl_seen_count, 0) + 1
               ELSE ${targetTable}.crawl_seen_count END,
-            crawl_miss_count = CASE WHEN ${targetTable}.last_verified_at IS NULL THEN 0 ELSE ${targetTable}.crawl_miss_count END
-          WHERE GREATEST(${targetTable}.last_verified_at, ${targetTable}.last_peer_seen_at) IS NULL
-            OR EXCLUDED.last_seen >= GREATEST(${targetTable}.last_verified_at, ${targetTable}.last_peer_seen_at)
+            crawl_miss_count = CASE WHEN EXCLUDED.last_chain_verified_at IS NOT NULL AND ${targetTable}.last_chain_verified_at IS NULL THEN 0 ELSE ${targetTable}.crawl_miss_count END
           RETURNING (xmax = 0) AS is_insert
         `, [
           ip, port,
@@ -297,6 +324,9 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
           peerTime ? new Date(peerTime) : null,
           peerObservation ? peerObservation.inbound : null,
           peerObservation ? 'peer' : 'crawl',
+          chainTime ? new Date(chainTime) : null,
+          crawlObservation?.chain_block_hash ?? null,
+          crawlObservation?.chain_proof ?? null,
         ]);
 
         if (result.rows[0]?.is_insert) newNodes++;
@@ -337,8 +367,8 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
       // Increment miss count for nodes not refreshed this crawl, then deactivate stale ones
       await client.query(`
         UPDATE ${targetTable} SET crawl_miss_count = COALESCE(crawl_miss_count, 0) + 1
-        WHERE is_active = TRUE AND last_verified_at IS NOT NULL
-          AND last_verified_at < NOW() - INTERVAL '6 minutes'
+        WHERE is_active = TRUE AND (${CRAWL_PROOF_MATCH})
+          AND last_chain_verified_at < NOW() - INTERVAL '6 minutes'
       `);
       await client.query(`
         UPDATE ${targetTable} SET is_active = FALSE
@@ -459,7 +489,7 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
           COUNT(*) FILTER (WHERE is_active AND last_peer_seen_at > NOW() - INTERVAL '15 minutes' AND inbound = TRUE) AS inbound,
           COUNT(*) FILTER (WHERE is_active AND last_peer_seen_at > NOW() - INTERVAL '15 minutes' AND inbound = FALSE) AS outbound,
           COUNT(*) FILTER (WHERE is_active AND tor_type = 'relay') AS tor_hidden,
-          ROUND(AVG(ping_ms) FILTER (WHERE is_active AND ping_ms > 0)::numeric, 3) AS avg_ping
+          ROUND(AVG(ping_ms) FILTER (WHERE is_active AND (${CRAWL_ELIGIBILITY}) AND ping_ms > 0)::numeric, 3) AS avg_ping
         FROM ${targetTable}
       `);
 

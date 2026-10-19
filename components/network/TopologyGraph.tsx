@@ -293,6 +293,7 @@ export function TopologyGraph({ active = true }: { active?: boolean }) {
   const [edgePairs, setEdgePairs] = useState<[number, number][]>([]);
   const [edgeCount, setEdgeCount] = useState(0);
   const [counts, setCounts] = useState<{ total: number; reachable: number; off: number; edges: number } | null>(null);
+  const [topologyAvailable, setTopologyAvailable] = useState(true);
   const [hovered, setHovered] = useState<PositionedNode | null>(null);
   const [pinned, setPinned] = useState<PositionedNode | null>(null);
   const [query, setQuery] = useState('');
@@ -333,6 +334,10 @@ export function TopologyGraph({ active = true }: { active?: boolean }) {
         const res = await fetch(`${apiUrl}/v1/network/topology`);
         if (!res.ok) { if (!cancelled) setLoading(false); return; }
         const data = await readApiData(res);
+        if (cancelled) return;
+        setTopologyAvailable(data.topologyAvailable !== false);
+        setCounts(data.counts ?? null);
+        if (data.topologyAvailable === false) { setLoading(false); return; }
         if (!data.nodes?.length) { if (!cancelled) setLoading(false); return; }
 
         const simNodes: SimNode[] = (data.nodes as ApiNode[]).map((n) => ({
@@ -409,6 +414,13 @@ export function TopologyGraph({ active = true }: { active?: boolean }) {
     run();
     return () => { cancelled = true; };
   }, []);
+
+  if (!loading && !topologyAvailable) {
+    return <div className="border border-cipher-border rounded-lg px-5 py-6">
+      <p className="text-sm text-secondary" role="status">Gossip links are unavailable while their Zcash chain provenance is revalidated.</p>
+      <p className="text-caption text-muted mt-2">{counts?.reachable ?? 0} observed active IPs. Explore geography or the node directory for available observations.</p>
+    </div>;
+  }
 
   return (
     <div>
