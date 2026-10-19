@@ -31,12 +31,12 @@ function text(tree) {
   if (tree == null || typeof tree === 'boolean') return '';
   return typeof tree === 'object' ? text(tree.props?.children) : String(tree);
 }
-function mapHarness({ version = 3, fail = false } = {}) {
+function mapHarness({ version = 3, fail = false, torNodes = 4, torClassificationAvailable } = {}) {
   const state = []; let cursor = 0;
   const jsx = (type, props, key) => ({ type, props, key });
   const locations = [location('GB', 10), location('FR', 9), location('FR', 8)];
   const stats = { censusVersion: version, chainQualifiedCrawlerNodes: 20, localPeerOnlyNodes: 12, activeNodes: 32, totalNodes: 100, countries: 2, cities: 2,
-    avgPingMs: 10, torNodes: 4, lastUpdated: '2026-10-19T00:30:00.000Z' };
+    avgPingMs: 10, torNodes, torClassificationAvailable, lastUpdated: '2026-10-19T00:30:00.000Z' };
   const { NodeMap } = load('components/NodeMap.tsx', {
     'react/jsx-runtime': { jsx, jsxs: jsx },
     react: { useMemo: fn => fn(), useState: value => { const index = cursor++; if (!(index in state)) state[index] = value; return [state[index], next => { state[index] = next; }]; } },
@@ -52,6 +52,34 @@ function mapHarness({ version = 3, fail = false } = {}) {
       project: (lat, lon) => ({ x: lon, y: lat }), useWorldLandDots: () => [{ x: 0, y: 0 }] },
   });
   return () => { cursor = 0; return NodeMap({}); };
+}
+
+function detailHarness({ version = 3, torNodes = 4, torClassificationAvailable } = {}) {
+  let cursor = 0;
+  const jsx = (type, props, key) => ({ type, props, key });
+  const stats = { censusVersion: version, activeNodes: 32, totalNodes: 100, countries: 2, cities: 2,
+    avgPingMs: 10, torNodes, torClassificationAvailable, lastUpdated: null };
+  const { default: NodesClient } = load('app/network/nodes/NodesClient.tsx', {
+    'react/jsx-runtime': { jsx, jsxs: jsx },
+    react: { useState: initial => [cursor++ === 1 ? stats : initial, () => {}], useEffect: () => {}, useCallback: fn => fn },
+    'next/link': { default: 'Link' },
+    '@/lib/api-client': { readApiData: () => {} },
+    '@/lib/api-config': { getApiUrl: () => 'https://api.example.test' },
+    '@/components/ui/EmptyState': { SkeletonTable: 'SkeletonTable' },
+    '@/components/ChartWatermark': { ChartWatermark: 'ChartWatermark' },
+    '@/components/ui/Skeleton': { ChartCardSkeleton: 'ChartCardSkeleton' },
+    '@/components/ui/Card': { Card: 'Card', CardBody: 'CardBody' },
+    '@/components/ui/SectionHeader': { PageHeader: 'PageHeader', SectionHeader: 'SectionHeader' },
+    '@/components/network/NodeMapExplorer': { NodeMapExplorer: 'NodeMapExplorer' },
+    '@/lib/network-colors': { clientLabel: value => value, clientColor: () => 'gold' },
+    '@/components/ui/RadialGauge': { scoreColor: () => 'gold' },
+  });
+  return NodesClient();
+}
+
+function torMetric(tree, childType) {
+  return visit(tree, node => node.type === 'div' &&
+    [node.props?.children].flat().some(child => child?.type === childType && text(child) === 'Tor classified'))[0];
 }
 
 test('border-adjacent countries retain their counts and filters independently', () => {
@@ -95,3 +123,32 @@ test('a failed refresh keeps observations visible with an explicit stale status'
   assert.equal(status.length, 1);
   assert.ok(text(status[0]).includes('may be stale'));
 });
+
+for (const [name, render, labelType] of [
+  ['overview', values => mapHarness(values)(), 'div'],
+  ['node details', detailHarness, 'dt'],
+]) {
+  test(`${name} distinguishes unavailable Tor classification from a measured zero`, () => {
+    for (const values of [
+      { torNodes: null, torClassificationAvailable: false },
+      { torNodes: null },
+      { torNodes: 4, torClassificationAvailable: false },
+      { torNodes: 0 },
+      { torNodes: 4 },
+    ]) {
+      const metric = torMetric(render(values), labelType);
+      assert.ok(metric, 'Tor classification remains visible when unavailable');
+      assert.ok(text(metric).includes('—'), 'no numeric count is asserted without classification');
+      assert.ok(text(metric).includes('Tor classification unavailable'));
+    }
+    for (const count of [0, 4]) {
+      const metric = torMetric(render({ torNodes: count, torClassificationAvailable: true }), labelType);
+      assert.ok(metric, 'a valid zero remains visible');
+      assert.ok(text(metric).includes(`${count}`));
+      assert.ok(!text(metric).includes('unavailable'));
+    }
+    const legacyZero = torMetric(render({ version: 0, torNodes: 0 }), labelType);
+    assert.ok(text(legacyZero).includes('0'), 'numeric peer-mode counts remain compatible');
+    assert.ok(!text(legacyZero).includes('unavailable'));
+  });
+}

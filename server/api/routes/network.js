@@ -29,6 +29,7 @@ let listCache;
 
 const NODE_SOURCE = process.env.NODE_SOURCE || 'peer';
 const { censusTable, CENSUS_VERSION, PEER_WINDOW_SECONDS, CENSUS_OBSERVED_AT, CHAIN_PROOF, PEER_ELIGIBILITY } = require('../../lib/node-census');
+const { readTorClassificationStatus, torClassificationForStats, torClassificationForSnapshot, readLatestTorCensusSnapshot } = require('../../lib/tor-classification');
 const NODES_TABLE = censusTable(NODE_SOURCE);
 const SNAPSHOT_FILTER = NODE_SOURCE === 'crawl' ? `AND census_version = ${CENSUS_VERSION}` : '';
 
@@ -774,6 +775,7 @@ router.get('/api/network/nodes/stats', async (req, res) => {
                 ROUND(AVG(ping_ms) FILTER (WHERE census_active AND census_crawl_qualified AND ping_ms > 0)::numeric, 1) as avg_ping_ms,
                 COUNT(*) FILTER (WHERE census_active AND is_tor) as tor_nodes,
                 ${NODE_SOURCE === 'crawl' ? `COUNT(*) FILTER (WHERE census_crawl_qualified) AS chain_qualified_crawler_nodes,
+                (SELECT MAX(snapshot_time) FROM node_snapshots WHERE census_version = ${CENSUS_VERSION}) AS census_snapshot_time,
                 COUNT(*) FILTER (WHERE ${PEER_ELIGIBILITY}) AS local_peer_nodes,
                 COUNT(*) FILTER (WHERE (${PEER_ELIGIBILITY}) AND NOT census_crawl_qualified) AS local_peer_only_nodes,
                 COUNT(*) FILTER (WHERE (${PEER_ELIGIBILITY}) AND census_crawl_qualified) AS overlap_nodes,` : ''}
@@ -849,6 +851,7 @@ router.get('/api/network/nodes/stats', async (req, res) => {
             torNodes: parseInt(row.tor_nodes) || 0,
             lastUpdated: row.last_updated,
             ...(NODE_SOURCE === 'crawl' ? { censusVersion: CENSUS_VERSION,
+              censusSnapshotTime: row.census_snapshot_time,
               observationWindowSeconds: 3600, peerObservationWindowSeconds: PEER_WINDOW_SECONDS,
               scope: 'live-peers-and-chain-qualified-crawler-unique-ips',
               crawlerChainProof: CHAIN_PROOF,
@@ -887,8 +890,23 @@ router.get('/api/network/nodes/stats', async (req, res) => {
       },
     });
     applyListCacheHeaders(res, cachedResult);
-    res.set('Cache-Control', 'public, max-age=60, s-maxage=300, must-revalidate');
-    res.json(cachedResult.value);
+    if (NODE_SOURCE === 'crawl') {
+      // Availability is checked on every request, including aggregate-cache hits.
+      // The DB commit marker also rejects an old Redis status if publication of
+      // a later (possibly unavailable) sample failed with unchanged source clocks.
+      const [classification, latest] = await Promise.all([
+        readTorClassificationStatus(redisClient),
+        readLatestTorCensusSnapshot(pool),
+      ]);
+      const currentCommit = new Date(cachedResult.value.stats.censusSnapshotTime).getTime()
+        === new Date(latest || NaN).getTime();
+      res.set('Cache-Control', 'no-store');
+      res.json({ ...cachedResult.value, stats: torClassificationForStats(cachedResult.value.stats,
+        currentCommit ? classification : null) });
+    } else {
+      res.set('Cache-Control', 'public, max-age=60, s-maxage=300, must-revalidate');
+      res.json(cachedResult.value);
+    }
   } catch (error) {
     logSafeError('❌ [NODES] Error fetching node stats:', error);
     res.status(500).json({
@@ -923,6 +941,8 @@ router.get('/api/network/node-history', async (req, res) => {
       WHERE 1=1 ${SNAPSHOT_FILTER} AND snapshot_time >= NOW() - INTERVAL '${interval}'
       ORDER BY snapshot_time ASC
     `);
+    const classification = NODE_SOURCE === 'crawl' ? await readTorClassificationStatus(redisClient) : null;
+    if (NODE_SOURCE === 'crawl') res.set('Cache-Control', 'no-store');
 
     res.json({
       success: true,
@@ -930,7 +950,7 @@ router.get('/api/network/node-history', async (req, res) => {
       snapshots: result.rows.map(r => ({
         time: r.snapshot_time,
         activeNodes: r.active_nodes,
-        torNodes: r.tor_nodes,
+        ...(NODE_SOURCE === 'crawl' ? torClassificationForSnapshot(r.snapshot_time, classification) : { torNodes: r.tor_nodes }),
         countries: r.countries,
         inboundNodes: r.inbound_nodes,
         outboundNodes: r.outbound_nodes,

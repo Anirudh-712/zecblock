@@ -58,6 +58,8 @@ test('all census routes exclude legacy/stale rows and incompatible history again
     assert.equal(responses['/api/network/nodes/stats'].stats.chainQualifiedCrawlerNodes, 1);
     assert.equal(responses['/api/network/nodes/stats'].stats.localPeerNodes, 0);
     assert.equal(responses['/api/network/nodes/stats'].stats.totalNodes, 5);
+    assert.equal(responses['/api/network/nodes/stats'].stats.torNodes, null, 'missing classification status is unavailable, not zero');
+    assert.equal(responses['/api/network/nodes/stats'].stats.torClassificationAvailable, false);
     assert.equal(responses['/api/network/nodes/stats'].clients.observedNodes, 1);
     assert.deepEqual(responses['/api/network/nodes/stats'].trends,
       { change24h: null, change7d: null, change30d: null },
@@ -105,10 +107,12 @@ test('all census routes exclude legacy/stale rows and incompatible history again
       crawl_seen_count=999,crawl_miss_count=999,last_seen=now(),client_impl='zcashd',user_agent='/MagicBean:9.1.0/' WHERE id=1`);
     // Run the real writer against the same temporary tables and deterministic RPCs.
     // All transaction statements stay within the fixture's outer rollback.
+    let fixtureCommitted = false;
+    const classifications = [];
     const writerClient = {
       async query(sql, params) {
-        if (sql === 'BEGIN') return db.query('SAVEPOINT ingest_fixture');
-        if (sql === 'COMMIT') return db.query('RELEASE SAVEPOINT ingest_fixture');
+        if (sql === 'BEGIN') { fixtureCommitted = false; return db.query('SAVEPOINT ingest_fixture'); }
+        if (sql === 'COMMIT') { const result = await db.query('RELEASE SAVEPOINT ingest_fixture'); fixtureCommitted = true; return result; }
         if (sql === 'ROLLBACK') return db.query('ROLLBACK TO SAVEPOINT ingest_fixture');
         // Simulate refresh-turnstile holding its lock during the same cron tick.
         if (sql.includes('pg_try_advisory_lock')) return { rows: [{ acquired: params[0] !== 839271 }] };
@@ -137,12 +141,15 @@ test('all census routes exclude legacy/stale rows and incompatible history again
         assert.deepEqual(input.all_node_reachable, []);
         return { nodes: input.node_info.map(n => ({ ...n, geo: {} })) };
       },
-      torExits: async () => new Set(), dbPool: { connect: async () => writerClient } };
+      torExits: async () => new Set(), dbPool: { connect: async () => writerClient },
+      classificationPublisher: async status => { assert.equal(fixtureCommitted, true, 'publication follows the DB commit'); classifications.push(status); return true; } };
     await ingestCrawl(options);
     const firstWrite = (await db.query('SELECT last_verified_at, last_seen, crawl_seen_count FROM nodes WHERE id=1')).rows[0];
     assert.equal(firstWrite.last_seen.getTime(), proofAt);
     assert.equal(firstWrite.last_verified_at.getTime(), verifiedAt);
     assert.equal(firstWrite.crawl_seen_count, 1, 'first qualified proof starts new reliability samples');
+    assert.equal(classifications.at(-1).available, false);
+    assert.equal(classifications.at(-1).classifiedTorNodes, null);
     assert.equal((await db.query('SELECT client_impl,port FROM nodes WHERE id=1')).rows[0].client_impl, 'Zebra', 'legacy unqualified observation time cannot preserve a foreign client identity');
     await ingestCrawl(options);
     const secondWrite = (await db.query('SELECT last_verified_at, last_seen, crawl_seen_count FROM nodes WHERE id=1')).rows[0];
@@ -256,6 +263,24 @@ test('all census routes exclude legacy/stale rows and incompatible history again
     const measured = (await db.query(`SELECT census_active,census_crawl_qualified FROM ${require('../lib/node-census').censusTable('crawl')} census WHERE ip='192.0.2.5'`)).rows[0];
     assert.deepEqual(measured, { census_active: true, census_crawl_qualified: false });
 
+    // A failed provider must retain known row-level evidence, while its public
+    // aggregate is unavailable. A later valid list can honestly establish zero.
+    await db.query("UPDATE nodes SET is_tor=true,tor_type='exit' WHERE id=1");
+    await ingestCrawl({ ...options, torExits: async () => { throw new Error('ECONNRESET'); } });
+    assert.deepEqual((await db.query('SELECT is_tor,tor_type FROM nodes WHERE id=1')).rows[0],
+      { is_tor: true, tor_type: 'exit' });
+    assert.equal(classifications.at(-1).available, false);
+    await ingestCrawl({ ...options, torExits: async () => new Set(['192.0.2.250']) });
+    assert.deepEqual((await db.query('SELECT is_tor,tor_type FROM nodes WHERE id=1')).rows[0],
+      { is_tor: false, tor_type: null });
+    assert.equal(classifications.at(-1).available, true);
+    assert.equal(classifications.at(-1).classifiedTorNodes, 0, 'valid provider with no matching active IPs is a measured zero');
+    const beforeRollback = classifications.length;
+    await assert.rejects(ingestCrawl({ ...options, dbPool: { connect: async () => ({
+      async query(sql, params) { if (sql === 'COMMIT') throw new Error('commit failed'); return writerClient.query(sql, params); },
+      release() {},
+    }) } }), /commit failed/);
+    assert.equal(classifications.length, beforeRollback, 'a failed transaction cannot publish status');
   } finally {
     await db.query('ROLLBACK');
     await db.end();

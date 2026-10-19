@@ -12,6 +12,7 @@ import { PageHeader, SectionHeader } from '@/components/ui/SectionHeader';
 import { NodeMapExplorer } from '@/components/network/NodeMapExplorer';
 import { clientLabel, clientColor } from '@/lib/network-colors';
 import { scoreColor } from '@/components/ui/RadialGauge';
+import type { NodeStats } from '@/components/NodeMap';
 
 interface NodeEntry {
   id: number;
@@ -33,19 +34,6 @@ interface NodeEntry {
   degree: number | null;
   betweenness: number | null;
   closeness: number | null;
-}
-
-interface NodeStats {
-  censusVersion?: number;
-  chainQualifiedCrawlerNodes?: number;
-  localPeerOnlyNodes?: number;
-  activeNodes: number;
-  totalNodes: number;
-  countries: number;
-  cities: number;
-  avgPingMs: number | null;
-  torNodes: number;
-  lastUpdated: string | null;
 }
 
 interface ClientEntry {
@@ -186,6 +174,8 @@ export default function NodesClient() {
 
   const identifiedCount = clients.filter(c => c.client !== 'Unknown').reduce((s, c) => s + c.count, 0);
   const coveragePct = stats?.activeNodes ? ((identifiedCount / stats.activeNodes) * 100).toFixed(0) : '—';
+  const torClassificationAvailable = stats != null && stats.torNodes != null &&
+    ((stats.censusVersion ?? 0) >= 3 ? stats.torClassificationAvailable === true : stats.torClassificationAvailable !== false);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
@@ -211,7 +201,7 @@ export default function NodesClient() {
           {[
             { label: 'Observed active IPs', value: stats?.activeNodes.toLocaleString() ?? '—', hint: (stats?.censusVersion ?? 0) >= 3 ? 'Live peers and crawlers serving Zcash chain headers' : 'Live peers and recent crawler observations' },
             { label: 'Countries', value: stats?.countries ?? '—', hint: stats ? `${stats.cities} observed cities` : 'Geographic coverage' },
-            { label: 'Tor classified', value: stats?.torNodes ?? '—', hint: 'Known exit IPs and hidden-service classifications' },
+            { label: 'Tor classified', value: torClassificationAvailable ? stats.torNodes : '—', hint: torClassificationAvailable ? 'Known exit IPs and hidden-service classifications, not all Tor users' : 'Tor classification unavailable' },
             { label: (stats?.censusVersion ?? 0) >= 2 ? 'Average handshake' : 'Average ping', value: stats?.avgPingMs != null ? `${stats.avgPingMs.toFixed(0)} ms` : '—', hint: 'From crawler observations' },
           ].map(item => <div key={item.label}>
             <dt className="type-label text-muted uppercase mb-2">{item.label}</dt>

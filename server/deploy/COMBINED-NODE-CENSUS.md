@@ -80,6 +80,26 @@ map cells; independently cached map/stats samples may differ slightly. Tor
 classification identifies known exit IPs/hidden-service destinations, not all
 Tor users or connections routed through SOCKS.
 
+Tor classification availability is separate from the observed-IP count. A valid,
+nonempty exit-list response reclassifies the active population. Provider errors,
+malformed or empty lists preserve last-known per-row flags and publish an
+unavailable status only after the census transaction commits. The Redis status
+`zcash:tor-classification:census-v3` expires after 600 seconds and binds the
+classification result to the exact committed snapshot and source clock. The API
+checks that binding on every request, including aggregate cache hits, against
+the latest committed v3 database snapshot. Missing, failed, expired or mismatched
+status returns `torNodes: null`, `torClassificationAvailable: false` and an ISO
+`torClassificationCheckedAt` or null. A matching successful lookup may return a
+measured zero. The UI requires explicit availability for v3 and shows an em dash
+with “Tor classification unavailable” otherwise.
+
+Crawl stats and history send `Cache-Control: no-store`; the internal five-minute
+aggregate cache and independent five-minute network-page ISR remain in place.
+History returns a Tor count only for an exact sample with fresh matching status;
+older samples are null because availability was not persisted in the snapshot
+schema. No migration or historical classification backfill is required.
+
+
 ## Release sequence and acceptance gates
 
 This is a prepared local repair, not a deployment record.
