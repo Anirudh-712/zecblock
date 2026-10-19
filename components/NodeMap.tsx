@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { ChartWatermark } from '@/components/ChartWatermark';
 import { clientLabel } from '@/lib/network-colors';
 import { useApiQuery } from '@/hooks/useApiQuery';
+import { clusterNodeLocations, type NodeLocation } from '@/lib/node-map-locations';
+export type { NodeLocation } from '@/lib/node-map-locations';
 import {
   MAP_WIDTH,
   MAP_HEIGHT,
@@ -18,26 +20,17 @@ import {
 // TYPES
 // ==========================================================================
 
-export interface NodeLocation {
-  country: string;
-  countryCode: string;
-  city?: string | null;
-  lat: number;
-  lon: number;
-  nodeCount: number;
-  avgPingMs: number | null;
-  topClient?: string | null;
-  topIsp?: string | null;
-}
-
 export interface NodeStats {
+  censusVersion?: number;
+  chainQualifiedCrawlerNodes?: number;
+  localPeerOnlyNodes?: number;
   activeNodes: number;
   totalNodes: number;
   countries: number;
   cities: number;
   avgPingMs: number | null;
   torNodes: number;
-  lastUpdated: string;
+  lastUpdated: string | null;
 }
 
 interface NodeTrends {
@@ -133,36 +126,7 @@ export function NodeMap({ initialLocations, initialStats, initialFetchedAt }: No
   const worldDots = useWorldLandDots();
 
   // Cluster nearby nodes
-  const clusteredNodes = useMemo(() => {
-    const clusters: Map<string, NodeLocation> = new Map();
-
-    locations.forEach((loc) => {
-      const keyLat = Math.round(loc.lat / 8) * 8;
-      const keyLon = Math.round(loc.lon / 8) * 8;
-      const key = `${keyLat},${keyLon}`;
-
-      const existing = clusters.get(key);
-      if (existing) {
-        const total = existing.nodeCount + loc.nodeCount;
-        const existingWins = existing.nodeCount >= loc.nodeCount;
-        clusters.set(key, {
-          lat: (existing.lat * existing.nodeCount + loc.lat * loc.nodeCount) / total,
-          lon: (existing.lon * existing.nodeCount + loc.lon * loc.nodeCount) / total,
-          nodeCount: total,
-          country: existingWins ? existing.country : loc.country,
-          countryCode: existingWins ? existing.countryCode : loc.countryCode,
-          city: existingWins ? existing.city : loc.city,
-          avgPingMs: loc.avgPingMs,
-          topClient: existingWins ? existing.topClient : loc.topClient,
-          topIsp: existingWins ? existing.topIsp : loc.topIsp,
-        });
-      } else {
-        clusters.set(key, { ...loc });
-      }
-    });
-
-    return Array.from(clusters.values());
-  }, [locations]);
+  const clusteredNodes = useMemo(() => clusterNodeLocations(locations), [locations]);
 
   // Count nodes for selected country (for the header display)
   const selectedCountryData = useMemo(() => {
@@ -210,7 +174,7 @@ export function NodeMap({ initialLocations, initialStats, initialFetchedAt }: No
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-semibold text-primary">Network Node Map</h2>
-              <p className="text-caption sm:text-xs text-muted">Observed reachable nodes · discovery coverage can change</p>
+              <p className="text-caption sm:text-xs text-muted">Observed active IPs · discovery coverage can change</p>
             </div>
           </div>
 
@@ -221,7 +185,7 @@ export function NodeMap({ initialLocations, initialStats, initialFetchedAt }: No
                   <span className="font-semibold text-primary font-mono text-lg sm:text-xl">{stats.activeNodes}</span>
 
                 </div>
-                <div className="text-caption text-muted uppercase tracking-wider">Reachable</div>
+                <div className="text-caption text-muted uppercase tracking-wider">Observed IPs</div>
               </div>
               <div className="text-center">
                 <div className="font-semibold text-primary font-mono text-lg sm:text-xl">{stats.countries}</div>
@@ -230,13 +194,16 @@ export function NodeMap({ initialLocations, initialStats, initialFetchedAt }: No
               {stats.torNodes > 0 && (
                 <div className="text-center">
                   <div className="font-semibold text-cipher-purple font-mono text-lg sm:text-xl">{stats.torNodes}</div>
-                  <div className="text-caption text-muted uppercase tracking-wider">Tor</div>
+                  <div className="text-caption text-muted uppercase tracking-wider" title="Known Tor exit IPs and hidden-service classifications, not all Tor users">Tor classified</div>
                 </div>
               )}
             </div>
           )}
         </div>
       </div>
+
+      {stats?.chainQualifiedCrawlerNodes != null && stats.localPeerOnlyNodes != null && <p className="px-4 sm:px-6 py-3 text-caption text-muted">{stats.chainQualifiedCrawlerNodes} crawler-verified IPs · {stats.localPeerOnlyNodes} additional local-peer IPs. Local peers are connections reported by this explorer’s node.</p>}
+      {error && <p role="status" className="px-4 sm:px-6 py-3 border-t border-cipher-border text-caption text-warning">Refresh failed. Previously received observations remain visible and may be stale.</p>}
 
       {/* Dot Matrix Map */}
       <div className="relative overflow-hidden bg-cipher-bg">
@@ -485,9 +452,12 @@ export function NodeMap({ initialLocations, initialStats, initialFetchedAt }: No
                     {value > 0 ? '+' : ''}{value}%
                   </span>
                 </div>
+              ) : (stats?.censusVersion ?? 0) >= 3 ? (
+                <span key={label} className="text-caption text-muted font-mono">{label} unavailable</span>
               ) : null
             ))}
           </div>
+          {(stats?.censusVersion ?? 0) >= 3 && Object.values(trends).some(value => value == null) && <p className="text-caption text-muted mt-2">Changes require a comparable observation after chain verification was introduced.</p>}
         </div>
       )}
 
@@ -528,12 +498,13 @@ export function NodeMap({ initialLocations, initialStats, initialFetchedAt }: No
               const othersCount = (stats?.activeNodes || 0) - top10Sum;
               return othersCount > 0 ? (
                 <span className="flex items-center gap-1.5 rounded-lg px-2 sm:px-3 py-1 sm:py-1.5 bg-cipher-bg/50 border border-transparent">
-                  <span className="text-caption sm:text-xs text-muted">Others</span>
+                  <span className="text-caption sm:text-xs text-muted">Other / unknown</span>
                   <span className="text-caption sm:text-xs font-mono font-semibold text-muted">{othersCount}</span>
                 </span>
               ) : null;
             })()}
           </div>
+          <p className="text-caption text-muted mt-3">Map cells include located IPs only. Map and totals can reflect different observation times.</p>
         </div>
       )}
     </div>

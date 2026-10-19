@@ -28,7 +28,7 @@ let redisClient;
 let listCache;
 
 const NODE_SOURCE = process.env.NODE_SOURCE || 'peer';
-const { censusTable, CENSUS_VERSION, PEER_WINDOW_SECONDS } = require('../../lib/node-census');
+const { censusTable, CENSUS_VERSION, PEER_WINDOW_SECONDS, CENSUS_OBSERVED_AT, CHAIN_PROOF, PEER_ELIGIBILITY } = require('../../lib/node-census');
 const NODES_TABLE = censusTable(NODE_SOURCE);
 const SNAPSHOT_FILTER = NODE_SOURCE === 'crawl' ? `AND census_version = ${CENSUS_VERSION}` : '';
 
@@ -52,7 +52,7 @@ const NETWORK_STATS_CACHE_KEY = isTestnet()
 const NETWORK_STATS_CACHE_DURATION = 120; // 2 minutes — network stats don't change fast
 const NETWORK_HEALTH_CACHE_KEY = 'zcash:network_health';
 const NETWORK_HEALTH_CACHE_DURATION = 60;
-const NETWORK_TOPOLOGY_CACHE_KEY = 'zcash:network_topology:census-v2';
+const NETWORK_TOPOLOGY_CACHE_KEY = `zcash:network_topology:census-v${CENSUS_VERSION}`;
 const NETWORK_TOPOLOGY_CACHE_DURATION = 300; // 5 minutes — aligned with crawler ingest cycle
 
 // Fallback in-memory cache (if Redis fails)
@@ -713,7 +713,7 @@ router.get('/api/network/nodes', async (req, res) => {
             ROUND(lat::numeric, 0) as lat,
             ROUND(lon::numeric, 0) as lon,
             COUNT(*) as node_count,
-            ROUND(AVG(ping_ms)::numeric, 1) as avg_ping_ms,
+            ROUND(AVG(ping_ms) FILTER (WHERE census_crawl_qualified)::numeric, 1) as avg_ping_ms,
             MODE() WITHIN GROUP (ORDER BY client_impl) as top_client,
             MODE() WITHIN GROUP (ORDER BY isp) as top_isp
           FROM ${NODES_TABLE} census
@@ -771,9 +771,13 @@ router.get('/api/network/nodes/stats', async (req, res) => {
                 COUNT(*) as total_nodes,
                 COUNT(DISTINCT country_code) FILTER (WHERE census_active) as countries,
                 COUNT(DISTINCT city) FILTER (WHERE census_active) as cities,
-                ROUND(AVG(ping_ms) FILTER (WHERE census_active AND ping_ms > 0)::numeric, 1) as avg_ping_ms,
+                ROUND(AVG(ping_ms) FILTER (WHERE census_active AND census_crawl_qualified AND ping_ms > 0)::numeric, 1) as avg_ping_ms,
                 COUNT(*) FILTER (WHERE census_active AND is_tor) as tor_nodes,
-                MAX(${NODE_SOURCE === 'crawl' ? 'GREATEST(last_verified_at, last_peer_seen_at)' : 'last_seen'}) FILTER (WHERE census_active) as last_updated
+                ${NODE_SOURCE === 'crawl' ? `COUNT(*) FILTER (WHERE census_crawl_qualified) AS chain_qualified_crawler_nodes,
+                COUNT(*) FILTER (WHERE ${PEER_ELIGIBILITY}) AS local_peer_nodes,
+                COUNT(*) FILTER (WHERE (${PEER_ELIGIBILITY}) AND NOT census_crawl_qualified) AS local_peer_only_nodes,
+                COUNT(*) FILTER (WHERE (${PEER_ELIGIBILITY}) AND census_crawl_qualified) AS overlap_nodes,` : ''}
+                MAX(${NODE_SOURCE === 'crawl' ? CENSUS_OBSERVED_AT : 'last_seen'}) FILTER (WHERE census_active) as last_updated
               FROM ${NODES_TABLE} census
             `),
             pool.query(`
@@ -846,7 +850,14 @@ router.get('/api/network/nodes/stats', async (req, res) => {
             lastUpdated: row.last_updated,
             ...(NODE_SOURCE === 'crawl' ? { censusVersion: CENSUS_VERSION,
               observationWindowSeconds: 3600, peerObservationWindowSeconds: PEER_WINDOW_SECONDS,
-              scope: 'live-peers-and-crawler-unique-ips' } : {}),
+              scope: 'live-peers-and-chain-qualified-crawler-unique-ips',
+              crawlerChainProof: CHAIN_PROOF,
+              chainQualifiedCrawlerNodes: parseInt(row.chain_qualified_crawler_nodes) || 0,
+              localPeerNodes: parseInt(row.local_peer_nodes) || 0,
+              localPeerOnlyNodes: parseInt(row.local_peer_only_nodes) || 0,
+              overlapNodes: parseInt(row.overlap_nodes) || 0,
+              totalNodesScope: 'all-historical-candidate-ips',
+              topologyAvailable: false } : {}),
           },
           trends: {
             change24h: calcChange(trendRow.nodes_24h_ago),
@@ -1130,6 +1141,24 @@ router.get('/api/network/topology', async (req, res) => {
       return res.json(cached);
     }
 
+    if (NODE_SOURCE === 'crawl') {
+      // Old graph rows lack qualified advertiser provenance. Do not relabel
+      // foreign-network gossip as Zcash "off" nodes, or fabricate peer links.
+      const qualified = await pool.query(`
+        SELECT client_impl, is_tor, country_code
+        FROM ${NODES_TABLE} census WHERE census_active = TRUE ORDER BY id
+      `);
+      const nodes = qualified.rows.map((row, id) => ({ id, reachable: true,
+        client: row.client_impl || null, isTor: row.is_tor === true,
+        countryCode: row.country_code, betweenness: null, closeness: null, degree: null }));
+      const response = { success: true, nodes, edges: [],
+        counts: { total: nodes.length, reachable: nodes.length, off: 0, edges: 0 },
+        censusVersion: CENSUS_VERSION, topologyAvailable: false,
+        topologyUnavailableReason: 'Awaiting chain-qualified gossip provenance', timestamp: Date.now() };
+      await setInRedisCache(NETWORK_TOPOLOGY_CACHE_KEY, response, NETWORK_TOPOLOGY_CACHE_DURATION);
+      return res.json(response);
+    }
+
     // Full known-network graph: reachable core + connected "off" (gossiped but
     // unreachable) nodes. Reachable nodes get the richer client classification
     // from the nodes table; grey nodes fall back to the crawler-derived label.
@@ -1260,15 +1289,15 @@ router.get('/api/network/nodes/list', async (req, res) => {
           ROUND(n.lon::numeric, 0) as lon,
           n.is_tor,
           n.tor_type,
-          n.ping_ms,
+          CASE WHEN n.census_crawl_qualified THEN n.ping_ms END AS ping_ms,
           n.census_active,
           n.first_seen,
           n.last_seen,
           n.observed_via,
           n.isp,
-          n.degree,
-          n.betweenness,
-          n.closeness
+          ${NODE_SOURCE === 'crawl' ? 'NULL::int' : 'n.degree'} AS degree,
+          ${NODE_SOURCE === 'crawl' ? 'NULL::double precision' : 'n.betweenness'} AS betweenness,
+          ${NODE_SOURCE === 'crawl' ? 'NULL::double precision' : 'n.closeness'} AS closeness
         FROM ${NODES_TABLE} n
         LEFT JOIN ${NODES_TABLE} zn ON zn.ip = n.ip AND n.client_impl = 'Unknown' AND zn.client_impl IS NOT NULL AND zn.client_impl != 'Unknown'
         WHERE n.census_active = TRUE
@@ -1349,8 +1378,8 @@ router.get('/api/network/nodes/health-score', async (req, res) => {
       pool.query(`
         SELECT
           AVG(crawl_seen_count::numeric / NULLIF(crawl_seen_count + COALESCE(crawl_miss_count, 0), 0))
-            FILTER (WHERE census_active AND (crawl_seen_count + COALESCE(crawl_miss_count, 0)) >= 3) AS avg_reliability,
-          COUNT(*) FILTER (WHERE census_active AND (crawl_seen_count + COALESCE(crawl_miss_count, 0)) >= 3) AS scored_nodes
+            FILTER (WHERE census_active AND census_crawl_qualified AND (crawl_seen_count + COALESCE(crawl_miss_count, 0)) >= 3) AS avg_reliability,
+          COUNT(*) FILTER (WHERE census_active AND census_crawl_qualified AND (crawl_seen_count + COALESCE(crawl_miss_count, 0)) >= 3) AS scored_nodes
         FROM ${NODES_TABLE} census
       `),
     ]);
@@ -1361,7 +1390,7 @@ router.get('/api/network/nodes/health-score', async (req, res) => {
     const clients = clientResult.rows;
     const rel = reliabilityResult.rows[0];
 
-    const totalActive = parseInt(conn.total_active) || 1;
+    const totalActive = parseInt(conn.total_active) || 0;
 
     // Connectivity: based on avg peer degree (healthy mesh ~8+)
     const avgDegree = parseFloat(conn.avg_degree) || 0;
@@ -1387,7 +1416,7 @@ router.get('/api/network/nodes/health-score', async (req, res) => {
 
     // Reliability: how consistently reachable nodes are across crawl cycles
     const avgReliability = rel.avg_reliability != null ? parseFloat(rel.avg_reliability) : null;
-    const reliabilityScore = avgReliability != null ? Math.round(avgReliability * 100) : 50;
+    const reliabilityScore = avgReliability != null ? Math.round(avgReliability * 100) : null;
 
     // Composite (weighted, honest signals only)
     const composite = Math.round(
@@ -1395,14 +1424,17 @@ router.get('/api/network/nodes/health-score', async (req, res) => {
       upgradeScore * 0.20 +
       clientDiversityScore * 0.20 +
       geoScore * 0.15 +
-      reliabilityScore * 0.20
+      (reliabilityScore ?? 0) * 0.20
     );
 
     res.json({
       success: true,
-      healthScore: composite,
+      healthScore: NODE_SOURCE === 'crawl' ? null : composite,
+      topologyAvailable: NODE_SOURCE !== 'crawl',
       components: {
-        connectivity: { score: connectivityScore, avgDegree: parseFloat(avgDegree.toFixed(1)), poorlyConnected: parseInt(conn.poorly_connected) || 0, maxDegree: parseInt(conn.max_degree) || 0 },
+        connectivity: NODE_SOURCE === 'crawl'
+          ? { score: null, avgDegree: null, poorlyConnected: null, maxDegree: null }
+          : { score: connectivityScore, avgDegree: parseFloat(avgDegree.toFixed(1)), poorlyConnected: parseInt(conn.poorly_connected) || 0, maxDegree: parseInt(conn.max_degree) || 0 },
         upgrade: { score: upgradeScore, latestProtocol: LATEST_PROTOCOL, adoptionPct: parseFloat(upgradePct.toFixed(1)), latestCount },
         clientDiversity: { score: clientDiversityScore, topClient: topClient.client_impl, topClientPct: parseFloat(topClientPct.toFixed(1)), implementations: identifiedClients.length },
         geographic: { score: geoScore, countries, uniqueSubnets: parseInt(geo.unique_subnets) || 0 },
@@ -1436,7 +1468,7 @@ router.get('/api/network/nodes/reliability', async (req, res) => {
           COALESCE(crawl_miss_count, 0) AS crawl_miss_count,
           ROUND((crawl_seen_count::numeric / NULLIF(crawl_seen_count + COALESCE(crawl_miss_count, 0), 0)) * 100, 1) AS reliability_pct
         FROM ${NODES_TABLE} census
-        WHERE census_active = TRUE AND (crawl_seen_count + COALESCE(crawl_miss_count, 0)) >= 3
+        WHERE census_active = TRUE AND census_crawl_qualified AND (crawl_seen_count + COALESCE(crawl_miss_count, 0)) >= 3
         ORDER BY reliability_pct DESC NULLS LAST, crawl_seen_count DESC, ping_ms ASC NULLS LAST
         LIMIT 12
       `),
@@ -1449,7 +1481,7 @@ router.get('/api/network/nodes/reliability', async (req, res) => {
           COUNT(*) FILTER (WHERE ping_ms >= 500) AS b4,
           ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY ping_ms) FILTER (WHERE ping_ms > 0)::numeric, 0) AS median_ms,
           COUNT(*) FILTER (WHERE ping_ms > 0) AS measured
-        FROM ${NODES_TABLE} census WHERE census_active = TRUE
+        FROM ${NODES_TABLE} census WHERE census_active = TRUE AND census_crawl_qualified
       `),
       pool.query(`
         SELECT services, COUNT(*)::int AS cnt
@@ -1459,10 +1491,10 @@ router.get('/api/network/nodes/reliability', async (req, res) => {
       pool.query(`
         SELECT
           ROUND(AVG(crawl_seen_count::numeric / NULLIF(crawl_seen_count + COALESCE(crawl_miss_count, 0), 0))
-            FILTER (WHERE (crawl_seen_count + COALESCE(crawl_miss_count, 0)) >= 3) * 100, 1) AS avg_reliability_pct,
+            FILTER (WHERE census_crawl_qualified AND (crawl_seen_count + COALESCE(crawl_miss_count, 0)) >= 3) * 100, 1) AS avg_reliability_pct,
           MAX(crawl_seen_count) AS max_seen,
           COUNT(*) FILTER (WHERE services IS NOT NULL) AS services_known
-        FROM ${NODES_TABLE} census WHERE census_active = TRUE
+        FROM ${NODES_TABLE} census WHERE census_active = TRUE AND census_crawl_qualified
       `),
     ]);
 
@@ -1544,7 +1576,7 @@ router.get('/api/network/nodes/upgrade-readiness', async (req, res) => {
       `).catch(() => ({ rows: [] })),
     ]);
 
-    const totalActive = currentDist.rows.reduce((s, r) => s + r.node_count, 0) || 1;
+    const totalActive = currentDist.rows.reduce((s, r) => s + r.node_count, 0);
     const LATEST_PROTOCOL = 170160; // NU6.3
 
     const versions = currentDist.rows.map(r => ({
@@ -1552,12 +1584,12 @@ router.get('/api/network/nodes/upgrade-readiness', async (req, res) => {
       nodeCount: r.node_count,
       percentage: parseFloat(((r.node_count / totalActive) * 100).toFixed(1)),
       clients: r.clients.filter(c => c && c !== 'Unknown' && c !== 'Seeder'),
-      avgDegree: r.avg_degree ? parseFloat(r.avg_degree) : null,
+      avgDegree: NODE_SOURCE === 'crawl' ? null : r.avg_degree ? parseFloat(r.avg_degree) : null,
       isLatest: parseInt(r.protocol_version) >= LATEST_PROTOCOL,
     }));
 
     const latestCount = versions.filter(v => v.isLatest).reduce((s, v) => s + v.nodeCount, 0);
-    const readinessPct = parseFloat(((latestCount / totalActive) * 100).toFixed(1));
+    const readinessPct = totalActive > 0 ? parseFloat(((latestCount / totalActive) * 100).toFixed(1)) : null;
 
     res.json({
       success: true,
@@ -1634,8 +1666,9 @@ router.get('/api/network/nodes/concentration', async (req, res) => {
         nodeCount: r.node_count,
         percentage: parseFloat(r.pct) || 0,
       })),
-      highDegreeNodes: parseInt(highDegreeResult.rows[0]?.high_degree_nodes) || 0,
-      maxDegree: parseInt(highDegreeResult.rows[0]?.max_degree) || 0,
+      highDegreeNodes: NODE_SOURCE === 'crawl' ? null : parseInt(highDegreeResult.rows[0]?.high_degree_nodes) || 0,
+      maxDegree: NODE_SOURCE === 'crawl' ? null : parseInt(highDegreeResult.rows[0]?.max_degree) || 0,
+      topologyAvailable: NODE_SOURCE !== 'crawl',
       timestamp: Date.now(),
     });
   } catch (error) {
