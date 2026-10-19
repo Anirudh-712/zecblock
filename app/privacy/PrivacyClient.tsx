@@ -80,7 +80,7 @@ export default function PrivacyClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [trendView, setTrendView] = useState<TrendChartView>('score');
-  const [trendPeriod, setTrendPeriod] = useState<Period>('all');
+  const [trendPeriod, setTrendPeriod] = useState<Period>('30d');
   const { theme } = useTheme();
 
   const refresh = useCallback(async () => {

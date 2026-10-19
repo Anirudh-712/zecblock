@@ -435,7 +435,7 @@ function TrendsChart() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
-  const [period, setPeriod] = useState<TrendPeriod>('all');
+  const [period, setPeriod] = useState<TrendPeriod>('30');
   const [data, setData] = useState<TrendDay[]>([]);
   const [loading, setLoading] = useState(true);
 

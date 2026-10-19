@@ -196,7 +196,7 @@ export function PoolDistributionChart({ initialData, initialFetchedAt }: { initi
   const colors = getChartColors(theme);
   const { currency, price, format } = usePoolCurrency();
   const [chartWidth, setChartWidth] = useState(600);
-  const [period, setPeriod] = useState<Period>('all');
+  const [period, setPeriod] = useState<Period>('30d');
   const [view, setView] = useState<View>('pools');
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
 
