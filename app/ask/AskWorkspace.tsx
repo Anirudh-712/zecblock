@@ -254,8 +254,11 @@ export function AskWorkspace() {
     if (!feedback.blocked) feedback.clear();
     requestAnimationFrame(() => input.current?.focus());
   }
+  function resultActions(message: Message) {
+    return <>{message.research ? <button disabled={busy} onClick={() => editQuery(message)}>Edit query</button> : null}<button aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button></>;
+  }
   function renderRecords(message: Message, expandedView = false) {
-    if (message.research) return message.id === latestRecords?.id ? <ResearchPanel tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} chart={{view:'table',x:0,y:0}}/></div>;
+    if (message.research) return message.id === latestRecords?.id ? <ResearchPanel embedded={!expandedView} actions={expandedView ? undefined : resultActions(message)} tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} chart={{view:'table',x:0,y:0}}/></div>;
     return <div className="p-4 sm:p-5"><AskAnalytics result={message.analytics}/><AskBlocks result={message.blocks} expanded/><AskTransactions result={message.transactions} expanded/>{message.transfers ? <AskTransfers result={message.transfers}/> : null}</div>;
   }
   const researchEditor=capability.researchEnabled?<ResearchEditor extended={capability.researchExtended===true} tools={tools} busy={busy} onOpen={openSaved}/>:null;
@@ -319,15 +322,15 @@ export function AskWorkspace() {
           <div className={`${styles.transcript} ${styles.threadTranscript}`} ref={transcript}>
             {session.messages.map(message => <div key={message.id} ref={message.id === session.messages.at(-1)?.id ? latestTurn : undefined} className="mb-7">
               <div className={styles.sentMessage}>{message.sql ? <><span className={styles.sqlPreview}>{message.sql.split('\n').slice(0,3).join('\n')}</span><details className={styles.sentSQL}><summary>View submitted SQL</summary><pre translate="no">{message.sql}</pre></details></> : message.question}</div>
-              <div className="flex gap-3 mt-5"><AskMark small /><div className="min-w-0 flex-1"><p className="text-caption font-mono text-muted mb-2">ZecBlock</p>{message.state === 'pending' ? <AskFeedback working title={statusTitle} detail={statusDetail} extra={jobStatus?.state === 'running' ? `${Math.max(0,Math.floor((jobClock-Date.parse(jobStatus.startedAt || new Date(jobClock).toISOString()))/1000))}s elapsed · ${jobStatus.maxRunSeconds}s execution limit` : undefined}/> : null}<p dir="auto" lang={message.locale} className="text-sm text-secondary leading-relaxed whitespace-pre-wrap">{message.answer}</p><AskSources sources={message.sources || []} dataContext={message.dataContext} />{message.scope ? <p className="mt-2 text-caption text-muted">{message.scope}</p> : null}
-
-              </div></div>
+              <article className={styles.assistantReply} aria-label="ZecBlock response"><AskMark small /><div className={styles.replyBody}><p className="text-caption font-mono text-muted mb-2">ZecBlock</p>{message.state === 'pending' ? <AskFeedback working title={statusTitle} detail={statusDetail} extra={jobStatus?.state === 'running' ? `${Math.max(0,Math.floor((jobClock-Date.parse(jobStatus.startedAt || new Date(jobClock).toISOString()))/1000))}s elapsed · ${jobStatus.maxRunSeconds}s execution limit` : undefined}/> : null}<p dir="auto" lang={message.locale} className="text-sm text-secondary leading-relaxed whitespace-pre-wrap">{message.answer}</p>{message.scope ? <p className="mt-2 text-caption text-muted">{message.scope}</p> : null}
               {message.spec ? <AskAnalysis spec={message.viewSpec || message.spec} changed={!!message.viewSpec && analysisScopeKey(message.viewSpec) !== analysisScopeKey(message.spec)} onChange={next => {
                 const previous = message.viewSpec || message.spec!;
                 const validated = analysisSchema.parse(next.period !== previous.period || next.pool !== previous.pool || next.metric !== previous.metric ? {...next, start:null, end:null} : next);
                 setSessions(all => all.map(item => item.id === activeId ? {...item, spec:validated, messages:item.messages.map(turn => turn.id === message.id ? {...turn, viewSpec:validated} : turn)} : item));
               }} onExplain={() => void ask('Explain this view', message.viewSpec || message.spec!)} canExplain={capability.mode === 'ai' && verified && !feedback.blocked} busy={busy}/> : null}
-              {message.research || message.analytics || message.blocks || message.transactions || message.transfers ? <article className={styles.resultCard} aria-label="Query results"><div className={styles.resultActions}>{message.research ? <button disabled={busy} onClick={()=>editQuery(message)}>Edit query</button> : null}<button aria-haspopup="dialog" onClick={()=>setExpanded(message)}>Expand results ↗</button></div>{renderRecords(message)}</article> : message.sql && message.state !== 'pending' ? <button className={styles.followup} disabled={busy} onClick={()=>editQuery(message)}>Edit query</button> : null}
+              {message.research || message.analytics || message.blocks || message.transactions || message.transfers ? <div className={styles.replyResults} role="group" aria-label="Query results">{message.research && message.id === latestRecords?.id ? null : <div className={styles.resultActions}>{resultActions(message)}</div>}{renderRecords(message)}</div> : message.sql && message.state !== 'pending' ? <button className={styles.followup} disabled={busy} onClick={()=>editQuery(message)}>Edit query</button> : null}
+              <AskSources sources={message.sources || []} dataContext={message.dataContext} />
+              </div></article>
             </div>)}
 
           </div>

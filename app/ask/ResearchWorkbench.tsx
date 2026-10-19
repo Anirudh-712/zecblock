@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {defaultResearchChart,shortLabel,supportsLine,cellLink} from '@/lib/ask/research-display';
@@ -144,23 +144,27 @@ export function ResearchStatus({ tools }: { tools: Tools }) { return <>{tools.er
 
 export function ResearchData({ result, chart }: { result: ResearchResult; chart: ResearchChart }) {
   return <>
-    <p className={styles.caption}>Indexed through {utcDate(result.indexedThrough)} · {result.rows.length} rows{result.truncated ? ' (limited)' : ''}</p>
+    <p className={styles.caption}>Indexed through {utcDate(result.indexedThrough)} · {result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}{result.truncated ? ' (limited)' : ''}</p>
     {chart.view !== 'table' ? <Plot result={result} chart={chart} /> : null}
     <details open={chart.view === 'table'} className={styles.exactTable}><summary>Exact data</summary><div className={styles.scroll} tabIndex={0} role="region" aria-label="Scrollable query results"><table className={styles.table}><caption className="sr-only">Query results, preserving exact decimals</caption><thead><tr>{result.columns.map(column => <th key={column.key} scope="col" data-numeric={column.type === 'number'}>{column.label.replaceAll('_', ' ')}</th>)}</tr></thead><tbody>{result.rows.map((row, index) => <tr key={index}>{row.map((cell, i) => <td key={i} data-numeric={result.columns[i].type === 'number'}>{cellLink(result.columns[i].label.toLowerCase(),cell) ? <Link href={cellLink(result.columns[i].label.toLowerCase(),cell)!} title={cell || undefined} aria-label={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : shortLabel(cell)}</Link> : <span title={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : cell && /^(?:txid|hash|miner|address)$/.test(result.columns[i].label.toLowerCase()) ? shortLabel(cell) : exactDisplay(cell,result.columns[i].type)}</span>}</td>)}</tr>)}</tbody></table>{!result.rows.length ? <p className={styles.caption}>No matching records were returned.</p> : null}</div></details>
     <details className={styles.caption}><summary>Source & methodology</summary><p>{result.coverage}. This describes source admission, not a certification of your SQL calculations.</p><p>{result.units}</p><p>Charts use approximate plotting numbers; the table preserves exact decimals. Rows follow query order; repeated labels are separate records. Shortened identifiers link to explorer pages; their full values remain in the query results and downloads.</p><p>Retrieved {utcDate(result.retrievedAt)}. Query fingerprint: {result.fingerprint}</p></details>
   </>;
 }
 
-export function ResearchPanel({ tools, result, busy, titleId = 'research-title' }: { tools: Tools; result: ResearchResult; busy: boolean; titleId?:string }) {
+export function ResearchPanel({ tools, result, busy, titleId, embedded = false, actions }: { tools: Tools; result: ResearchResult; busy: boolean; titleId?:string; embedded?:boolean; actions?:ReactNode }) {
+  const generatedTitleId = useId();
+  const analysisTitleId = titleId || generatedTitleId;
   const lineAllowed=supportsLine(result,tools.chart.x);
   const numeric=result.columns.some(column=>column.type==='number');
-  return <div className={styles.panelBody}>
-    <div className={styles.toolbar}><label className="sr-only" htmlFor={titleId}>Analysis title</label><input id={titleId} name="title" autoComplete="off" className={styles.titleInput} maxLength={120} value={tools.title} onChange={event => tools.setTitle(event.target.value)} /><button className={styles.button} disabled={!tools.ready || busy || tools.importing} onClick={tools.save}>{tools.id ? 'Save changes' : 'Save analysis'}</button></div>
-    <div className={styles.viewControls} aria-label="Result view">{(['table', 'bar', 'line'] as const).map(view => <button key={view} className={`${styles.button} ${tools.chart.view === view ? styles.viewSelected : ''}`} aria-pressed={tools.chart.view === view} disabled={view === 'line' ? !lineAllowed : view === 'bar' && !numeric} title={view === 'line' && !lineAllowed ? 'Choose an ordered date or numeric label column for a line chart.' : undefined} onClick={() => tools.setChart({ ...tools.chart, view })}>{view === 'table' ? 'Table' : view === 'bar' ? 'Bar chart' : 'Line chart'}</button>)}</div>
+  const saveButton = <button className={styles.button} disabled={!tools.ready || busy || tools.importing} onClick={tools.save}>{tools.id ? 'Save changes' : 'Save analysis'}</button>;
+  const viewControls = <div className={styles.viewControls} role="group" aria-label="Result view">{(['table', 'bar', 'line'] as const).map(view => <button key={view} className={`${styles.button} ${tools.chart.view === view ? styles.viewSelected : ''}`} aria-pressed={tools.chart.view === view} disabled={view === 'line' ? !lineAllowed : view === 'bar' && !numeric} title={view === 'line' && !lineAllowed ? 'Choose an ordered date or numeric label column for a line chart.' : undefined} onClick={() => tools.setChart({ ...tools.chart, view })}>{view === 'table' ? 'Table' : view === 'bar' ? 'Bar chart' : 'Line chart'}</button>)}</div>;
+  return <div className={`${styles.panelBody} ${embedded ? styles.embeddedPanel : ''}`}>
+    {embedded ? <div className={styles.embeddedToolbar}>{viewControls}<div className={styles.resultActions}>{actions}{saveButton}</div></div> : <><div className={styles.toolbar}><label className="sr-only" htmlFor={analysisTitleId}>Analysis title</label><input id={analysisTitleId} name="title" autoComplete="off" className={styles.titleInput} maxLength={120} value={tools.title} onChange={event => tools.setTitle(event.target.value)} /><div className={styles.resultActions}>{actions}{saveButton}</div></div>{viewControls}</>}
     {tools.chart.view !== 'table' ? <div className={styles.columns}>{(['x', 'y'] as const).map(axis => <label className={styles.field} key={axis}>{axis === 'x' ? 'Labels' : 'Values'}<select className={styles.input} value={tools.chart[axis]} onChange={event => {const index=Number(event.target.value);tools.setChart({ ...tools.chart, [axis]: index, view:axis==='x' && tools.chart.view==='line' && !supportsLine(result,index) ? 'bar' : tools.chart.view });}}>{result.columns.map((column, index) => axis==='y' && column.type!=='number' ? null : <option key={column.key} value={index}>{column.label.replaceAll('_', ' ')}</option>)}</select></label>)}</div> : null}
     {tools.chart.view!=='table' ? <p className={styles.caption}>{lineAllowed ? 'Points follow query order.' : 'Each bar represents one returned row. Line charts need an ordered date or numeric label column.'}</p> : null}
     <ResearchData result={result} chart={tools.chart} />
     <details className={styles.disclosure}><summary>Notes & downloads</summary><div className={styles.advanced}>
+      {embedded ? <label className={styles.field} htmlFor={analysisTitleId}>Analysis title<input id={analysisTitleId} name="title" autoComplete="off" className={styles.input} maxLength={120} value={tools.title} onChange={event => tools.setTitle(event.target.value)} /></label> : null}
       <label className={styles.field}>Research notes<textarea name="notes" autoComplete="off" className={styles.input} maxLength={4000} value={tools.notes} onChange={event => tools.setNotes(event.target.value)} rows={3} /></label>
       <div className={styles.actions}><button className={styles.button} onClick={() => void tools.copyLink()}>Copy query link</button><button className={styles.button} onClick={() => tools.exportFile(false)}>Download research</button><button className={styles.button} onClick={() => tools.exportFile(true)}>Download report</button></div>
       <ShareLinkField tools={tools} />

@@ -78,3 +78,12 @@
 @media(max-width:640px){.sharedDraft{padding:18px}.shareInput{font-size:16px}}
 
 .shareSQL:focus-visible {outline:2px solid var(--color-gold);outline-offset:3px;}
+
+.resultActions {display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:12px;min-width:0;max-width:100%;}
+.resultActions > button:not(.button) {min-height:32px;padding:6px 0;font-size:12px;color:var(--color-text-secondary);}
+.resultActions > button:not(.button):hover {color:var(--color-text-primary);}
+.embeddedPanel {padding:0;}
+.embeddedToolbar {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:20px 0 16px;padding-top:16px;border-top:1px solid var(--color-border);min-width:0;}
+.embeddedToolbar .viewControls {margin:0;min-width:0;}
+.embeddedToolbar .resultActions {margin-left:auto;}
+@media(max-width:640px){.embeddedPanel{padding:0}.embeddedToolbar{gap:12px}.embeddedToolbar .resultActions{justify-content:flex-start;margin-left:0}}
