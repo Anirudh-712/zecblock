@@ -29,7 +29,9 @@ export interface NodeStats {
   countries: number;
   cities: number;
   avgPingMs: number | null;
-  torNodes: number;
+  torNodes: number | null;
+  torClassificationAvailable?: boolean;
+  torClassificationCheckedAt?: string | null;
   lastUpdated: string | null;
 }
 
@@ -116,6 +118,8 @@ export function NodeMap({ initialLocations, initialStats, initialFetchedAt }: No
   );
   const locations = locationsQuery.data?.locations ?? EMPTY_LOCATIONS;
   const stats = statsQuery.data?.stats ?? null;
+  const torClassificationAvailable = stats != null && stats.torNodes != null &&
+    ((stats.censusVersion ?? 0) >= 3 ? stats.torClassificationAvailable === true : stats.torClassificationAvailable !== false);
   const trends = statsQuery.data?.trends ?? null;
   const topCountries = statsQuery.data?.topCountries ?? EMPTY_COUNTRIES;
   const loading = locationsQuery.loading || statsQuery.loading;
@@ -191,12 +195,11 @@ export function NodeMap({ initialLocations, initialStats, initialFetchedAt }: No
                 <div className="font-semibold text-primary font-mono text-lg sm:text-xl">{stats.countries}</div>
                 <div className="text-caption text-muted uppercase tracking-wider">Countries</div>
               </div>
-              {stats.torNodes > 0 && (
-                <div className="text-center">
-                  <div className="font-semibold text-cipher-purple font-mono text-lg sm:text-xl">{stats.torNodes}</div>
-                  <div className="text-caption text-muted uppercase tracking-wider" title="Known Tor exit IPs and hidden-service classifications, not all Tor users">Tor classified</div>
-                </div>
-              )}
+              <div className="text-center">
+                <div className="font-semibold text-cipher-purple font-mono text-lg sm:text-xl">{torClassificationAvailable ? stats.torNodes : '—'}</div>
+                <div className="text-caption text-muted uppercase tracking-wider" title="Known Tor exit IPs and hidden-service classifications, not all Tor users">Tor classified</div>
+                {!torClassificationAvailable && <div className="text-caption text-muted mt-1">Tor classification unavailable</div>}
+              </div>
             </div>
           )}
         </div>

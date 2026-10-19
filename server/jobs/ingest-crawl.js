@@ -24,7 +24,8 @@ const { log, loadEnv, withAdvisoryLock } = require('../lib/job-utils');
 const { getPool } = require('../lib/db-pool');
 const { callZebraRPC } = require('../lib/zebra-rpc');
 const { parsePeerClient, parsePeerAddress } = require('../lib/peer-client');
-const { CENSUS_VERSION, validateCrawlSnapshot, mergeVerifiedNodes, livePeerNodes, COMBINED_ELIGIBILITY, CRAWL_PROOF_MATCH, CRAWL_ELIGIBILITY } = require('../lib/node-census');
+const { CENSUS_VERSION, validateCrawlSnapshot, mergeVerifiedNodes, livePeerNodes, COMBINED_ELIGIBILITY, CRAWL_PROOF_MATCH, CRAWL_ELIGIBILITY, CENSUS_OBSERVED_AT } = require('../lib/node-census');
+const { parseTorExitList, publishTorClassificationStatus } = require('../lib/tor-classification');
 
 const execFileAsync = promisify(execFile);
 
@@ -103,27 +104,43 @@ async function runCruncher(crawlJson) {
 /**
  * Fetch known Tor exit node IPs from the Tor Project's bulk exit list.
  */
-function fetchTorExitNodes() {
+function fetchTorExitNodes({ get = https.get, now = Date.now } = {}) {
   return new Promise((resolve) => {
-    const req = https.get('https://check.torproject.org/torbulkexitlist', { timeout: 8000 }, (res) => {
-      if (res.statusCode !== 200) { res.resume(); resolve(new Set()); return; }
-      res.on('error', () => resolve(new Set()));
+    let settled = false;
+    let deadline;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      resolve(result);
+    };
+    const unavailable = () => finish({ available: false, ips: new Set(), checkedAtMs: now() });
+    const req = get('https://check.torproject.org/torbulkexitlist', { timeout: 8000 }, (res) => {
+      if (res.statusCode !== 200) { unavailable(); res.destroy(); return; }
+      res.on('error', unavailable);
+      res.on('aborted', unavailable);
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      res.on('data', (chunk) => {
+        if (settled) return;
+        data += chunk;
+        if (Buffer.byteLength(data) > 1024 * 1024) { unavailable(); res.destroy(); }
+      });
       res.on('end', () => {
-        const ips = new Set(
-          data.split('\n')
-            .map(line => line.trim())
-            .filter(line => line && !line.startsWith('#'))
-        );
+        if (settled) return;
+        const ips = parseTorExitList(data);
+        if (!ips) { log('Tor exit list unavailable: empty or invalid response'); unavailable(); return; }
         log(`Fetched ${ips.size} Tor exit node IPs`);
-        resolve(ips);
+        finish({ available: true, ips, checkedAtMs: now() });
       });
     }).on('error', (err) => {
       log(`Could not fetch Tor exit list: ${err.message}`);
-      resolve(new Set());
+      unavailable();
     });
     req.on('timeout', () => req.destroy(new Error('Tor exit-list timeout')));
+    if (!settled) deadline = setTimeout(() => {
+      unavailable();
+      req.destroy(new Error('Tor exit-list deadline'));
+    }, 8000);
   });
 }
 
@@ -138,7 +155,7 @@ function getTargetTable() {
 /**
  * Main ingestion logic.
  */
-async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now = Date.now, crunch = runCruncher, torExits = fetchTorExitNodes, dbPool = pool } = {}) {
+async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now = Date.now, crunch = runCruncher, torExits = fetchTorExitNodes, dbPool = pool, classificationPublisher = publishTorClassificationStatus } = {}) {
   const startTime = Date.now();
   const targetTable = getTargetTable();
   log(`Starting crawl ingestion (target: ${targetTable}, dry-run: ${DRY_RUN})`);
@@ -204,7 +221,16 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
 
   log(`Cruncher enriched ${enriched.nodes.length} nodes`);
 
-  const torExitIPs = await torExits();
+  let torResult;
+  try { torResult = await torExits(); } catch { torResult = null; }
+  // Injected legacy Set providers remain supported; an empty set is unknown.
+  if (torResult instanceof Set) torResult = { available: torResult.size > 0, ips: torResult, checkedAtMs: now() };
+  const parsedTorIPs = torResult?.ips instanceof Set ? parseTorExitList([...torResult.ips].join('\n')) : null;
+  const torAvailable = torResult?.available === true && !!parsedTorIPs
+    && Number.isSafeInteger(torResult.checkedAtMs) && torResult.checkedAtMs <= now()
+    && now() - torResult.checkedAtMs <= 600000;
+  const torExitIPs = torAvailable ? parsedTorIPs : new Set();
+  const checkedAtMs = torResult?.checkedAtMs <= now() && Number.isSafeInteger(torResult.checkedAtMs) ? torResult.checkedAtMs : now();
 
   const client = await dbPool.connect();
   try {
@@ -269,7 +295,7 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
             lon = COALESCE(EXCLUDED.lon, ${targetTable}.lon),
             isp = COALESCE(EXCLUDED.isp, ${targetTable}.isp),
             ping_ms = CASE WHEN ${latestProof} THEN EXCLUDED.ping_ms ELSE ${targetTable}.ping_ms END,
-            is_tor = EXCLUDED.is_tor,
+            is_tor = CASE WHEN $31 OR EXCLUDED.onion_address IS NOT NULL THEN EXCLUDED.is_tor ELSE ${targetTable}.is_tor END,
             is_active = TRUE,
             user_agent = CASE WHEN ${replaceIdentity} THEN EXCLUDED.user_agent ELSE ${targetTable}.user_agent END,
             client_impl = CASE WHEN ${replaceIdentity} THEN EXCLUDED.client_impl ELSE ${targetTable}.client_impl END,
@@ -284,7 +310,7 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
             chain_block_hash = CASE WHEN ${latestProof} THEN EXCLUDED.chain_block_hash ELSE ${targetTable}.chain_block_hash END,
             chain_proof = CASE WHEN ${latestProof} THEN EXCLUDED.chain_proof ELSE ${targetTable}.chain_proof END,
             onion_address = COALESCE(EXCLUDED.onion_address, ${targetTable}.onion_address),
-            tor_type = COALESCE(EXCLUDED.tor_type, ${targetTable}.tor_type),
+            tor_type = CASE WHEN $31 OR EXCLUDED.onion_address IS NOT NULL THEN EXCLUDED.tor_type ELSE ${targetTable}.tor_type END,
             betweenness = NULL,
             closeness = NULL,
             degree = NULL,
@@ -327,6 +353,7 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
           chainTime ? new Date(chainTime) : null,
           crawlObservation?.chain_block_hash ?? null,
           crawlObservation?.chain_proof ?? null,
+          torAvailable,
         ]);
 
         if (result.rows[0]?.is_insert) newNodes++;
@@ -352,15 +379,17 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
         }
       }
 
-      // Bulk Tor exit cross-reference — flag any active node whose IP is a known exit
-      if (torExitIPs.size > 0) {
+      // A valid provider observation reclassifies the entire active population.
+      // Failure preserves last-known flags, which are not a current public count.
+      if (torAvailable) {
         const torFlagged = await client.query(`
-          UPDATE ${targetTable} SET is_tor = TRUE, tor_type = COALESCE(tor_type, 'exit')
-          WHERE ip = ANY($1::varchar[]) AND is_active = TRUE AND is_tor = FALSE
+          UPDATE ${targetTable} SET is_tor = (onion_address IS NOT NULL OR ip = ANY($1::varchar[])),
+            tor_type = CASE WHEN onion_address IS NOT NULL THEN 'relay' WHEN ip = ANY($1::varchar[]) THEN 'exit' ELSE NULL END
+          WHERE is_active = TRUE
           RETURNING id
         `, [[...torExitIPs]]);
         if (torFlagged.rowCount > 0) {
-          log(`Flagged ${torFlagged.rowCount} nodes as Tor exit relays`);
+          log(`Refreshed Tor classification for ${torFlagged.rowCount} active nodes`);
         }
       }
 
@@ -490,6 +519,7 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
           COUNT(*) FILTER (WHERE is_active AND last_peer_seen_at > NOW() - INTERVAL '15 minutes' AND inbound = FALSE) AS outbound,
           COUNT(*) FILTER (WHERE is_active AND tor_type = 'relay') AS tor_hidden,
           ROUND(AVG(ping_ms) FILTER (WHERE is_active AND (${CRAWL_ELIGIBILITY}) AND ping_ms > 0)::numeric, 3) AS avg_ping
+          , MAX(${CENSUS_OBSERVED_AT}) FILTER (WHERE is_active) AS source_observed_at
         FROM ${targetTable}
       `);
 
@@ -509,14 +539,16 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
         .filter(r => r.client_impl && r.client_impl !== 'Unknown')
         .reduce((sum, r) => sum + Number(r.node_count), 0);
 
+      let snapshotTimeMs = null;
       if (!DRY_RUN && NODE_SOURCE === 'crawl') {
-        await client.query(`
+        const snapshot = await client.query(`
           INSERT INTO node_snapshots (
             active_nodes, total_nodes, countries, tor_nodes,
             inbound_nodes, outbound_nodes, avg_ping_ms,
             identified_client_nodes, client_counts, tor_hidden_nodes, census_version
           )
           VALUES ($1, $2, $3, $4, $10, $11, $5, $6, $7, $8, $9)
+          RETURNING snapshot_time
         `, [
           parseInt(snap.active), parseInt(snap.total),
           parseInt(snap.countries), parseInt(snap.tor),
@@ -525,12 +557,24 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
           parseInt(snap.tor_hidden || 0), CENSUS_VERSION,
           parseInt(snap.inbound || 0), parseInt(snap.outbound || 0),
         ]);
+        snapshotTimeMs = snapshot.rows[0]?.snapshot_time?.getTime();
       }
 
       await client.query('COMMIT');
 
+      if (!DRY_RUN && NODE_SOURCE === 'crawl' && targetTable === 'nodes') {
+        let published = false;
+        try {
+          published = await classificationPublisher({ version: 1, available: torAvailable,
+            checkedAtMs, sourceObservedAtMs: snap.source_observed_at?.getTime() ?? null,
+            committedAtMs: now(), snapshotTimeMs,
+            classifiedTorNodes: torAvailable ? parseInt(snap.tor) : null });
+        } catch { /* The DB commit stands; API commit matching rejects older cache status. */ }
+        if (!published) log('Tor classification status unavailable: cache publication failed');
+      }
+
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      log(`Ingestion complete in ${elapsed}s — ${newNodes} new, ${upserted} updated, ${snap.active} active, ${snap.countries} countries, ${snap.tor} Tor`);
+      log(`Ingestion complete in ${elapsed}s — ${newNodes} new, ${upserted} updated, ${snap.active} active, ${snap.countries} countries, ${torAvailable ? snap.tor : 'unavailable'} Tor`);
     });
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch {}
@@ -551,4 +595,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { ingestCrawl };
+module.exports = { ingestCrawl, fetchTorExitNodes };
