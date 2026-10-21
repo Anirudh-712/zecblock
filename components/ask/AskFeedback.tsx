@@ -15,10 +15,10 @@ export function useAskFeedback() {
     const next = askFailure(error); setFailure(next); if (next.retryAt) setBlockedUntil(next.retryAt);
   } };
 }
-export function AskFeedback({ title, detail, working = false, error = false, onRetry, retryLabel = 'Try again', extra }: { title: string; detail?: string; working?: boolean; error?: boolean; onRetry?: () => void; retryLabel?: string; extra?: string }) {
+export function AskFeedback({ title, detail, working = false, error = false, onRetry, retryLabel = 'Try again' }: { title: string; detail?: string; working?: boolean; error?: boolean; onRetry?: () => void; retryLabel?: string }) {
   return <div className={`${styles.feedback} ${error ? styles.error : ''}`} role={error ? 'alert' : 'status'} aria-live={error ? 'assertive' : 'polite'} aria-atomic="true">
     <span className={styles.mark} aria-hidden="true">{working ? <span className={styles.dots}><i/><i/><i/></span> : error ? '!' : '›'}</span>
-    <div className={styles.content}><p className={styles.title}>{title}</p>{detail ? <p className={styles.detail}>{detail}</p> : null}{extra ? <p className={styles.detail} aria-hidden="true">{extra}</p> : null}{onRetry ? <button type="button" onClick={onRetry} className={styles.retry}>{retryLabel} →</button> : null}</div>
+    <div className={styles.content}><p className={styles.title}>{title}</p>{detail ? <p className={styles.detail}>{detail}</p> : null}{onRetry ? <button type="button" onClick={onRetry} className={styles.retry}>{retryLabel} →</button> : null}</div>
   </div>;
 }
 export function AskFailureFeedback({ failure, blocked, onRetry }: { failure: AskFailure; blocked: boolean; onRetry: () => void }) {

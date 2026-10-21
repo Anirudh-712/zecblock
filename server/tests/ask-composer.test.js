@@ -23,8 +23,8 @@ test('only bounded admission limits produce a reset time; unknown budgets never 
  assert.match(client.askErrorMessage(new ApiError('raw',400)),/syntax/);
 });
 test('progress, inline errors, quota resets and retries have accessible, safe markup',()=>{
- const working=renderToStaticMarkup(React.createElement(AskFeedback,{title:'Running your query…',detail:'Reading public data.',working:true,extra:'7s elapsed'}));
- assert.match(working,/role="status"/);assert.match(working,/aria-live="polite"/);assert.match(working,/aria-hidden="true">7s/);
+ const working=renderToStaticMarkup(React.createElement(AskFeedback,{title:'Running your query…',detail:'Reading public data.',working:true}));
+ assert.match(working,/role="status"/);assert.match(working,/aria-live="polite"/);assert.match(working,/Running your query…/);assert.match(working,/Reading public data\./);
  const failure={title:'Request limit reached',detail:'The daily allowance is used.',retryAt:Date.parse('2026-10-07T00:00:00Z'),retryable:false};
  const blocked=renderToStaticMarkup(React.createElement(AskFailureFeedback,{failure,blocked:true,onRetry:()=>{}}));assert.match(blocked,/Resets at/);assert.doesNotMatch(blocked,/<button/);
  const ready=renderToStaticMarkup(React.createElement(AskFailureFeedback,{failure,blocked:false,onRetry:()=>{}}));assert.match(ready,/You can try again/);assert.match(ready,/<button/);

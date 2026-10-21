@@ -56,7 +56,6 @@ export function AskWorkspace() {
   const feedback = useAskFeedback();
   const [busy, setBusy] = useState(false);
   const [jobStatus,setJobStatus]=useState<ResearchJobStatus|null>(null);
-  const [jobClock,setJobClock]=useState(()=>Date.now());
   const [capability, setCapability] = useState<Capability>({ mode: 'guided', provider: null });
   const authenticatedStaging = isAuthenticatedAskStaging(capability);
   const verified = authenticatedStaging || !!token;
@@ -92,12 +91,6 @@ export function AskWorkspace() {
     return () => window.removeEventListener('hashchange', readShare);
   }, []);
   useEffect(() => { if (expanded && !resultDialog.current?.open) resultDialog.current?.showModal(); else if(!expanded && resultDialog.current?.open) resultDialog.current.close(); }, [expanded]);
-
-  useEffect(() => {
-    if(jobStatus?.state!=='running'||!jobStatus.startedAt)return;
-    const timer=setInterval(()=>setJobClock(Date.now()),1000);
-    return ()=>clearInterval(timer);
-  },[jobStatus?.state,jobStatus?.startedAt]);
 
   useEffect(() => {
     clearAskHandoff();
@@ -265,8 +258,8 @@ export function AskWorkspace() {
   const sqlMode = inputMode === 'sql';
   const canSend = sqlMode ? capabilityReady && verified && !!sqlInput.trim() && !tools.importing && !feedback.blocked : !!question.trim() && ((!feedback.blocked && capabilityReady && (capability.mode !== 'ai' || verified)) || !!resolveShortcut(question, spec));
   const submit = () => sqlMode ? void runSQL() : void ask(question);
-  const statusTitle = jobStatus?.state === 'queued' ? 'Waiting for a query slot…' : jobStatus?.state === 'running' ? 'Running your query…' : phase === 'explaining' ? 'Explaining the results…' : phase === 'submitting' ? 'Submitting your query…' : 'Thinking…';
-  const statusDetail = jobStatus?.state === 'queued' ? jobStatus.queuePosition > 1 ? `${jobStatus.queuePosition - 1} queries ahead. You can stop while waiting.` : 'Your query is queued. It will start when a worker is available.' : jobStatus?.state === 'running' ? 'Reading the public analytics data. Your previous results stay available.' : phase === 'explaining' ? 'The query is complete. Preparing an explanation from its results.' : phase === 'submitting' ? 'Checking the SQL and requesting a query slot. No AI is used.' : 'Interpreting your question and checking public sources.';
+  const statusTitle = jobStatus?.state === 'queued' ? 'Waiting to start…' : jobStatus?.state === 'running' ? 'Running your query…' : phase === 'explaining' ? 'Explaining the results…' : phase === 'submitting' ? 'Checking your query…' : 'Thinking…';
+  const statusDetail = jobStatus?.state === 'queued' ? 'Your query is waiting to start. You can stop it at any time.' : jobStatus?.state === 'running' ? 'Reading the public analytics data. Your previous results stay available.' : phase === 'explaining' ? 'The query is complete. Preparing an explanation from its results.' : phase === 'submitting' ? 'Checking the SQL before running it. No AI is used.' : 'Interpreting your question and checking public sources.';
   const composer = <div className={styles.composerGroup}><form onSubmit={event => { event.preventDefault(); submit(); }} className={styles.composer} aria-busy={busy}>
     <label htmlFor="ask-question" className="sr-only">{sqlMode ? 'SQL query' : 'Ask a question about Zcash'}</label>
     <textarea ref={input} id="ask-question" value={sqlMode ? sqlInput : question} dir={sqlMode ? 'ltr' : 'auto'} disabled={busy} onChange={event => sqlMode ? setSQLInput(event.target.value) : setQuestion(event.target.value)} rows={sqlMode && sqlInput ? 9 : hasMessages ? 2 : 3} maxLength={sqlMode ? 8192 : 1000}
@@ -282,7 +275,7 @@ export function AskWorkspace() {
         : <button type="submit" className={sqlMode ? styles.runSQL : styles.submit} disabled={!canSend} aria-label={sqlMode ? 'Run SQL' : 'Send question'}>{sqlMode ? 'Run SQL' : '↑'}</button>}
     </div>
   </form><p id="ask-input-hint" className={styles.inputHint}>{sqlMode ? 'Direct SQL · no AI · Ctrl / ⌘ + Enter to run' : !capabilityReady ? 'Connecting to Ask…' : capability.mode === 'ai' ? 'Ask AI · Enter to send · Shift + Enter for a new line' : 'Guides & public data · Enter to send'}</p>
-    <div ref={composerStatus}>{busy && !hasMessages ? <AskFeedback working title={statusTitle} detail={statusDetail} extra={jobStatus?.state === 'running' ? `${Math.max(0,Math.floor((jobClock-Date.parse(jobStatus.startedAt || new Date(jobClock).toISOString()))/1000))}s elapsed · ${jobStatus.maxRunSeconds}s execution limit` : undefined}/> : feedback.failure ? <AskFailureFeedback failure={feedback.failure} blocked={feedback.blocked} onRetry={submit}/> : connectionFailed ? <AskFeedback error title="Could not connect to Ask" detail="Your draft is still here. Check your connection and try again." onRetry={() => {setConnectionFailed(false);reconnect.current();}} retryLabel="Reconnect"/> : chatError ? <AskFeedback error title="Check your request" detail={chatError}/> : notice ? <AskFeedback title={notice}/> : null}</div>
+    <div ref={composerStatus}>{busy && !hasMessages ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : feedback.failure ? <AskFailureFeedback failure={feedback.failure} blocked={feedback.blocked} onRetry={submit}/> : connectionFailed ? <AskFeedback error title="Could not connect to Ask" detail="Your draft is still here. Check your connection and try again." onRetry={() => {setConnectionFailed(false);reconnect.current();}} retryLabel="Reconnect"/> : chatError ? <AskFeedback error title="Check your request" detail={chatError}/> : notice ? <AskFeedback title={notice}/> : null}</div>
     {authenticatedStaging ? null : <AskChallenge siteKey={capability.siteKey} onToken={setToken} reset={challengeReset}/>}
   </div>;
 
@@ -322,7 +315,7 @@ export function AskWorkspace() {
           <div className={`${styles.transcript} ${styles.threadTranscript}`} ref={transcript}>
             {session.messages.map(message => <div key={message.id} ref={message.id === session.messages.at(-1)?.id ? latestTurn : undefined} className="mb-7">
               <div className={styles.sentMessage}>{message.sql ? <><span className={styles.sqlPreview}>{message.sql.split('\n').slice(0,3).join('\n')}</span><details className={styles.sentSQL}><summary>View submitted SQL</summary><pre translate="no">{message.sql}</pre></details></> : message.question}</div>
-              <article className={styles.assistantReply} aria-label="ZecBlock response"><AskMark small /><div className={styles.replyBody}><p className="text-caption font-mono text-muted mb-2">ZecBlock</p>{message.state === 'pending' ? <AskFeedback working title={statusTitle} detail={statusDetail} extra={jobStatus?.state === 'running' ? `${Math.max(0,Math.floor((jobClock-Date.parse(jobStatus.startedAt || new Date(jobClock).toISOString()))/1000))}s elapsed · ${jobStatus.maxRunSeconds}s execution limit` : undefined}/> : null}<p dir="auto" lang={message.locale} className="text-sm text-secondary leading-relaxed whitespace-pre-wrap">{message.answer}</p>{message.scope ? <p className="mt-2 text-caption text-muted">{message.scope}</p> : null}
+              <article className={styles.assistantReply} aria-label="ZecBlock response"><AskMark small /><div className={styles.replyBody}><p className="text-caption font-mono text-muted mb-2">ZecBlock</p>{message.state === 'pending' ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : null}<p dir="auto" lang={message.locale} className="text-sm text-secondary leading-relaxed whitespace-pre-wrap">{message.answer}</p>{message.scope ? <p className="mt-2 text-caption text-muted">{message.scope}</p> : null}
               {message.spec ? <AskAnalysis spec={message.viewSpec || message.spec} changed={!!message.viewSpec && analysisScopeKey(message.viewSpec) !== analysisScopeKey(message.spec)} onChange={next => {
                 const previous = message.viewSpec || message.spec!;
                 const validated = analysisSchema.parse(next.period !== previous.period || next.pool !== previous.pool || next.metric !== previous.metric ? {...next, start:null, end:null} : next);
