@@ -5,7 +5,7 @@ import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { NETWORK } from '@/lib/config';
 import { useApiQuery } from '@/hooks/useApiQuery';
-import { readUpgradeSnapshot, getBlockUpgrade, estimateBlockArrival, formatUpgradeTime } from '@/lib/network-upgrades';
+import { ANNOUNCED_MAINNET_NU7, readUpgradeSnapshot, getFutureBlockUpgrade, estimateBlockArrival, estimateBlockArrivalDate, formatUpgradeTime } from '@/lib/network-upgrades';
 
 export function FutureBlockView({
   targetHeight,
@@ -24,9 +24,11 @@ export function FutureBlockView({
   const lastVerifiedSnapshot = readUpgradeSnapshot(data, network);
   const snapshot = error ? null : lastVerifiedSnapshot;
   const currentHeight = lastVerifiedSnapshot?.height ?? initialCurrentHeight;
-  const upgrade = getBlockUpgrade(targetHeight, network, lastVerifiedSnapshot);
+  const upgrade = getFutureBlockUpgrade(targetHeight, network, lastVerifiedSnapshot);
+  const announced = upgrade?.authority === 'announcement';
   const blocksRemaining = Math.max(0, targetHeight - currentHeight);
   const estimate = estimateBlockArrival(snapshot, targetHeight);
+  const arrivalDate = estimateBlockArrivalDate(snapshot, targetHeight);
 
   // If the block has been mined while we're on this page, link to it
   if (blocksRemaining <= 0 && !error) {
@@ -37,7 +39,9 @@ export function FutureBlockView({
             <h1 className="type-page font-mono text-primary mb-3">
               Block #{targetHeight.toLocaleString()} has been reached
             </h1>
-            {upgrade ? (
+            {announced ? (
+              <p className="text-secondary mb-6">The announced NU7 block has been reached. Activation is unverified because the serving node does not report this upgrade.</p>
+            ) : upgrade ? (
               <p className="text-secondary mb-6">
                 <span className="text-cipher-yellow-bright font-semibold">{upgrade.name}</span> has reached its scheduled block. Open it to check the latest status.
               </p>
@@ -75,7 +79,7 @@ export function FutureBlockView({
         <span className="text-caption font-mono text-muted tracking-wider">{upgrade ? 'Network upgrade' : 'Upcoming block'} · Zcash {NETWORK === 'testnet' ? 'testnet' : NETWORK === 'crosslink' ? 'Crosslink testnet' : 'mainnet'}</span>
         <div className="flex flex-wrap items-center gap-3 mt-1">
           <h1 className="type-page font-mono text-primary">
-            {upgrade?.name === 'NU7 activation' ? 'NU7 Activation' : 'Zcash Block'} #{targetHeight.toLocaleString('en-US')}
+            {announced ? 'NU7 Mainnet Preview' : upgrade?.name === 'NU7 activation' ? 'NU7 Activation' : 'Zcash Block'} #{targetHeight.toLocaleString('en-US')}
           </h1>
           {upgrade ? (
             <Badge color="amber">{upgrade.badge || 'NETWORK UPGRADE'}</Badge>
@@ -84,7 +88,7 @@ export function FutureBlockView({
           )}
         </div>
         <p className="mt-3 text-xs sm:text-sm text-secondary">
-          {error ? 'We’re having trouble getting the latest block.' : upgrade ? 'Follow the countdown to the next network upgrade.' : 'This block is still ahead. Follow its progress below.'}
+          {announced ? 'Preview the announced NU7 mainnet block and its approximate arrival.' : error ? 'We’re having trouble getting the latest block.' : upgrade ? 'Follow the countdown to the next network upgrade.' : 'This block is still ahead. Follow its progress below.'}
         </p>
       </div>
 
@@ -125,11 +129,16 @@ export function FutureBlockView({
       <Card className="mb-6">
         <CardBody className="!p-6 sm:!p-8">
           <div className="text-center py-4 sm:py-6">
-            <p className="text-sm text-secondary mb-3">{upgrade ? `${upgrade.name === 'NU7 activation' ? 'NU7' : upgrade.name} arrives in` : 'This block is expected in'}</p>
+            <p className="text-sm text-secondary mb-3">{announced ? 'The announced block is expected in' : upgrade ? `${upgrade.name === 'NU7 activation' ? 'NU7' : upgrade.name} arrives in` : 'This block is expected in'}</p>
             <div className="text-4xl sm:text-5xl font-semibold tracking-tight text-primary tabular-nums">
               {estimate === null ? 'Time unavailable' : `About ${formatUpgradeTime(estimate.seconds)}`}
             </div>
             <p className="mt-3 text-sm text-secondary"><span className="font-medium text-primary tabular-nums">{blocksRemaining.toLocaleString('en-US')}</span> {blocksRemaining === 1 ? 'block' : 'blocks'} to go</p>
+            {announced ? (
+              <p className="mt-3 text-sm text-secondary">Announced date: <time dateTime={upgrade.announcedDate} className="font-medium text-primary">{ANNOUNCED_MAINNET_NU7.dateLabel}</time></p>
+            ) : arrivalDate ? (
+              <p className="mt-3 text-sm text-secondary">Estimated arrival: <time dateTime={arrivalDate.dateTime} className="font-medium text-primary">{arrivalDate.label}</time></p>
+            ) : null}
           </div>
           <dl className="mt-6 grid grid-cols-1 gap-5 border-t border-cipher-border pt-6 sm:grid-cols-2 sm:gap-8">
             <div>
@@ -137,7 +146,7 @@ export function FutureBlockView({
               <dd className="font-mono text-primary tabular-nums"><Link href={`/block/${currentHeight}`} prefetch={false} className="hover:text-cipher-gold transition-colors">#{currentHeight.toLocaleString('en-US')}</Link></dd>
             </div>
             <div>
-              <dt className="text-sm text-secondary mb-2">{upgrade ? 'Activation block' : 'Upcoming block'}</dt>
+              <dt className="text-sm text-secondary mb-2">{announced ? 'Announced block' : upgrade ? 'Activation block' : 'Upcoming block'}</dt>
               <dd className="font-mono text-primary tabular-nums">#{targetHeight.toLocaleString('en-US')}</dd>
             </div>
           </dl>
@@ -145,7 +154,7 @@ export function FutureBlockView({
       </Card>
       <p className="text-center text-xs sm:text-sm text-muted leading-relaxed">
         {estimate ? `Timing is based on ${estimate.basis} and updates every 30 seconds. ` : ''}
-        {upgrade ? 'The upgrade starts at its activation block. ' : ''}The arrival time may change as blocks are mined.
+        {announced ? 'The announced date is approximate; activation still requires a supporting node release. ' : upgrade ? 'The upgrade starts at its activation block. ' : ''}The arrival time may change as blocks are mined.
       </p>
     </div>
   );
