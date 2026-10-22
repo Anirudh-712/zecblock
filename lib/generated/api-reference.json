@@ -1082,6 +1082,20 @@
   },
   {
     "method": "GET",
+    "path": "/v1/network/block-speed",
+    "description": "Daily block-interval history and seven-day summaries from canonical block headers, split at node-announced NU7 activation.",
+    "category": "network",
+    "query": [],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": null,
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
     "path": "/v1/network/accounting",
     "description": "Latest canonical block fees, miner receipts and separate authoritative NSM reserve balance.",
     "category": "network",

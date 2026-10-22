@@ -6,6 +6,7 @@ import { fetchWithDeadline } from '@/lib/server-fetch';
 import { retainLastGoodOrBuildFallback } from '@/lib/isr-fallback';
 import Link from 'next/link';
 import { readUpgradeSnapshot } from '@/lib/network-upgrades';
+import { loadBlockSpeedSnapshot } from '@/lib/block-speed-server';
 
 // Keep the shared HTML/RSC snapshot inexpensive; browsers refresh live data
 // independently. No server fetch may shorten this route's ISR lifetime.
@@ -33,7 +34,8 @@ export default async function NetworkPage() {
   const apiBase = getApiUrl();
   const network = getNetwork();
   const fetchedAt = Date.now();
-  const [stats, health, nodeLocations, nodeStats, recentBlocks, feeDistribution, halving, emission] = await Promise.all([
+  const [blockSpeed, stats, health, nodeLocations, nodeStats, recentBlocks, feeDistribution, halving, emission] = await Promise.all([
+    network === 'crosslink-testnet' ? null : loadBlockSpeedSnapshot(network).then(snapshot => snapshot.story),
     fetchJson<NetworkPageInitialData['stats']>(apiBase, '/v1/network/stats', network),
     fetchJson<NetworkPageInitialData['health']>(apiBase, '/v1/network/health', network),
     fetchJson<NetworkPageInitialData['nodeLocations']>(apiBase, '/v1/network/nodes', network),
@@ -60,7 +62,7 @@ export default async function NetworkPage() {
   return <>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageSchema).replace(/</g, '\\u003c') }} />
     <NetworkClient initialData={{
-      fetchedAt, stats, health, nodeLocations, nodeStats, recentBlocks, feeDistribution, halving,
+      fetchedAt, stats, health, nodeLocations, nodeStats, recentBlocks, feeDistribution, halving, blockSpeed,
       emission: emission ? {
         circulating: emission.circulating, remaining: emission.remaining,
         dailyEmissionEstimate: emission.dailyEmissionEstimate, supplyObservedAt: emission.supplyObservedAt,

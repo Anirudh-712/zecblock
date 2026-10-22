@@ -37,6 +37,7 @@
   "GET /v1/network/block-time": [
     "period"
   ],
+  "GET /v1/network/block-speed": [],
   "GET /v1/network/accounting": [],
   "GET /v1/network/stats": [],
   "GET /v1/network/fees": [],

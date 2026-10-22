@@ -58,6 +58,16 @@ export function getApiUrlForNetwork(network: Network): string {
   return normalizeApiBaseUrl(configuredUrl || DEFAULT_API_URLS[network]);
 }
 
+/**
+ * Server-only base URL for another public network's API. The deployment's own
+ * API override applies only to its own network.
+ */
+export function getPeerNetworkApiUrl(network: 'mainnet' | 'testnet'): string {
+  if (network === NETWORK) return getApiUrlForNetwork(network);
+  const override = network === 'mainnet' ? process.env.MAINNET_API_URL : process.env.TESTNET_API_URL;
+  return normalizeApiBaseUrl(override || DEFAULT_API_URLS[network]);
+}
+
 export const API_CONFIG = {
   // Direct RPC for fallback - server-side only
   RPC_URL: process.env.ZCASH_RPC_URL || 'http://localhost:18232',
