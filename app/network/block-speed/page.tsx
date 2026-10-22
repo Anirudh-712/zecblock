@@ -48,6 +48,32 @@ function waitColumns(story: SpeedStory): DataTableColumn<WaitRow>[] {
   return [depth, before, { ...target, header: `With NU7 · ${NU7_TARGET_SECONDS}s target`, cell: row => number(formatWait(row.target), 'text-cipher-gold') }];
 }
 
+function WalletConfirmationGuide({ story }: { story: SpeedStory }) {
+  const columns = waitColumns(story);
+  const comparisons = columns.slice(1);
+  const note = 'Estimated waits. Wallet policies may differ.';
+
+  return <>
+    <Card className="card-static p-0 overflow-hidden md:hidden">
+      <div className="divide-y divide-cipher-border">
+        {ROWS.map((row, index) => <article key={row.key} className="p-4" aria-labelledby={`confirmation-depth-${row.key}`}>
+          <h3 id={`confirmation-depth-${row.key}`} className="text-sm font-medium text-primary">{row.label}</h3>
+          <p className="text-caption text-muted mt-1 mb-3">{row.detail}</p>
+          <dl className="space-y-2">
+            {comparisons.map(column => <div key={column.id} className="flex items-baseline justify-between gap-4">
+              <dt className="text-caption text-muted">{column.header}</dt>
+              <dd className="shrink-0 text-sm">{column.cell(row, index)}</dd>
+            </div>)}
+          </dl>
+        </article>)}
+      </div>
+      <p className="text-caption text-muted px-4 py-3 border-t border-cipher-border">{note}</p>
+    </Card>
+    <DataTable columns={columns} rows={ROWS} rowKey={row => row.key} size="comfortable" className="card-static hidden md:block"
+      footer={<p className="text-caption text-muted px-4 py-3">{note}</p>} />
+  </>;
+}
+
 function MethodNotes({ story, observedAt }: { story: SpeedStory | null; observedAt: string | null }) {
   return <div className="p-4 sm:p-6 text-sm text-secondary space-y-3 max-w-4xl leading-relaxed">
     <p>Intervals are differences between timestamps recorded in consecutive canonical block headers. They are not measurements of when this explorer received blocks. Header timestamps can move backwards; daily averages use the full time span, so such intervals cancel out.</p>
@@ -91,13 +117,12 @@ export default async function BlockSpeedPage() {
     {story && hasConfirmations && <section id="confirmations" className="network-section mb-10" aria-labelledby="confirmations-heading">
       <h2 id="confirmations-heading" className="type-section text-primary mb-2">Wallet confirmation guide</h2>
       <p className="text-sm text-muted mb-4 max-w-3xl"><a href={ZIP_315_URL} className="text-secondary underline underline-offset-4 hover:text-primary" target="_blank" rel="noopener noreferrer">ZIP 315</a> wallet policy: 3 confirmations for change, 10 for received funds.</p>
-      <DataTable columns={waitColumns(story)} rows={ROWS} rowKey={row => row.key} size="comfortable" className="card-static"
-        footer={<p className="text-caption text-muted px-4 py-3">Estimated waits. Wallet policies may differ.</p>} />
+      <WalletConfirmationGuide story={story} />
     </section>}
 
     <section id="live" className="network-section mb-10" aria-label="Live block interval detail">
-      <SectionHeader label="LIVE_DETAIL" actions={<Link href="/network#network-activity" className="text-caption font-mono text-muted hover:text-primary">Recent blocks on Network →</Link>} />
-      <p className="text-sm text-muted mb-4 max-w-3xl">Rolling average of the last 120 block intervals on {network}, refreshed every 15 seconds.</p>
+      <SectionHeader label="LIVE_DETAIL" actions={<Link href="/network#network-activity" className="text-caption font-mono text-muted hover:text-primary">Network activity →</Link>} />
+      <p className="text-sm text-muted mb-4 max-w-3xl">Rolling 120-block average · refreshed every 15s.</p>
       <BlockTimeChart />
     </section>
 
