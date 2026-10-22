@@ -25,7 +25,7 @@ export function BlockTimeChart() {
   const latest = points.at(-1);
   const activation = data?.schedule?.nu7Height;
   const showActivation = activation != null && points.length > 0 && activation >= points[0].height && activation <= points[points.length - 1].height;
-  return <Card className="card-static"><CardBody><SectionHeader label="AVERAGE_BLOCK_INTERVAL" actions={<div className="flex gap-2" aria-label="Average block interval period">
+  return <Card className="card-static p-4 sm:p-6"><CardBody><SectionHeader label="BLOCK_INTERVAL" className="max-sm:flex-col max-sm:items-stretch" actions={<div className="flex gap-2 max-sm:mt-2" aria-label="Average block interval period">
     {['6h', '24h', '7d'].map(value => <button key={value} type="button" aria-pressed={period === value}
       className={`filter-btn ${period === value ? 'filter-btn-active' : ''}`}
       onClick={() => setPeriod(value)}>{value}</button>)}

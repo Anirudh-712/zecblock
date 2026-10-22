@@ -44,7 +44,7 @@ export function BlockSpeedChart({ points, activation, height = 260 }: { points: 
   const [width, setWidth] = useState(720);
   useEffect(() => {
     if (!wrapper.current) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(280, Math.floor(entry.contentRect.width))));
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(200, Math.floor(entry.contentRect.width))));
     observer.observe(wrapper.current);
     return () => observer.disconnect();
   }, []);
@@ -93,14 +93,16 @@ export function BlockSpeedChart({ points, activation, height = 260 }: { points: 
           : <g key={point.key}>{body}</g>;
       })}
       {segments.map(segment => {
+        const label = narrow ? `${segment.target}s` : `${segment.target}s blocks`;
+        const labelWidth = label.length * 7 + 12;
         const level = y(segment.target * SPENDABLE_CONFIRMATIONS / 60);
         const x1 = edge(segment.from); const x2 = edge(segment.to + 1);
         const tallest = y(Math.max(...points.slice(segment.from, segment.to + 1).map(totalMinutes)));
         const labelAtToday = todayIndex >= segment.from && todayIndex <= segment.to
-          && x2 - edge(todayIndex) > 100;
+          && x2 - edge(todayIndex) > labelWidth;
         return <g key={`${segment.from}-${segment.target}`} pointerEvents="none">
           <line x1={x1} x2={x2} y1={level} y2={level} className="stroke-secondary" strokeDasharray="2 4" />
-          {x2 - x1 > 86 && <text x={labelAtToday ? edge(todayIndex) + 6 : x2 - 4} y={Math.min(level, tallest) - 6} textAnchor={labelAtToday ? 'start' : 'end'} className="fill-secondary">{segment.target}s blocks</text>}
+          {x2 - x1 > labelWidth && <text x={labelAtToday ? edge(todayIndex) + 6 : x2 - 4} y={Math.min(level, tallest) - 6} textAnchor={labelAtToday ? 'start' : 'end'} className="fill-secondary">{label}</text>}
         </g>;
       })}
       {todayIndex > 0 && todayIndex !== nu7Index && <g>
@@ -115,7 +117,7 @@ export function BlockSpeedChart({ points, activation, height = 260 }: { points: 
       {dateLabels.map((index, i) => <text key={index} x={i === dateLabels.length - 1 ? width - RIGHT : edge(index)} y={height - 6}
         textAnchor={i === dateLabels.length - 1 ? 'end' : 'start'} className="fill-muted">{formatDay(points[index].date)}</text>)}
     </svg>
-    <div className="flex flex-wrap gap-x-5 gap-y-2 mt-3 text-caption text-muted">
+    <div className="grid grid-cols-1 gap-2 mt-3 text-caption text-muted sm:flex sm:flex-wrap sm:gap-x-5">
       <Legend swatch="bg-cipher-gold">First confirmation</Legend>
       <Legend swatch="bg-muted">{SPENDABLE_CONFIRMATIONS - 1} more confirmations</Legend>
       {hasProjections && <Legend swatch="border border-dashed border-secondary">Target projection</Legend>}
