@@ -110,6 +110,50 @@ test('mainnet without NU7 reports no activation or pre-upgrade window', async ()
   assert.equal(queries.find(q => q.sql === DAYS_SQL).params[3], null);
 });
 
+test('a capped scan omits its partial UTC day and cannot publish a truncated seven-day summary', async () => {
+  const tip = mainnetInfo.blocks;
+  const fromTimestamp = nowTs - 600000;
+  const firstStart = Math.floor(fromTimestamp / DAY) * DAY;
+  const row = start => {
+    const first = Math.max(start, fromTimestamp + 1);
+    const last = Math.min(start + DAY - 1, nowTs);
+    const intervals = last - first + 1;
+    return { day_start: start, nu7: false, first_height: tip - (nowTs - first), last_height: tip - (nowTs - last), intervals, elapsed: intervals, median: 1, p90: 1 };
+  };
+  const summaryRow = { first_height: tip - 599999, last_height: tip, first_timestamp: fromTimestamp + 1, last_timestamp: nowTs, intervals: 600000, elapsed: 600000, median: 1, p90: 1 };
+  const { pool } = chainPool({ tip, before: 1, daysRows: [row(firstStart), row(firstStart + DAY)], summaryRow });
+  const result = await loadBlockSpeed({ pool, info: mainnetInfo, schedule: networkSchedule(mainnetInfo), now });
+  assert.equal(result.coverage.complete, false);
+  assert.equal(result.coverage.fromTimestamp, fromTimestamp);
+  assert.deepEqual(result.days.map(day => day.complete), [false, true]);
+  assert.equal(result.windows.latest, null, 'a scan shorter than seven days is not a complete seven-day observation');
+  const story = load('lib/block-speed.ts').buildSpeedStory(result);
+  assert.ok(!story.points.some(point => point.kind === 'measured' && point.date === result.days[0].date));
+  assert.ok(story.points.some(point => point.kind === 'measured' && point.date === result.days[1].date));
+});
+
+test('capped thirty-day history retains a fully covered seven-day summary', async () => {
+  const tip = mainnetInfo.blocks;
+  const summaryRow = { first_height: tip - 302399, last_height: tip, first_timestamp: nowTs - 604798, last_timestamp: nowTs, intervals: 302400, elapsed: 604800, median: 2, p90: 2 };
+  const { pool } = chainPool({ tip, before: 2, summaryRow });
+  const result = await loadBlockSpeed({ pool, info: mainnetInfo, schedule: networkSchedule(mainnetInfo), now });
+  assert.equal(result.coverage.complete, false);
+  assert.ok(result.coverage.fromTimestamp < nowTs - 7 * DAY);
+  assert.equal(result.windows.latest.averageSeconds, 2);
+});
+
+test('a capped history still measures a newly active era when its activation predecessor is covered', async () => {
+  const tip = testnetInfo.blocks;
+  const summaryRow = { first_height: 4465026, last_height: tip, first_timestamp: nowTs - (tip - 4465026), last_timestamp: nowTs, intervals: tip - 4465026 + 1, elapsed: tip - 4465026 + 1, median: 1, p90: 1 };
+  const { pool } = chainPool({ tip, nu7: 4465026, before: 1, after: 1, summaryRow });
+  const result = await loadBlockSpeed({ pool, info: testnetInfo, schedule: networkSchedule(testnetInfo), now });
+  assert.equal(result.coverage.complete, false);
+  assert.ok(result.coverage.fromTimestamp > nowTs - 7 * DAY, 'the cap starts inside the calendar week');
+  assert.ok(result.activation.timestamp > result.coverage.fromTimestamp, 'the full active era is still covered');
+  assert.equal(result.windows.latest.averageSeconds, 1);
+  assert.equal(result.windows.latest.targetSeconds, 25);
+});
+
 test('v1 block-speed route shares one computation and does not cache failures', async t => {
   const express = require('express');
   const createV1Router = require('../api/v1');

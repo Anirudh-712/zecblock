@@ -79,25 +79,30 @@ function summaryFromRow(row, targetSeconds) {
   };
 }
 
-function dayFromRow(row, schedule, nowTimestamp, splitDays) {
+function dayFromRow(row, schedule, nowTimestamp, splitDays, partialThrough) {
   const start = Number(row.day_start);
   return {
     date: new Date(start * 1000).toISOString().slice(0, 10), start, nu7: Boolean(row.nu7),
     targetSeconds: targetSpacing(schedule, Number(row.last_height)),
     firstHeight: Number(row.first_height), lastHeight: Number(row.last_height), intervals: Number(row.intervals),
     averageSeconds: averageSeconds(row.elapsed, row.intervals), medianSeconds: round1(row.median), p90Seconds: round1(row.p90),
-    complete: start + DAY <= nowTimestamp && !splitDays.has(start),
+    complete: start + DAY <= nowTimestamp && !splitDays.has(start) && start > partialThrough,
   };
 }
 
-function mapDays(rows, schedule, nowTimestamp) {
+function mapDays(rows, schedule, nowTimestamp, lower) {
   const seen = new Set(); const splitDays = new Set();
   for (const row of rows) {
     const start = Number(row.day_start);
     if (seen.has(start)) splitDays.add(start);
     seen.add(start);
   }
-  return rows.map(row => dayFromRow(row, schedule, nowTimestamp, splitDays));
+  // A capped scan can begin in the middle of a completed UTC day. Its first
+  // row is a predecessor anchor, not a complete day's interval history.
+  // If that anchor is missing, conservatively omit the earliest returned day.
+  const partialThrough = lower.complete ? -Infinity
+    : lower.timestamp ?? Math.min(...rows.map(row => Number(row.day_start)));
+  return rows.map(row => dayFromRow(row, schedule, nowTimestamp, splitDays, partialThrough));
 }
 
 /** Daily canonical block-header interval history and comparable seven-day summaries. */
@@ -125,14 +130,19 @@ async function loadBlockSpeed({ pool, info, schedule, now = Date.now() }) {
     })(),
   ]);
   const currentTarget = targetSpacing(schedule, tipHeight);
+  // The full history scan may be capped while still covering the recent week.
+  // A newly active era is intentionally measured only since activation, and
+  // is covered when the scan includes the activation block's predecessor.
+  const latestCovered = lower.complete || (lower.timestamp != null && lower.timestamp < latestStart)
+    || (nu7Active && activationTimestamp != null && lower.height < nu7Height);
   return {
     success: true, network: info.chain, source: 'canonical-block-header-timestamps',
     observedAt: new Date(now).toISOString(), nodeHeight: info.blocks, indexedHeight: tipHeight, tipTimestamp,
     schedule, activation: nu7Active ? { height: nu7Height, timestamp: activationTimestamp } : null,
     coverage: { fromTimestamp: lower.timestamp, complete: lower.complete, historyDays: HISTORY_DAYS },
-    days: mapDays(days.rows, schedule, nowTimestamp),
+    days: mapDays(days.rows, schedule, nowTimestamp, lower),
     windows: {
-      latest: summaryFromRow(latest.rows[0], currentTarget),
+      latest: latestCovered ? summaryFromRow(latest.rows[0], currentTarget) : null,
       beforeUpgrade: before && before.complete ? summaryFromRow(before.row, targetSpacing(schedule, nu7Height - 1)) : null,
     },
   };

@@ -382,6 +382,7 @@ paths:
                     - pulse
                     - miner_zodl
                     - network
+                    - block_speed
                     - addresses
                     - mempool
                     - nodes
