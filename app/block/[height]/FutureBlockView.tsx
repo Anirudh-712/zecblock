@@ -29,6 +29,12 @@ export function FutureBlockView({
   const blocksRemaining = Math.max(0, targetHeight - currentHeight);
   const estimate = estimateBlockArrival(snapshot, targetHeight);
   const arrivalDate = estimateBlockArrivalDate(snapshot, targetHeight);
+  const progressHeight = Number.isSafeInteger(targetHeight) && targetHeight > 0
+    && Number.isSafeInteger(currentHeight) && currentHeight >= 0
+    ? Math.min(currentHeight, targetHeight) : null;
+  const progress = progressHeight === null ? null : progressHeight / targetHeight * 100;
+  // Reserve a displayed 100% for a chain that has reached the target block.
+  const progressLabel = progress === null ? null : (Math.floor(progress * 10_000) / 10_000).toFixed(4);
 
   // If the block has been mined while we're on this page, link to it
   if (blocksRemaining <= 0 && !error) {
@@ -139,6 +145,28 @@ export function FutureBlockView({
             ) : arrivalDate ? (
               <p className="mt-3 text-sm text-secondary">Estimated arrival: <time dateTime={arrivalDate.dateTime} className="font-medium text-primary">{arrivalDate.label}</time></p>
             ) : null}
+          </div>
+          <div className="mt-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <span className="text-caption font-mono text-muted uppercase tracking-wider">Chain progress</span>
+              <span className="text-caption font-mono text-secondary tabular-nums">{progressLabel === null ? 'Unavailable' : `${progressLabel}%`}</span>
+            </div>
+            {progress !== null && progressHeight !== null && (
+              <div
+                role="progressbar"
+                aria-label="Chain progress"
+                aria-valuemin={0}
+                aria-valuemax={targetHeight}
+                aria-valuenow={progressHeight}
+                aria-valuetext={`Block ${currentHeight.toLocaleString('en-US')} of ${targetHeight.toLocaleString('en-US')}; ${blocksRemaining.toLocaleString('en-US')} ${blocksRemaining === 1 ? 'block' : 'blocks'} remaining`}
+                className="h-1.5 rounded-full bg-cipher-border overflow-hidden"
+              >
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-cipher-gold to-cipher-purple transition-[width] duration-1000 motion-reduce:transition-none"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            )}
           </div>
           <dl className="mt-6 grid grid-cols-1 gap-5 border-t border-cipher-border pt-6 sm:grid-cols-2 sm:gap-8">
             <div>

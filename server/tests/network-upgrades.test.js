@@ -203,6 +203,58 @@ test('future activation server HTML has one meaningful H1, full height and seede
   assert.doesNotMatch(unavailable, /Estimated arrival:|2026-11-05T00:14:30.000Z/);
 });
 
+test('chain progress uses the last verified height for announced, scheduled and ordinary future blocks', () => {
+  const file = 'app/block/[height]/FutureBlockView.tsx';
+  for (const [targetHeight, nu7Height, remaining] of [
+    [announcedHeight, null, 100],
+    [announcedHeight, announcedHeight, 100],
+    [announcedHeight + 1, null, 101],
+  ]) {
+    const data = stats(announcedHeight - 100, 'main', nu7Height);
+    for (const error of [null, 'Offline']) {
+      const html = renderComponent(file, 'FutureBlockView', {
+        targetHeight, currentHeight: 1,
+      }, data, error, 'mainnet');
+      assert.match(html, />Chain progress</);
+      assert.match(html, /99\.9971%/);
+      assert.match(html, /role="progressbar" aria-label="Chain progress" aria-valuemin="0"/);
+      assert.match(html, new RegExp(`aria-valuemax="${targetHeight}" aria-valuenow="3543305"`));
+      assert.match(html, new RegExp(`aria-valuetext="Block 3,543,305 of ${targetHeight.toLocaleString('en-US')}; ${remaining} blocks remaining"`));
+      if (error) assert.match(html, /time estimate is paused/);
+    }
+  }
+});
+
+test('chain progress handles genesis and invalid ranges without an invalid progressbar', () => {
+  const file = 'app/block/[height]/FutureBlockView.tsx';
+  const zero = renderComponent(file, 'FutureBlockView', {
+    targetHeight: 200, currentHeight: 0,
+  }, null, 'Offline');
+  assert.match(zero, /0\.0000%/);
+  assert.match(zero, /aria-valuemax="200" aria-valuenow="0"/);
+  assert.match(zero, /style="width:0%"/);
+  for (const [targetHeight, currentHeight] of [[0, 0], [-1, 0], [Infinity, 0], [200, -1]]) {
+    const html = renderComponent(file, 'FutureBlockView', { targetHeight, currentHeight }, null, 'Offline');
+    assert.match(html, />Chain progress</);
+    assert.doesNotMatch(html, /role="progressbar"|style="width:(?:NaN|Infinity|-)/);
+  }
+});
+
+test('chain progress reserves displayed completion for reaching the target and clamps its accessible value', () => {
+  const file = 'app/block/[height]/FutureBlockView.tsx';
+  const almost = renderComponent(file, 'FutureBlockView', {
+    targetHeight: announcedHeight, currentHeight: announcedHeight - 1,
+  }, null, 'Offline', 'mainnet');
+  assert.match(almost, /99\.9999%/);
+  assert.doesNotMatch(almost, />100\.0000%</);
+  const reached = renderComponent(file, 'FutureBlockView', {
+    targetHeight: 200, currentHeight: 201,
+  }, null, 'Offline');
+  assert.match(reached, /100\.0000%/);
+  assert.match(reached, /aria-valuemax="200" aria-valuenow="200"/);
+  assert.match(reached, /style="width:100%"/);
+});
+
 test('announced mainnet future preview renders sourced facts and one approximate official date', () => {
   const file = 'app/block/[height]/FutureBlockView.tsx';
   const data = stats(announcedHeight - 100, 'main', null);
