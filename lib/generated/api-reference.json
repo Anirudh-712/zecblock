@@ -90,6 +90,7 @@
             "pulse",
             "miner_zodl",
             "network",
+            "block_speed",
             "addresses",
             "mempool",
             "nodes",
@@ -1078,6 +1079,20 @@
         "description": "Trailing block-header observation window."
       }
     ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
+    "path": "/v1/network/block-speed",
+    "description": "Daily block-interval history and seven-day summaries from canonical block headers, split at node-announced NU7 activation.",
+    "category": "network",
+    "query": [],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Height-bounded 30-day history; incomplete boundary days remain complete:false. The latest seven-day summary is null when scan coverage is insufficient; after activation it intentionally covers only the active era. Values use consecutive canonical block-header intervals and serving-node targets.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [],
     "requestBody": null
   },
   {

@@ -22,6 +22,7 @@ const categories: NavigationCategory[] = [
     { href: '/txs', label: 'Transactions', desc: 'Confirmed transactions' },
     { href: '/mempool', label: 'Mempool', desc: 'Pending transactions' },
     { href: '/network', label: 'Network', desc: 'Protocol, issuance and activity' },
+    { href: '/network/block-speed', label: 'Block Speed', desc: 'Daily block times and confirmations', networks: standard },
     { href: '/network/nodes', label: 'Network Nodes', desc: 'Node map, peers and software' },
     { href: '/charts', label: 'Charts', desc: 'Browse and share charts' },
     { href: '/mining', label: 'Mining', desc: 'Hashrate, pools and rewards', networks: standard },

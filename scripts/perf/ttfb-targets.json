@@ -82,6 +82,12 @@
       "core": true
     },
     {
+      "id": "network-block-speed",
+      "routeGroup": "/network/block-speed",
+      "path": "/network/block-speed",
+      "core": true
+    },
+    {
       "id": "privacy",
       "routeGroup": "/privacy",
       "path": "/privacy",

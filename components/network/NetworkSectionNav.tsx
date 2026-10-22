@@ -7,7 +7,7 @@ export function NetworkSectionNav({ onTechnicalNavigate, nu7Active = false }: { 
       <a href="#network-protocol" className="hover:text-primary">Overview</a>
       <a href="#network-nodes" className="hover:text-primary">Nodes</a>
       <a href="#network-activity" className="hover:text-primary">Activity</a>
-      {!isCrosslink && <a href="#network-accounting" className="hover:text-primary">Block timing</a>}
+      {!isCrosslink && <a href="#block-speed" className="hover:text-primary">Block speed</a>}
       {!isCrosslink && nu7Active && <a href="#nu7-accounting" className="hover:text-primary">NU7 accounting</a>}
       <a href="#issuance" className="hover:text-primary">Issuance &amp; halving</a>
       <a href="#network-technical" onClick={onTechnicalNavigate} className="hover:text-primary">Technical details</a>
