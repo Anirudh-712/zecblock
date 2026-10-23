@@ -51,6 +51,7 @@ export const MAX_LAYOUT_NODES = 600;
 export const MAX_LAYOUT_EDGES = 2000;
 const LAYOUT_TICKS = 120;
 const GOSSIP_PROVENANCE = 'zcash-mainnet-qualified-addr-v1';
+const MIN_EXPIRY_REFRESH_MS = 30_000;
 
 function subscribeVisibility(callback: () => void) {
   document.addEventListener('visibilitychange', callback);
@@ -356,12 +357,34 @@ export function TopologyGraph({ active = true }: { active?: boolean }) {
   const edgeCount = counts?.edges ?? data?.edges?.length ?? 0;
   const loading = topology.loading || (topologyAvailable && !layoutReady);
   const expiresAt = data?.expiresAt;
+  const observedAt = data?.observedAt;
+  const attemptedExpiry = useRef<string | null>(null);
+  const lastExpiryRefreshAt = useRef(-Infinity);
+  const expiryEnabled = useRef(active && pageVisible);
+  expiryEnabled.current = active && pageVisible;
+  const { refetch, isRefreshing } = topology;
   useEffect(() => {
     const deadline = typeof expiresAt === 'string' ? Date.parse(expiresAt) : NaN;
-    if (!Number.isFinite(deadline) || deadline <= Date.now()) return;
-    const timer = setTimeout(() => setClock(Date.now()), Math.min(deadline - Date.now() + 1, 2_147_483_647));
-    return () => clearTimeout(timer);
-  }, [expiresAt]);
+    if (!active || !pageVisible || !Number.isFinite(deadline)) return;
+    const identity = `${observedAt || ''}|${expiresAt}`;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    function expire() {
+      const now = Date.now();
+      setClock(now);
+      // Visibility can change before the subscription's next render/cleanup.
+      if (!expiryEnabled.current || !getPageVisible()) return;
+      if (attemptedExpiry.current === identity || isRefreshing) return;
+      const cooldown = lastExpiryRefreshAt.current + MIN_EXPIRY_REFRESH_MS - now;
+      if (cooldown > 0) { timer = setTimeout(expire, cooldown); return; }
+      // Mark before fetching: the same expired/error payload must not loop.
+      attemptedExpiry.current = identity;
+      lastExpiryRefreshAt.current = now;
+      void refetch();
+    }
+    if (deadline <= Date.now()) expire();
+    else timer = setTimeout(expire, Math.min(deadline - Date.now() + 1, 2_147_483_647));
+    return () => { if (timer !== undefined) clearTimeout(timer); };
+  }, [expiresAt, observedAt, active, pageVisible, refetch, isRefreshing]);
   const [hovered, setHovered] = useState<PositionedNode | null>(null);
   const [pinned, setPinned] = useState<PositionedNode | null>(null);
   const [query, setQuery] = useState('');
@@ -444,7 +467,6 @@ export function TopologyGraph({ active = true }: { active?: boolean }) {
     outgoing: focus ? edgePairs.filter(([source]) => source === focus.id).length : 0,
     incoming: focus ? edgePairs.filter(([, target]) => target === focus.id).length : 0,
   }), [focus, edgePairs]);
-  const observedAt = data?.observedAt;
   const formatTime = (value: string) => new Date(value).toLocaleString('en-GB', { timeZone: 'UTC' });
 
   if (!loading && !topologyAvailable) {
