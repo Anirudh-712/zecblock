@@ -97,7 +97,7 @@
     "dotenv": "^17.4.2",
     "geist": "^1.7.2",
     "html-to-image": "^1.11.13",
-    "next": "^16.3.8",
+    "next": "^16.4.1",
     "node-fetch": "^3.3.2",
     "pg": "^8.23.0",
     "postcss": "8.5.28",
@@ -117,7 +117,7 @@
   "devDependencies": {
     "@tailwindcss/node": "4.3.3",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^16.3.8",
+    "eslint-config-next": "^16.4.1",
     "playwright": "1.63.0",
     "braces": "file:vendor/braces"
   }
