@@ -29,6 +29,12 @@ function text(tree) {
 function harness(initial = snapshot()) {
   const hooks = [], effects = [], frames = new Map(), timers = new Map(), requests = [];
   let cursor = 0, nextId = 1, tree, data = initial, visible = true, active = true, clock = now, tickCount = 0;
+  let refreshing = false, refetchCalls = 0, error = null, documentHidden = false;
+  const refetch = async () => {
+    if (!active || documentHidden) return;
+    refetchCalls++;
+    refreshing = true;
+  };
   const same = (a, b) => a?.length === b.length && b.every((value, index) => value === a[index]);
   const jsx = (type, props) => ({ type, props });
   const react = {
@@ -82,11 +88,11 @@ function harness(initial = snapshot()) {
       if (name === '@/lib/network-colors') return { clientColor: () => 'gold', clientLabel: value => value || 'Unidentified',
         CLIENT_COLORS: { Zebra: 'gold', zcashd: 'blue', Unknown: 'gray' } };
       if (name === '@/hooks/useApiQuery') return { useApiQuery(path, params, options) {
-        requests.push({ path, options }); return { data, loading: false, error: null };
+        requests.push({ path, options }); return { data, loading: false, error, refetch, isRefreshing: refreshing };
       } };
       throw new Error(`Unexpected import: ${name}`);
     },
-    document: { documentElement: {} },
+    document: { documentElement: {}, get visibilityState() { return documentHidden ? 'hidden' : 'visible'; } },
     getComputedStyle: () => ({ getPropertyValue: token => token.endsWith('-rgb') ? '200 180 100' : '#999' }),
     requestAnimationFrame: callback => { const id = nextId++; frames.set(id, callback); return id; },
     cancelAnimationFrame: id => frames.delete(id),
@@ -103,10 +109,18 @@ function harness(initial = snapshot()) {
     exports, requests, render,
     get tree() { return tree; },
     get tickCount() { return tickCount; },
+    get refetchCalls() { return refetchCalls; },
     update(values) {
       if ('data' in values) data = values.data;
-      if ('visible' in values) visible = values.visible;
+      if ('visible' in values) { visible = values.visible; documentHidden = !visible; }
       if ('active' in values) active = values.active;
+      if ('refreshing' in values) refreshing = values.refreshing;
+      if ('error' in values) error = values.error;
+      return render();
+    },
+    setDocumentHidden(value) { documentHidden = value; },
+    completeRefresh(nextData = data, nextError = null) {
+      data = nextData; error = nextError; refreshing = false;
       return render();
     },
     frame() { const callbacks = [...frames.values()]; frames.clear(); for (const callback of callbacks) callback(); return render(); },
@@ -138,7 +152,7 @@ test('advertised targets remain distinct from active observations and unavailabl
   assert.ok(!text(unavailable.tree).includes('revalidated'));
 });
 
-test('freshness hides expired qualified graphs even without another successful fetch', () => {
+test('expiry hides qualified graphs and immediately refreshes, restoring fresh links without the five-minute poll', () => {
   const data = snapshot({ expiresAt: new Date(now + 1000).toISOString() });
   const graph = harness(data); graph.flush();
   assert.ok(visit(graph.tree, item => item.type === 'Canvas').length);
@@ -146,10 +160,80 @@ test('freshness hides expired qualified graphs even without another successful f
   graph.advance(now + 1001);
   assert.equal(visit(graph.tree, item => item.type === 'Canvas').length, 0);
   assert.ok(text(graph.tree).includes('previous snapshot expired'));
+  assert.equal(graph.refetchCalls, 1);
+  graph.completeRefresh(snapshot({ observedAt: new Date(now + 500).toISOString() }));
+  graph.flush();
+  assert.equal(visit(graph.tree, item => item.type === 'Canvas').length, 1);
   assert.equal(graph.exports.topologyIsFresh(snapshot({ expiresAt: undefined }), now), false);
   assert.equal(graph.exports.topologyIsFresh(snapshot({ gossipProvenance: 'unqualified' }), now), false);
   const legacy = snapshot(); delete legacy.gossipProvenance; delete legacy.expiresAt;
   assert.equal(graph.exports.topologyIsFresh(legacy, now), true, 'legacy peer mode retains its existing contract');
+});
+
+test('the same expired payload, a failed request or an unavailable result cannot trigger a refresh loop', () => {
+  const expired = snapshot({ expiresAt: new Date(now + 1000).toISOString() });
+  const graph = harness(expired);
+  graph.advance(now + 1001);
+  assert.equal(graph.refetchCalls, 1);
+  graph.completeRefresh({ ...expired }, 'HTTP 503');
+  graph.update({ data: { ...expired }, error: null });
+  graph.advance(now + 60_000);
+  assert.equal(graph.refetchCalls, 1, 'stable evidence identity is independent of response object identity/errors');
+  assert.equal(visit(graph.tree, item => item.type === 'Canvas').length, 0);
+  graph.completeRefresh(snapshot({ topologyAvailable: false, expiresAt: null }));
+  graph.advance(now + 120_000);
+  assert.equal(graph.refetchCalls, 1, 'an unavailable result waits for the regular poll');
+});
+
+test('expiry waits for an in-flight request and recovers once it settles with the expired evidence', () => {
+  const data = snapshot({ expiresAt: new Date(now + 1000).toISOString() });
+  const graph = harness(data);
+  graph.update({ refreshing: true });
+  graph.advance(now + 1001);
+  assert.equal(graph.refetchCalls, 0, 'expiry does not start a second concurrent request');
+  assert.equal(visit(graph.tree, item => item.type === 'Canvas').length, 0);
+  graph.completeRefresh({ ...data });
+  assert.equal(graph.refetchCalls, 1, 'settled expired evidence gets one recovery attempt');
+  graph.completeRefresh({ ...data }, 'HTTP 503');
+  assert.equal(graph.refetchCalls, 1);
+});
+
+test('inactive or hidden surfaces cancel expiry work and defer the attempt until visible activation', () => {
+  for (const state of [{ active: false }, { visible: false }]) {
+    const graph = harness(snapshot({ expiresAt: new Date(now + 1000).toISOString() }));
+    graph.update(state);
+    graph.advance(now + 1001);
+    assert.equal(graph.refetchCalls, 0);
+    graph.update({ active: true, visible: true });
+    assert.equal(graph.refetchCalls, 1, 'the hidden/inactive deadline did not consume the recovery attempt');
+  }
+  const race = harness(snapshot({ expiresAt: new Date(now + 1000).toISOString() }));
+  race.setDocumentHidden(true); // visibility render/passive cleanup has not run yet
+  race.advance(now + 1001);
+  assert.equal(race.refetchCalls, 0);
+  race.update({ visible: false });
+  race.update({ visible: true });
+  assert.equal(race.refetchCalls, 1, 'live document visibility prevents consuming the attempt in the race window');
+});
+
+test('successive evidence expiries are rate-limited and hidden cooldowns resume only when visible', () => {
+  const graph = harness(snapshot({ expiresAt: new Date(now + 1000).toISOString() }));
+  graph.advance(now + 1001);
+  assert.equal(graph.refetchCalls, 1);
+  graph.completeRefresh(snapshot({ observedAt: new Date(now + 1000).toISOString(), expiresAt: new Date(now + 2000).toISOString() }));
+  graph.advance(now + 2001);
+  assert.equal(graph.refetchCalls, 1);
+  assert.equal(visit(graph.tree, item => item.type === 'Canvas').length, 0);
+  graph.advance(now + 31_000);
+  assert.equal(graph.refetchCalls, 1, 'the recovery interval has not fully elapsed');
+  graph.update({ visible: false });
+  graph.advance(now + 31_001);
+  assert.equal(graph.refetchCalls, 1, 'the pending cooldown was cancelled while hidden');
+  graph.update({ visible: true });
+  assert.equal(graph.refetchCalls, 2);
+  graph.completeRefresh(snapshot({ expiresAt: new Date(now + 100_000).toISOString() }));
+  graph.flush();
+  assert.equal(visit(graph.tree, item => item.type === 'Canvas').length, 1);
 });
 
 test('polling is five minutes and enabled only for the active visible surface', () => {
