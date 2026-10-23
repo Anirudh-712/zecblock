@@ -352,12 +352,19 @@ test('server-rendered timeline requires a serving-node schedule before showing N
 test('timeline hash selection replaces the single details panel and cleans up its navigation listener', () => {
   const previousWindow = global.window;
   const listeners = new Map();
-  const location = { hash: '#nu62', hostname: 'zecblock.com' };
+  const location = { hash: '#nu62', hostname: 'zecblock.com', href: 'https://zecblock.com/network/upgrades?view=timeline#nu62' };
+  const nextHistoryState = { __NA: true, tree: ['network', 'upgrades'] };
+  const historyCalls = [];
   const effects = [];
   let selection;
   try {
     global.window = {
       location,
+      history: { state: nextHistoryState, replaceState: (state, title, url) => {
+        historyCalls.push({ state, title, url: String(url) });
+        location.href = String(url);
+        location.hash = new URL(url).hash;
+      } },
       addEventListener: (event, listener) => listeners.set(event, listener),
       removeEventListener: (event, listener) => { if (listeners.get(event) === listener) listeners.delete(event); },
     };
@@ -369,7 +376,8 @@ test('timeline hash selection replaces the single details panel and cleans up it
       },
       '@/hooks/useApiQuery': { useApiQuery: () => ({ data: null, error: null }) },
     });
-    const render = () => renderToStaticMarkup(UpgradeTimeline({ network: 'mainnet', initialSnapshot: snapshot('mainnet', mainActivation - 1, mainActivation) }));
+    const tree = () => UpgradeTimeline({ network: 'mainnet', initialSnapshot: snapshot('mainnet', mainActivation - 1, mainActivation) });
+    const render = () => renderToStaticMarkup(tree());
     render();
     const cleanup = effects[0]();
     const recovery = render();
@@ -378,6 +386,19 @@ test('timeline hash selection replaces the single details panel and cleans up it
     assert.match(recovery, /Orchard re-enabled/);
     assert.ok(recovery.includes('href="/turnstile?period=nu6.2"'));
     assert.doesNotMatch(recovery, /A shorter block target, with shorter expected confirmation waits/);
+    function findMilestone(element, id) {
+      if (Array.isArray(element)) return element.map(child => findMilestone(child, id)).find(Boolean);
+      if (!React.isValidElement(element)) return null;
+      if (element.type === 'button' && element.props.id === id) return element;
+      return findMilestone(element.props.children, id);
+    }
+    findMilestone(tree(), 'nu7').props.onClick();
+    assert.equal(selection, 'nu7');
+    assert.equal(location.hash, '#nu7', 'copying the current URL must open the selected upgrade');
+    assert.equal(historyCalls.length, 1, 'selection replaces the URL without adding a history entry');
+    assert.strictEqual(historyCalls[0].state, nextHistoryState, 'preserve the Next.js router state');
+    assert.equal(historyCalls[0].url, 'https://zecblock.com/network/upgrades?view=timeline#nu7');
+    assert.match(render(), /id="nu7"[^>]*aria-pressed="true"/);
     location.hash = '#overwinter';
     listeners.get('hashchange')();
     const overwinter = render();

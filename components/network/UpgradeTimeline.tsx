@@ -144,6 +144,13 @@ export function UpgradeTimeline({ network, initialSnapshot }: { network: AppNetw
   const pendingNu7 = milestones.at(-1);
   const remaining = pendingNu7?.height != null && snapshot?.schedule.nu7Height != null ? Math.max(0, pendingNu7.height - snapshot.height) : null;
 
+  function selectUpgrade(id: string) {
+    const url = new URL(window.location.href);
+    url.hash = id;
+    window.history.replaceState(window.history.state, '', url);
+    setSelectedId(id);
+  }
+
   useEffect(() => {
     const selectFromHash = () => {
       const id = window.location.hash.slice(1);
@@ -190,7 +197,7 @@ export function UpgradeTimeline({ network, initialSnapshot }: { network: AppNetw
         </div>
         <div className="flex relative z-10">
           {milestones.map(item => <button key={item.id} id={item.id} type="button" aria-pressed={selected.id === item.id} aria-controls="upgrade-timeline-detail"
-            onClick={() => setSelectedId(item.id)}
+            onClick={() => selectUpgrade(item.id)}
             className="network-section group flex shrink-0 flex-col items-center px-2 pt-4 pb-4 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cipher-gold"
             style={{ width: NODE_WIDTH }}>
             <span aria-hidden="true" className={`flex h-6 w-6 items-center justify-center rounded-full border bg-cipher-surface-solid transition-colors ${selected.id === item.id ? 'border-cipher-gold ring-4 ring-cipher-gold/10' : 'border-cipher-border group-hover:border-secondary'}`}>
