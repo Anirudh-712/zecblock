@@ -4404,7 +4404,14 @@ paths:
   /v1/network/topology:
     get:
       operationId: get_network_Topology
-      summary: Peer topology graph.
+      summary: >-
+        Observed address-advertisement graph. In mainnet crawl mode, directed links require fresh
+        same-session Zcash checkpoint proof from the advertiser; advertised targets are not
+        independently verified active nodes. Synthetic IDs omit endpoints. Missing or stale
+        provenance returns topologyAvailable=false; supported empty snapshots return true with no
+        links. observedAt records the collector snapshot and expiresAt bounds its display; truncated
+        marks bounded partial output. Degree counts incident advertisements, while centrality and
+        connectivity scores remain unavailable.
       tags:
         - network
       x-cipherscan-legacy-path: /api/network/topology
@@ -4413,7 +4420,14 @@ paths:
       x-cipherscan-v1-status: adapter
       responses:
         '200':
-          description: Peer topology graph.
+          description: >-
+            Observed address-advertisement graph. In mainnet crawl mode, directed links require
+            fresh same-session Zcash checkpoint proof from the advertiser; advertised targets are
+            not independently verified active nodes. Synthetic IDs omit endpoints. Missing or stale
+            provenance returns topologyAvailable=false; supported empty snapshots return true with
+            no links. observedAt records the collector snapshot and expiresAt bounds its display;
+            truncated marks bounded partial output. Degree counts incident advertisements, while
+            centrality and connectivity scores remain unavailable.
           content:
             application/json:
               schema:

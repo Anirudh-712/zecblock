@@ -26,6 +26,8 @@ const { callZebraRPC } = require('../lib/zebra-rpc');
 const { parsePeerClient, parsePeerAddress } = require('../lib/peer-client');
 const { CENSUS_VERSION, validateCrawlSnapshot, mergeVerifiedNodes, livePeerNodes, COMBINED_ELIGIBILITY, CRAWL_PROOF_MATCH, CRAWL_ELIGIBILITY, CENSUS_OBSERVED_AT } = require('../lib/node-census');
 const { parseTorExitList, publishTorClassificationStatus } = require('../lib/tor-classification');
+const { validateTopologySnapshots } = require('../lib/node-topology');
+const { persistTopologySnapshot } = require('../lib/node-topology-store');
 
 const execFileAsync = promisify(execFile);
 
@@ -168,6 +170,8 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
     peerRpc('getpeerinfo', [], { timeout: 8000 }).then(peers => livePeerNodes(peers, now())),
   ]);
   const snapshots = sources.slice(0, 2).filter(s => s.status === 'fulfilled').map(s => s.value);
+  const qualifiedTopology = validateTopologySnapshots(sources.slice(0, 2).flatMap((source, index) =>
+    source.status === 'fulfilled' ? [{ source: index === 0 ? 'direct' : 'tor', metrics: source.value }] : []), now());
   const peers = sources[2].status === 'fulfilled' ? sources[2].value : [];
   sources.forEach((source, i) => {
     if (source.status === 'rejected') log(`${['Direct crawler', 'Tor crawler', 'Live peers'][i]} unavailable (not refreshed)`);
@@ -506,6 +510,15 @@ async function ingestCrawl({ rpc = callCrawlerRPC, peerRpc = callZebraRPC, now =
 
         const reachCount = reachables.filter(Boolean).length;
         log(`Persisted topology: ${addrs.length} nodes (${reachCount} reachable, ${addrs.length - reachCount} off), ${enriched.topo_edges?.length || 0} edges`);
+      }
+
+      // New directed receipts retain their original proof/receipt clocks. Legacy
+      // adjacency remains quarantined; advertised targets never enter nodes.
+      if (!DRY_RUN && NODE_SOURCE === 'crawl') {
+        const stored = await persistTopologySnapshot(client, qualifiedTopology);
+        log(stored
+          ? `Qualified gossip: ${qualifiedTopology.edges.length} receipts from ${qualifiedTopology.snapshots.length} supported sources`
+          : 'Qualified gossip unavailable: provenance schema not installed');
       }
 
       // Record snapshot
