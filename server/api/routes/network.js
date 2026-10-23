@@ -30,6 +30,7 @@ let listCache;
 const NODE_SOURCE = process.env.NODE_SOURCE || 'peer';
 const { censusTable, CENSUS_VERSION, PEER_WINDOW_SECONDS, CENSUS_OBSERVED_AT, CHAIN_PROOF, PEER_ELIGIBILITY } = require('../../lib/node-census');
 const { readTorClassificationStatus, torClassificationForStats, torClassificationForSnapshot, readLatestTorCensusSnapshot } = require('../../lib/tor-classification');
+const { readTopologySnapshot } = require('../../lib/node-topology-store');
 const NODES_TABLE = censusTable(NODE_SOURCE);
 const SNAPSHOT_FILTER = NODE_SOURCE === 'crawl' ? `AND census_version = ${CENSUS_VERSION}` : '';
 
@@ -1150,33 +1151,26 @@ router.get('/api/network/protocol-stats', async (req, res) => {
 
 /**
  * GET /api/network/topology
- * Returns an anonymized force-directed graph (node IDs + geo cells + centrality).
+ * Returns anonymized observed address advertisements; crawl mode requires fresh source proof.
  * Never exposes raw IPs or .onion addresses.
  */
 router.get('/api/network/topology', async (req, res) => {
   try {
+    if (NODE_SOURCE === 'crawl') {
+      // Read-time expiry is mandatory: an old Redis graph must not outlive its
+      // source proof or receipt clocks if ingestion stops.
+      res.set('Cache-Control', 'no-store');
+      const qualified = await pool.query(`
+        SELECT ip, client_impl, is_tor, country_code, census_crawl_qualified
+        FROM ${NODES_TABLE} census WHERE census_active = TRUE ORDER BY id
+      `);
+      return res.json(await readTopologySnapshot(pool, qualified.rows));
+    }
+
     // Serve from Redis cache when available (topology data changes every ~5 min).
     const cached = await getFromRedisCache(NETWORK_TOPOLOGY_CACHE_KEY);
     if (cached) {
       return res.json(cached);
-    }
-
-    if (NODE_SOURCE === 'crawl') {
-      // Old graph rows lack qualified advertiser provenance. Do not relabel
-      // foreign-network gossip as Zcash "off" nodes, or fabricate peer links.
-      const qualified = await pool.query(`
-        SELECT client_impl, is_tor, country_code
-        FROM ${NODES_TABLE} census WHERE census_active = TRUE ORDER BY id
-      `);
-      const nodes = qualified.rows.map((row, id) => ({ id, reachable: true,
-        client: row.client_impl || null, isTor: row.is_tor === true,
-        countryCode: row.country_code, betweenness: null, closeness: null, degree: null }));
-      const response = { success: true, nodes, edges: [],
-        counts: { total: nodes.length, reachable: nodes.length, off: 0, edges: 0 },
-        censusVersion: CENSUS_VERSION, topologyAvailable: false,
-        topologyUnavailableReason: 'Awaiting chain-qualified gossip provenance', timestamp: Date.now() };
-      await setInRedisCache(NETWORK_TOPOLOGY_CACHE_KEY, response, NETWORK_TOPOLOGY_CACHE_DURATION);
-      return res.json(response);
     }
 
     // Full known-network graph: reachable core + connected "off" (gossiped but

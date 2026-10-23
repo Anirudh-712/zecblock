@@ -47,7 +47,7 @@ export default function NodesPage() {
             </p>
             <p>
               DNS and gossiped addresses alone do not count as active.
-              {getNetwork() === 'mainnet' ? ' Gossip links and derived connectivity scores remain unavailable until their chain-qualified provenance is established.' : ' Graph links show advertised peer relationships, not confirmed remote connections.'}
+              {getNetwork() === 'mainnet' ? ' Graph links show fresh address advertisements from crawler sources with Zcash checkpoint proof; advertised targets are not independently verified active nodes or confirmed remote connections. Links disappear when their evidence expires. Derived connectivity scores remain unavailable.' : ' Graph links show advertised peer relationships, not confirmed remote connections.'}
               {getNetwork() === 'mainnet' ? ' Average handshake time covers crawler verifications, not live-peer ping times.' : ''}
             </p>
             <p>
