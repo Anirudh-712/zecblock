@@ -12,14 +12,14 @@ export function formatLongDate(date: string | null) {
 }
 
 function Stat({ label, before, value, hint, highlight = false }: { label: string; before?: string; value: string; hint: string; highlight?: boolean }) {
-  return <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 border-b border-cipher-border py-3 first:pt-0 last:border-0 last:pb-0 sm:block sm:border-0 sm:py-0">
-    <dt className="type-label text-muted uppercase sm:mb-2">{label}</dt>
-    <dd className="min-w-0 text-right sm:text-left">
-      <div className="flex items-baseline justify-end gap-1.5 whitespace-nowrap font-mono tabular-nums text-xl leading-tight tracking-tight sm:justify-start sm:gap-2">
-        {before != null && <><span className="text-muted">{before}</span><span aria-hidden="true" className="text-sm text-muted">→</span></>}
-        <span className={`font-medium sm:text-[length:var(--text-metric)] ${highlight ? 'text-cipher-gold' : 'text-primary'}`}>{value}</span>
+  return <div className="min-w-0 border-b border-cipher-border py-3 first:pt-0 last:border-b-0 last:pb-0 sm:border-b-0 sm:border-l sm:first:border-l-0 sm:px-5 sm:first:pl-0 sm:last:pr-0 sm:py-0">
+    <dt className="type-label text-muted uppercase mb-2">{label}</dt>
+    <dd className="min-w-0">
+      <div className="type-metric type-metric-compact flex items-baseline gap-2 whitespace-nowrap">
+        {before != null && <><span className="text-secondary">{before}</span><span aria-hidden="true" className="text-sm text-muted">→</span></>}
+        <span className={highlight ? 'text-cipher-gold' : 'text-primary'}>{value}</span>
       </div>
-      <p className="text-caption text-muted mt-1 max-w-[11rem] sm:max-w-none">{hint}</p>
+      <p className="text-caption text-muted mt-1">{hint}</p>
     </dd>
   </div>;
 }
@@ -69,8 +69,8 @@ export function BlockSpeedPanel({ story, variant = 'compact' }: { story: SpeedSt
   return <Card className="card-static p-4 sm:p-6"><CardBody>
     <SectionHeader label="BLOCK_SPEED" actions={compact ? <Link href="/network/block-speed" className="text-caption font-mono text-muted hover:text-primary">Details →</Link> : story ? <BlockSpeedShareControl /> : undefined} />
     {!story ? <p role="status" className="py-12 text-center text-sm text-muted">Block speed observations are unavailable.</p> : <>
-      <p className="text-sm text-secondary mb-5 max-w-3xl"><Intro story={story} /></p>
-      <dl className="grid grid-cols-1 sm:grid-cols-3 sm:gap-x-4 sm:gap-y-5 mb-5 sm:mb-6"><Stats story={story} /></dl>
+      <p className="text-sm text-secondary mb-4 max-w-3xl"><Intro story={story} /></p>
+      <dl className="grid grid-cols-1 sm:grid-cols-3 border-y border-cipher-border py-4 mb-4"><Stats story={story} /></dl>
       <BlockSpeedChart points={story.points} activation={story.activation} height={compact ? 220 : 280} />
       <p className="text-caption text-muted mt-3 max-w-3xl"><Footnote story={story} /></p>
     </>}

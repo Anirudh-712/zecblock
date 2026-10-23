@@ -72,6 +72,87 @@ test('activation identity requires a valid serving-node schedule for this networ
   assert.equal(getBlockUpgrade(4134000, 'testnet', snapshot).name, 'Ironwood (NU6.3)');
 });
 
+test('every canonical historical activation uses the shared network-specific history', () => {
+  const { HISTORICAL_UPGRADES } = load('lib/upgrade-history-data.ts');
+  assert.equal(HISTORICAL_UPGRADES.length, 10);
+  for (const network of ['mainnet', 'testnet']) {
+    const other = network === 'mainnet' ? 'testnet' : 'mainnet';
+    for (const historical of HISTORICAL_UPGRADES) {
+      const upgrade = getBlockUpgrade(historical.heights[network], network, null);
+      assert.equal(upgrade.upgradeId, historical.id);
+      assert.equal(upgrade.link, `/network/upgrades#${historical.id}`);
+      assert.equal(upgrade.description, historical.summary);
+      assert.equal(getBlockUpgrade(historical.heights[other], network, null), null);
+      assert.equal(getBlockUpgrade(historical.heights[network] - 1, network, null), null);
+    }
+  }
+  assert.equal(getBlockUpgrade(1687104, 'mainnet', null).upgradeId, 'nu5');
+  assert.equal(getBlockUpgrade(1599200, 'testnet', null), null, 'rolled-back NU5 height is not a canonical activation');
+  for (const height of [-1, NaN, Infinity, 1.5, 0]) assert.equal(getBlockUpgrade(height, 'mainnet', null), null);
+});
+
+test('historical activation banners render hub links without needing a live node snapshot', () => {
+  const { HISTORICAL_UPGRADES } = load('lib/upgrade-history-data.ts');
+  const file = 'app/block/[height]/components/NetworkUpgradeBanner.tsx';
+  for (const network of ['mainnet', 'testnet']) {
+    for (const historical of HISTORICAL_UPGRADES) {
+      const html = renderComponent(file, 'NetworkUpgradeBanner', {
+        data: { height: historical.heights[network], isOrphaned: false },
+      }, null, 'Offline', network);
+      assert.match(html, />ACTIVATED</);
+      assert.ok(html.includes(`href="/network/upgrades#${historical.id}"`));
+      assert.match(html, /ZIP-\d+/);
+      assert.doesNotMatch(html, /ORPHANED|SCHEDULED/);
+    }
+  }
+});
+
+test('all orphaned activation banners distinguish the canonical activation block', () => {
+  const { HISTORICAL_UPGRADES } = load('lib/upgrade-history-data.ts');
+  const file = 'app/block/[height]/components/NetworkUpgradeBanner.tsx';
+  for (const network of ['mainnet', 'testnet']) {
+    for (const historical of HISTORICAL_UPGRADES) {
+      const html = renderComponent(file, 'NetworkUpgradeBanner', {
+        data: { height: historical.heights[network], isOrphaned: true },
+      }, null, null, network);
+      assert.match(html, />ORPHANED</);
+      assert.match(html, /not the canonical activation block/);
+      assert.doesNotMatch(html, />ACTIVATED</);
+    }
+  }
+});
+
+test('activation banners retain strong scoped trackers and mainnet snapshot milestones', () => {
+  assert.equal(getBlockUpgrade(3428143, 'mainnet', null).trackerLink.href, '/ironwood');
+  assert.equal(getBlockUpgrade(3364600, 'mainnet', null).trackerLink.href, '/turnstile?period=nu6.2');
+  assert.match(getBlockUpgrade(3364600, 'mainnet', null).trackerLink.label, /Related flows since June 1, 2026/);
+  assert.equal(getBlockUpgrade(653600, 'mainnet', null).trackerLink.href, '/network/block-speed');
+  const snapshot = getBlockUpgrade(3459350, 'mainnet', null);
+  assert.equal(snapshot.badge, 'SNAPSHOT');
+  assert.equal(snapshot.link, '/governance/nu7');
+  assert.equal(snapshot.upgradeId, undefined);
+  assert.equal(getBlockUpgrade(3459350, 'testnet', null), null);
+  for (const height of [1687104, 3428143, activation, announcedHeight]) {
+    assert.equal(getBlockUpgrade(height, 'crosslink-testnet', readUpgradeSnapshot(stats(), 'testnet')), null);
+  }
+  const file = 'app/block/[height]/components/NetworkUpgradeBanner.tsx';
+  assert.equal(renderComponent(file, 'NetworkUpgradeBanner', { data: { height: 1687104 } }, null, null, 'crosslink-testnet'), '');
+});
+
+test('node-authoritative NU7 banners link to the hub and label pending activation accurately', () => {
+  const file = 'app/block/[height]/components/NetworkUpgradeBanner.tsx';
+  const data = { height: activation, isOrphaned: false };
+  const pending = renderComponent(file, 'NetworkUpgradeBanner', { data }, stats(activation - 1));
+  assert.match(pending, />SCHEDULED</);
+  assert.match(pending, /is scheduled to begin/);
+  assert.match(pending, /href="\/network\/upgrades#nu7"/);
+  assert.match(pending, /href="\/network\/block-speed"/);
+  assert.doesNotMatch(pending, />ACTIVATED</);
+  for (const error of [null, 'Offline']) {
+    assert.equal(renderComponent(file, 'NetworkUpgradeBanner', { data }, stats(activation + 1, 'main'), error), '');
+  }
+});
+
 test('time is an observation-based estimate and follows announced spacing changes', () => {
   const snapshot = readUpgradeSnapshot(stats(), 'testnet');
   assert.equal(estimateBlockArrival(snapshot, activation).seconds, 900);

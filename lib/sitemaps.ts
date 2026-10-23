@@ -32,6 +32,7 @@ export const CORE_PATHS = [
   '/network/nodes',
   '/network/attestations',
   '/network/block-speed',
+  '/network/upgrades',
   '/privacy',
   '/privacy-risks',
   '/privacy/wallets',
