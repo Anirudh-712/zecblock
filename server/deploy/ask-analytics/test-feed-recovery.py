@@ -174,6 +174,56 @@ class RecoveryTests(unittest.TestCase):
                 self.assertEqual(len(event['event_id']),64)
                 self.assertEqual(event,recovery.read_event(self.config,self.target,self.state))
 
+    def test_receive_disconnect_08006_reaches_guarded_resume(self):
+        # Exact native receive-path pair observed on October 17 and October 23;
+        # an 08006 SQLSTATE alone never establishes a transport failure.
+        message='could not receive data from WAL stream: server closed the connection unexpectedly'
+        self.write_log(self.logs(message=message,code='08006'))
+        event=recovery.read_event(self.config,self.target,self.state)
+        self.assertEqual((event['sqlstate'],event['kind'],event['error_message']),('08006','stream_connection_closed',message))
+        self.assertEqual(self.decision(event=event),{'action':'resume','reason':'stream_connection_closed'})
+        result,mutation=self.run_mocked(read_event=lambda *_:event)
+        self.assertEqual(result,{'action':'resumed','reason':'stream_connection_closed','event_id':event['event_id']})
+        mutation.assert_called_once_with(self.config,self.target,event)
+        saved=recovery.read_json(self.path)
+        self.assertEqual(saved['pending_event'],event)
+        self.assertEqual(saved['attempts'],[NOW])
+        self.assertEqual(self.target['stats'],{'apply_errors':1,'sync_errors':0,'stats_reset':RESET})
+
+    def test_receive_disconnect_08006_keeps_existing_recovery_gates(self):
+        message='could not receive data from WAL stream: server closed the connection unexpectedly'
+        self.write_log(self.logs(message=message,code='08006'))
+        event=recovery.read_event(self.config,self.target,self.state)
+        cases=[{'config':{**self.config,'enabled':False}},
+               {'target':changed(self.target,('stats','apply_errors'),2)},
+               {'target':changed(self.target,('stats','sync_errors'),1)},
+               {'target':changed(self.target,('stats','stats_reset'),None)},
+               {'target':changed(self.target,('state',),'quarantined')},
+               {'target':changed(self.target,('origin','lsn'),'1/F')},
+               {'source':changed(self.source,('slot','status'),'lost')},
+               {'source':changed(self.source,('live_timeline',),2)},
+               {'state':{**self.state,'armed':False}},
+               {'state':{**self.state,'attempts':[NOW-300,NOW-200,NOW-100]}}]
+        for changes in cases:
+            with self.subTest(changes=changes):self.assertNotEqual(self.decision(event=event,**changes)['action'],'resume')
+
+    def test_receive_disconnect_08006_rejects_near_matches_details_and_ambiguous_evidence(self):
+        message='could not receive data from WAL stream: server closed the connection unexpectedly'
+        cases=[self.logs(message=message,code=code) for code in ['08003','23505','00000']]
+        cases += [self.logs(message=message,code='08006',severity=severity) for severity in ['LOG','FATAL','PANIC']]
+        cases += [self.logs(message=message,code='08006',detail=detail) for detail in ['no COPY in progress','permission denied on publisher','requested WAL segment has already been removed']]
+        cases += [self.logs(message=text,code='08006') for text in [message+': permission denied',message+' while applying a transaction','could not receive data from WAL stream: requested WAL segment has already been removed','could not receive data from WAL stream: permission denied','could not receive data from WAL stream: terminating connection due to administrator command']]
+        good=self.logs(message=message,code='08006')
+        cases += [good[:-1],good+[good[-1]],good+[self.log_line(NOW-121,'ERROR','duplicate key violates unique constraint',code='23505')],good[:-1]+[good[-1].replace('[987]','[654]')]]
+        for lines in cases:
+            with self.subTest(lines=lines):
+                self.write_log(lines)
+                with self.assertRaises(ValueError):recovery.read_event(self.config,self.target,self.state)
+        # The end-of-stream send path retains its independently reviewed detail.
+        send='could not send end-of-streaming message to primary: no COPY in progress'
+        self.write_log(self.logs(message=send,code='08006',detail='no COPY in progress'))
+        self.assertEqual(recovery.read_event(self.config,self.target,self.state)['kind'],'end_stream_disconnect')
+
     def test_native_stream_ended_log_needs_disable_and_no_worker_error(self):
         message='data stream from publisher has ended'
         lines=self.logs(message=message,code='00000',severity='LOG')

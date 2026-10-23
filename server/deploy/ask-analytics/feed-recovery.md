@@ -48,7 +48,16 @@ Recognized error classes use exact SQLSTATE/message pairs:
 
 - `08006`: `could not send end-of-streaming message to primary: server closed the connection unexpectedly`.
 - `08006`: `could not send end-of-streaming message to primary: no COPY in progress`.
+- `08006`: `could not receive data from WAL stream: server closed the connection unexpectedly`.
 - `08P01`: `could not receive data from WAL stream: server closed the connection unexpectedly`.
+
+The `08006` receive-path pair is the exact native disconnect observed during the
+reviewed October 17 and October 23 incidents. It requires ERROR severity, complete
+same-worker error/automatic-disable evidence and no DETAIL records attached to
+that worker's failure. It does not admit other `08006` messages or a generic WAL
+receiver prefix. The end-of-streaming send pairs retain their existing optional
+single `no COPY in progress` DETAIL; other details block recovery. All identity,
+origin-floor, counter, slot, pause and retry checks above remain required.
 
 A graceful publisher stop can instead emit the exact LOG message
 `data stream from publisher has ended`, immediately followed by the same

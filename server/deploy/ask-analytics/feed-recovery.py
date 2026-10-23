@@ -7,6 +7,7 @@ NAME='ask_public_core_v1'
 TRANSPORT={
  ('08006','could not send end-of-streaming message to primary: server closed the connection unexpectedly'):'end_stream_disconnect',
  ('08006','could not send end-of-streaming message to primary: no COPY in progress'):'end_stream_disconnect',
+ ('08006','could not receive data from WAL stream: server closed the connection unexpectedly'):'stream_connection_closed',
  ('08P01','could not receive data from WAL stream: server closed the connection unexpectedly'):'stream_connection_closed',
  ('00000','data stream from publisher has ended'):'publisher_stream_ended',
 }
@@ -149,8 +150,8 @@ def read_event(config,target,state):
     if len(errors)==0 and len(ended)==1:errors=ended
     if len(errors)!=1:raise ValueError('Ambiguous worker error')
     error=errors[0]
-    # End-streaming errors can carry a DETAIL; only the known no-COPY detail
-    # qualifies, not a publisher error payload wrapped by the receiver.
+    # End-streaming send errors can carry the known no-COPY DETAIL. The exact
+    # 08006 receive disconnect qualifies only without a publisher error DETAIL.
     key=(error['code'],error['message']);kind=TRANSPORT.get(key)
     # Graceful stream-end is a native LOG event, not a successful SQLSTATE
     # attached to an ERROR. All other reviewed disconnects require ERROR.
@@ -158,7 +159,7 @@ def read_event(config,target,state):
     if kind is None or error['severity']!=severity:raise ValueError('Worker error is not a reviewed disconnect')
     if key[0]=='08006':
         details=[r['message'] for r in records if r['pid']==event['pid'] and error['at']<=r['at']<=event['at'] and r['severity']=='DETAIL']
-        if details and details!=['no COPY in progress']:raise ValueError('Unknown end-streaming detail')
+        if details and (kind!='end_stream_disconnect' or details!=['no COPY in progress']):raise ValueError('Unknown disconnect detail')
     result={'event_at':iso(event['at']),'error_at':iso(error['at']),'pid':event['pid'],'sqlstate':key[0],'kind':kind,'error_message':error['message'],'disable_message':event['message']}
     result['log_evidence_sha256']=hashlib.sha256(json.dumps([error,event],sort_keys=True).encode()).hexdigest()
     result['event_id']=hashlib.sha256(json.dumps([config['subscription_oid'],target['stats'],result],sort_keys=True).encode()).hexdigest()

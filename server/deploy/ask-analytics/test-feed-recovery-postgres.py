@@ -235,6 +235,7 @@ FROM pg_subscription s WHERE subname='ask_public_core_v1'""")
             assert len(errors) == 1 and errors[0] in [
                 ('08006', 'could not send end-of-streaming message to primary: server closed the connection unexpectedly'),
                 ('08006', 'could not send end-of-streaming message to primary: no COPY in progress'),
+                ('08006', 'could not receive data from WAL stream: server closed the connection unexpectedly'),
                 ('08P01', 'could not receive data from WAL stream: server closed the connection unexpectedly'),
             ], event
         else:
