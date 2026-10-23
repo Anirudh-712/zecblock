@@ -256,6 +256,10 @@
 
   /* Node map */
   --color-map-dot: rgba(55, 65, 81, 0.45);
+  --color-globe-ocean: #0D0E0F;
+  --color-globe-land: #8D8F8B;
+  --color-globe-rim: #A9A69E;
+  --color-globe-grid: #373734;
 
   /* Glass overlays — theme-aware subtle backgrounds & borders */
   --glass-2: rgba(255, 255, 255, 0.02);
@@ -470,6 +474,10 @@
 
   /* Node map */
   --color-map-dot: rgba(148, 163, 184, 0.5);
+  --color-globe-ocean: #E8E7E2;
+  --color-globe-land: #76746B;
+  --color-globe-rim: #77766D;
+  --color-globe-grid: #C8C6BE;
 
   /* Glass overlays — dark tints for light backgrounds */
   --glass-2: rgba(0, 0, 0, 0.02);

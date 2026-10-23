@@ -68,12 +68,15 @@ Version-3 snapshots and cache keys are isolated from versions 0/1/2. Missing
 24h/7d/30d baselines return null until a compatible sample exists near the
 requested age. Historical observations remain stored without rewriting them.
 
-The old full gossip graph lacks chain-qualified advertiser provenance. In v3,
-old graph data is quarantined: topology returns active isolated vertices with
-`topologyAvailable=false`, no edges/centrality, and no overall connectivity
-score. Geography and the node directory remain available. Do not substitute
-zero edges for a measured connectivity claim. Restoring gossip/graph scoring
-requires separately proven advertiser/edge provenance.
+The old full gossip graph lacks chain-qualified advertiser provenance and stays
+quarantined. Without fresh qualified receipts, topology returns active isolated
+vertices with `topologyAvailable=false`. The additive
+[qualified gossip release](QUALIFIED-GOSSIP-TOPOLOGY.md) restores directed address
+advertisements through a separate receipt/proof contract and migration 039;
+advertised-only targets do not enter the active census. Centrality and overall
+connectivity scores remain unavailable because advertisements do not establish
+remote peer connections. Geography and the node directory remain available.
+Do not substitute zero edges for a measured connectivity claim.
 
 Country clusters preserve country boundaries. Unlocated IPs are omitted from
 map cells; independently cached map/stats samples may differ slightly. Tor

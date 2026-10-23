@@ -71,7 +71,7 @@ test('all census routes exclude legacy/stale rows and incompatible history again
     assert.equal(responses['/api/network/topology'].topologyAvailable, false);
     assert.equal(responses['/api/network/nodes/health-score'].healthScore, null, 'unproven graph cannot produce a composite health score');
     assert.ok(cacheCalls.length >= 2 && cacheCalls.every(p => p.censusVersion === 3), 'new map/stats cache identities exclude old payloads');
-    assert.ok(redisKeys.includes('zcash:network_topology:census-v3'));
+    assert.equal(redisKeys.some(key => key.startsWith('zcash:network_topology:')), false, 'crawl topology bypasses caches so receipts expire at read time');
     assert.equal(responses['/api/network/nodes/upgrade-readiness'].totalActive, 1);
     await db.query(`INSERT INTO node_snapshots(id,snapshot_time,active_nodes,total_nodes,census_version)
       VALUES (3,now()-interval '24 hours 5 minutes',2,5,3),

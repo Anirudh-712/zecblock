@@ -372,7 +372,7 @@ export default function NodesClient() {
           <summary className="network-detail-toggle">
             <span>
               <span className="block font-mono text-sm text-primary">Crawler assessment</span>
-              <span className="block text-caption text-muted mt-1">{health.healthScore == null ? 'Overall score unavailable while gossip links are revalidated.' : 'Five inputs from observed nodes. Expand to inspect the score.'}</span>
+              <span className="block text-caption text-muted mt-1">{health.healthScore == null ? 'Overall score unavailable without independently validated connectivity measurements.' : 'Five inputs from observed nodes. Expand to inspect the score.'}</span>
             </span>
             <span className="flex items-center gap-4 shrink-0">
               <span className="font-mono text-xl text-primary tabular-nums">{health.healthScore ?? '—'}<span className="text-caption text-muted"> / 100</span></span>
