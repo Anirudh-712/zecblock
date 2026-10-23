@@ -49,10 +49,13 @@ const snapshot = (network, height, activation) => readUpgradeSnapshot(stats(netw
 const escaped = value => renderToStaticMarkup(React.createElement(React.Fragment, null, value));
 const anchors = html => [...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map(([, attributes, inner]) => ({
   href: attributes.match(/\bhref="([^"]*)"/)?.[1],
-  label: attributes.match(/\baria-label="([^"]*)"/)?.[1] ?? inner.replace(/<[^>]+>/g, ''),
+  label: attributes.match(/\baria-label="([^"]*)"/)?.[1],
+  content: inner,
 }));
 function assertAction(html, href, label) {
-  assert.ok(anchors(html).some(anchor => anchor.href === href && anchor.label === label), `${label}: ${href}`);
+  const text = escaped(label);
+  assert.ok(anchors(html).some(anchor => anchor.href === href && (anchor.label === label
+    || anchor.content === text || (anchor.content.startsWith(`${text}<svg`) && anchor.content.endsWith('</svg>')))), `${label}: ${href}`);
 }
 function renderImpact(upgradeId, network, responses = {}, active = false) {
   const calls = [];
