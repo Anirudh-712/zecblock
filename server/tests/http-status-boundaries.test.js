@@ -58,11 +58,12 @@ function loadNetworkProxy(network) {
   return exports;
 }
 
-test('Crosslink block-speed pages and images return a real 404 before loading can stream', async () => {
-  const routes = ['/network/block-speed', '/network/block-speed/', '/network/block-speed/image', '/network/block-speed/image?share=1'];
+test('Crosslink standard-network detail pages return a real 404 before loading can stream', async () => {
+  const routes = ['/network/block-speed', '/network/block-speed/', '/network/block-speed/image', '/network/block-speed/image?share=1', '/network/upgrades', '/network/upgrades/', '/network/upgrades/unknown?view=1'];
   for (const network of ['mainnet', 'testnet', 'crosslink-testnet', 'crosslink']) {
     const { proxy, config } = loadNetworkProxy(network);
     assert.ok(config.matcher.includes('/network/block-speed/:path*'), 'both the page and its image must reach Proxy');
+    assert.ok(config.matcher.includes('/network/upgrades/:path*'), 'the upgrade hub must reach Proxy before its parent loading boundary can stream');
     const crosslink = network.startsWith('crosslink');
     for (const route of routes) {
       const response = await proxy(new NextRequest(`https://explorer.example${route}`));

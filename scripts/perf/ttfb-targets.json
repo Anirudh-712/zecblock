@@ -88,6 +88,12 @@
       "core": true
     },
     {
+      "id": "network-upgrades",
+      "routeGroup": "/network/upgrades",
+      "path": "/network/upgrades",
+      "core": true
+    },
+    {
       "id": "privacy",
       "routeGroup": "/privacy",
       "path": "/privacy",

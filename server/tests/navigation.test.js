@@ -33,15 +33,17 @@ test('network-specific navigation keeps unsupported destinations out', () => {
     assert.ok(!links('mainnet').includes(path));
     assert.ok(!links('testnet').includes(path));
   }
-  assert.ok(links('mainnet').includes('/network/block-speed'));
-  assert.ok(links('testnet').includes('/network/block-speed'));
-  assert.ok(!links('crosslink').includes('/network/block-speed'));
+  for (const path of ['/network/block-speed', '/network/upgrades']) {
+    assert.ok(links('mainnet').includes(path));
+    assert.ok(links('testnet').includes(path));
+    assert.ok(!links('crosslink').includes(path));
+  }
   assert.ok(!getNavigation('crosslink').some(category => category.id === 'analytics'));
 });
 
 test('current navigation selects the most specific route and respects path boundaries', () => {
   const mainnet = getNavigation('mainnet');
-  for (const path of ['/network/block-speed', '/network/nodes', '/privacy/wallets', '/tools/blend-check']) {
+  for (const path of ['/network/block-speed', '/network/upgrades', '/network/nodes', '/privacy/wallets', '/tools/blend-check']) {
     assert.equal(getActiveNavigationHref(path, mainnet), path);
     assert.equal(getActiveNavigationHref(`${path}/`, mainnet), path);
   }

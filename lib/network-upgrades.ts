@@ -1,6 +1,7 @@
 import { scheduledSeconds, type BlockSchedule } from './block-timing';
 import { NETWORK_UPGRADES, type NetworkUpgrade } from './config';
 import type { AppNetwork } from './network';
+import { HISTORICAL_UPGRADES } from './upgrade-history-data';
 
 export type UpgradeSnapshot = {
   height: number;
@@ -17,7 +18,12 @@ export const ANNOUNCED_MAINNET_NU7 = {
   sourceUrl: 'https://zakura.com/nu7/',
 } as const;
 
-export type FutureBlockUpgrade = NetworkUpgrade & {
+export type BlockUpgrade = NetworkUpgrade & {
+  upgradeId?: string;
+  trackerLink?: { label: string; href: string };
+};
+
+export type FutureBlockUpgrade = BlockUpgrade & {
   authority: 'node' | 'announcement' | 'historical';
   announcedDate?: string;
 };
@@ -46,19 +52,31 @@ export function readUpgradeSnapshot(data: unknown, network: AppNetwork): Upgrade
   };
 }
 
-export function getBlockUpgrade(height: number, network: AppNetwork, snapshot: UpgradeSnapshot | null): NetworkUpgrade | null {
-  if (network === 'crosslink-testnet') return null;
+export function getBlockUpgrade(height: number, network: AppNetwork, snapshot: UpgradeSnapshot | null): BlockUpgrade | null {
+  if (network === 'crosslink-testnet' || !Number.isSafeInteger(height) || height < 0) return null;
   if (snapshot?.schedule.nu7Height === height) {
     const label = network === 'testnet' ? 'testnet' : 'mainnet';
     return {
-      name: 'NU7 activation', zip: '', badge: 'NU7 ACTIVATION',
-      description: `NU7 begins on Zcash ${label} at block #${height.toLocaleString('en-US')}. From that block, the target block time is 25 seconds.`,
-      link: '/network#network-accounting', linkText: 'Explore the upgrade →',
+      name: 'NU7 activation', zip: 'ZIP-259', badge: 'NU7 ACTIVATION', upgradeId: 'nu7',
+      description: `NU7 ${snapshot.height < height ? 'is scheduled to begin' : 'begins'} on Zcash ${label} at block #${height.toLocaleString('en-US')}, introducing 25-second blocks, NSM and updated transaction rules.`,
+      link: '/network/upgrades#nu7', linkText: 'Explore NU7 →',
+      trackerLink: { label: 'Block speed tracker →', href: '/network/block-speed' },
     };
   }
-  // Historical milestone heights belong to their own network.
-  if (network === 'testnet' ? height !== 4134000 : height === 4134000) return null;
-  return NETWORK_UPGRADES[height] ?? null;
+  const historical = HISTORICAL_UPGRADES.find(upgrade => upgrade.heights[network] === height);
+  if (historical) return {
+    name: historical.id === 'nu63' ? 'Ironwood (NU6.3)' : `${historical.label} activation`,
+    zip: `ZIP-${Number(historical.sourceUrl.match(/zip-(\d+)$/)?.[1])}`,
+    description: historical.summary,
+    upgradeId: historical.id,
+    link: `/network/upgrades#${historical.id}`, linkText: `Explore ${historical.label} →`,
+    ...(historical.id === 'nu63' ? { trackerLink: { label: 'Ironwood migration tracker →', href: '/ironwood' } }
+      : historical.id === 'blossom' ? { trackerLink: { label: 'Current block speed →', href: '/network/block-speed' } }
+        : historical.id === 'nu62' ? { trackerLink: { label: 'Related flows since June 1, 2026 →', href: '/turnstile?period=nu6.2' } } : {}),
+  };
+  // Preserve non-upgrade milestones without leaking mainnet heights to testnet.
+  if (HISTORICAL_UPGRADES.some(upgrade => upgrade.heights.mainnet === height || upgrade.heights.testnet === height)) return null;
+  return network === 'mainnet' ? NETWORK_UPGRADES[height] ?? null : null;
 }
 
 /** Future-page copy may describe an announcement; mined activation stays node-only. */
