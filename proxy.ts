@@ -114,6 +114,15 @@ a.action{color:var(--text);text-underline-offset:4px}
 }
 
 export async function proxy(request: NextRequest) {
+  const networkDetailPath = request.nextUrl.pathname;
+  if (['/network/block-speed', '/network/upgrades'].some(path => networkDetailPath === path || networkDetailPath.startsWith(`${path}/`))
+    && getConfiguredNetwork() === 'crosslink-testnet') {
+    // Decide before the page loading boundary can commit a streamed 200.
+    return new NextResponse(proxyErrorPage('Page not found', 'This page is not available on Crosslink testnet.', { href: '/network', label: 'Network overview' }), {
+      status: 404,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, follow' },
+    });
+  }
   const namePath = request.nextUrl.pathname.match(/^\/name\/(.*)$/);
   if (namePath && !isValidName(normalizeName(namePath[1]))) {
     return new NextResponse(proxyErrorPage('Name not found', 'Enter a valid Zcash Name.', { href: '/', label: 'Return to ZecBlock' }), {
@@ -212,5 +221,5 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // Canonical lowercase tx URLs bypass Proxy; only uppercase aliases need it.
-  matcher: ['/name/:path*', '/api/:path*', '/tx/:txid((?=[a-fA-F0-9]{0,63}[A-F])[a-fA-F0-9]{64})', '/block/:path*', '/blocks', '/governance/:path*', '/charts/:slug'],
+  matcher: ['/name/:path*', '/api/:path*', '/tx/:txid((?=[a-fA-F0-9]{0,63}[A-F])[a-fA-F0-9]{64})', '/block/:path*', '/blocks', '/governance/:path*', '/charts/:slug', '/network/block-speed/:path*', '/network/upgrades/:path*'],
 };

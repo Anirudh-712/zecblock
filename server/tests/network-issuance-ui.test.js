@@ -71,8 +71,12 @@ function renderAccounting(active, nsmBalanceZat) {
   return renderToStaticMarkup(React.createElement(NetworkAccounting));
 }
 
-test('pre-NU7 accounting stays entirely hidden', () => {
-  assert.equal(renderAccounting(false, '0'), '');
+test('pre-NU7 overview explains the mechanism without displaying zero-valued observations', () => {
+  const html = renderAccounting(false, '0');
+  assert.match(html, /id="nu7-accounting"/);
+  assert.match(html, /Mechanism overview/);
+  assert.match(html, /live activation status is unavailable/);
+  assert.doesNotMatch(html, /0\.00000000 ZEC|Minimum removal since NU7|Reserve growth since NU7|Accounting history/);
 });
 
 test('active accounting preserves exact signed reserve amounts without repeating issuance', () => {

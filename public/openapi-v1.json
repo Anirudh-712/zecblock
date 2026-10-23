@@ -566,6 +566,8 @@
                       "pulse",
                       "miner_zodl",
                       "network",
+                      "network_upgrades",
+                      "block_speed",
                       "addresses",
                       "mempool",
                       "nodes",
@@ -3801,6 +3803,161 @@
         }
       }
     },
+    "/v1/network/block-speed": {
+      "get": {
+        "operationId": "get_network_Block-speed",
+        "summary": "Daily block-interval history and seven-day summaries from canonical block headers, split at node-announced NU7 activation.",
+        "tags": [
+          "network"
+        ],
+        "x-cipherscan-legacy-path": "/api/network/block-speed",
+        "x-cipherscan-legacy-method": "GET",
+        "x-cipherscan-classification": "public",
+        "x-cipherscan-v1-status": "adapter",
+        "responses": {
+          "200": {
+            "description": "Daily block-interval history and seven-day summaries from canonical block headers, split at node-announced NU7 activation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "data": {
+                      "oneOf": [
+                        {
+                          "type": "object"
+                        },
+                        {
+                          "type": "array",
+                          "items": {}
+                        }
+                      ]
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Preview or endpoint authentication required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required. Protocol challenges remain in Payment-Required / WWW-Authenticate; the original challenge is also in problem.paymentRequired.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or ownership authorization denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON body exceeds 1 MB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (enforced by the legacy endpoint this proxies to).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (legacy API) error.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Source temporarily unavailable or still building.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Upstream (legacy API) timeout.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/network/accounting": {
       "get": {
         "operationId": "get_network_Accounting",
@@ -5366,6 +5523,7 @@
       "get": {
         "operationId": "get_network_Nodes_Stats",
         "summary": "Node census summary stats.",
+        "description": "In census v3, torNodes is an integer only when torClassificationAvailable is true; otherwise it is null. Classification requires a valid nonempty Tor exit list and a matching committed census snapshot no older than 600 seconds. torClassificationCheckedAt is an ISO timestamp or null. Missing, failed, stale or mismatched classification is unavailable, never a measured zero. This count covers known exit IPs and hidden-service destinations, not all Tor users. Crawl-mode responses use Cache-Control: no-store; other census aggregates retain their internal cache.",
         "tags": [
           "network"
         ],
@@ -5521,6 +5679,7 @@
       "get": {
         "operationId": "get_network_Nodes_History",
         "summary": "Historical node count series.",
+        "description": "In census v3, each sample exposes nullable torNodes and torClassificationAvailable. A Tor count is returned only for the exact snapshot with a fresh matching classification status; older samples have no persisted availability evidence and return null rather than an invented historical zero. Crawl-mode responses use Cache-Control: no-store.",
         "tags": [
           "network"
         ],
@@ -6163,7 +6322,7 @@
     "/v1/network/topology": {
       "get": {
         "operationId": "get_network_Topology",
-        "summary": "Peer topology graph.",
+        "summary": "Observed address-advertisement graph. In mainnet crawl mode, directed links require fresh same-session Zcash checkpoint proof from the advertiser; advertised targets are not independently verified active nodes. Synthetic IDs omit endpoints. Missing or stale provenance returns topologyAvailable=false; supported empty snapshots return true with no links. observedAt records the collector snapshot and expiresAt bounds its display; truncated marks bounded partial output. Degree counts incident advertisements, while centrality and connectivity scores remain unavailable.",
         "tags": [
           "network"
         ],
@@ -6173,7 +6332,7 @@
         "x-cipherscan-v1-status": "adapter",
         "responses": {
           "200": {
-            "description": "Peer topology graph.",
+            "description": "Observed address-advertisement graph. In mainnet crawl mode, directed links require fresh same-session Zcash checkpoint proof from the advertiser; advertised targets are not independently verified active nodes. Synthetic IDs omit endpoints. Missing or stale provenance returns topologyAvailable=false; supported empty snapshots return true with no links. observedAt records the collector snapshot and expiresAt bounds its display; truncated marks bounded partial output. Degree counts incident advertisements, while centrality and connectivity scores remain unavailable.",
             "content": {
               "application/json": {
                 "schema": {

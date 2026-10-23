@@ -122,7 +122,7 @@ function bannerHarness(responses, initialNow = now) {
     },
     'next/link': {}, '@/lib/config': { isMainnet: true, isCrosslink: false, NETWORK: 'mainnet' },
     '@/hooks/useApiQuery': { useApiQuery: () => ({ data: null, error: null }) },
-    '@/lib/network-upgrades': { readUpgradeSnapshot: () => null },
+    '@/lib/network-upgrades': { readUpgradeSnapshot: () => null, getPendingNu7Upgrade: () => null },
   }, {
     Date: FakeDate, performance: { now: () => clock }, AbortController,
     AbortSignal: { any: signals => signals[0], timeout: () => new AbortController().signal },
