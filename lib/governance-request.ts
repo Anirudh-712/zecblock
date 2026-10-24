@@ -2,6 +2,7 @@ import { createRefreshCache } from './refresh-cache';
 import { GOVERNANCE_API, GRANTS, TRUSTED_ENDORSER, isGrantsRound, roundHref, roundHex, selectTrustedRounds } from './governance';
 import { NU7_ROUND_ID } from './nu7-vote-results';
 import { fetchWithDeadline } from './server-fetch';
+import { readBoundedJson } from './bounded-json';
 
 // The root loading boundary can flush a 200 before page-level notFound().
 // Resolve only governance identity here, before streaming, to preserve 404/503.
@@ -10,7 +11,7 @@ const getDirectory = createRefreshCache({
     const payloads = await Promise.all(['rounds', 'endorsers', `endorsed-rounds/${TRUSTED_ENDORSER.id}`].map(async path => {
       const response = await fetchWithDeadline(`${GOVERNANCE_API}/${path}`, { cache: 'no-store' }, 8000);
       if (!response.ok) throw new Error('Voting directory unavailable');
-      return response.json();
+      return readBoundedJson(response);
     }));
     return { rounds: selectTrustedRounds(...payloads as [unknown, unknown, unknown]), checkedAt: Date.now() };
   },

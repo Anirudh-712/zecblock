@@ -56,7 +56,7 @@
     "verify:homepage:live": "node scripts/verify-homepage-live-api.mjs",
     "verify:homepage": "node scripts/verify-homepage-first-render.mjs",
     "test:nu7-results": "node --test server/tests/nu7-results.test.js",
-    "test:governance": "node --test server/tests/governance.test.js server/tests/governance-announcement-cache.test.js",
+    "test:governance": "node --test server/tests/governance.test.js server/tests/governance-announcement-cache.test.js server/tests/bounded-json.test.js",
     "test:activity": "NODE_PATH=$PWD/server/api/node_modules node --test server/tests/activity-milestones.test.js server/tests/activity-postgres.test.js",
     "test:hashrate-postgres": "NODE_PATH=$PWD/server/api/node_modules node --test server/tests/hashrate-postgres.test.js",
     "test:analytics-history": "NODE_PATH=$PWD/server/api/node_modules node --test server/tests/analytics-history.test.js server/tests/analytics-history-routes.test.js",
@@ -112,7 +112,7 @@
     "typescript": "^5.7.2",
     "yaml": "^2.9.1",
     "zcashname-sdk": "^0.12.0",
-    "zod": "^4.5.4"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/node": "4.3.3",

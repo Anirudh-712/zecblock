@@ -17,12 +17,15 @@ export const GRANTS = {
 const integer = z.union([z.number(), z.string().regex(/^\d+$/).transform(Number)])
   .pipe(z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER));
 const bytes32 = z.string().regex(/^[A-Za-z0-9+/]{43}=$/);
+// Leading size checks reject before Zod visits individual elements. These are
+// admission limits, not claims about the number of votes/proposals upstream.
+export const GOVERNANCE_LIMITS = { rounds: 2000, endorsers: 2000, proposals: 500, options: 100, results: 50_000 } as const;
 const option = z.object({ index: integer.default(0), label: z.string().min(1).max(4000), description: z.string().max(20000).default(''), total_value: integer.default(0) });
-const proposal = z.object({ id: integer, title: z.string().min(1).max(4000), description: z.string().max(50000).default(''), options: z.array(option).min(1).max(100) });
+const proposal = z.object({ id: integer, title: z.string().min(1).max(4000), description: z.string().max(50000).default(''), options: z.array(option).max(GOVERNANCE_LIMITS.options).min(1) });
 export const roundSchema = z.object({
   vote_round_id: bytes32, title: z.string().min(1).max(4000), description: z.string().max(50000).default(''),
   status: integer, vote_end_time: integer, snapshot_height: integer, snapshot_blockhash: bytes32,
-  discussion_url: z.string().default(''), proposals: z.array(proposal).min(1).max(500),
+  discussion_url: z.string().default(''), proposals: z.array(proposal).max(GOVERNANCE_LIMITS.proposals).min(1),
   tally_timed_out: z.boolean().default(false),
 });
 export type Round = z.infer<typeof roundSchema>;
@@ -51,9 +54,9 @@ export function roundHref(round: Round): string {
 }
 
 export function selectTrustedRounds(raw: unknown, registry: unknown, endorsements: unknown): Round[] {
-  const directory = z.object({ rounds: z.array(z.unknown()).max(2000).default([]) }).parse(raw);
-  const identity = z.object({ endorsers: z.array(z.object({ endorser_id: z.string(), address: z.string() })).default([]) }).parse(registry);
-  const endorsed = z.object({ vote_round_ids: z.array(bytes32).default([]) }).parse(endorsements);
+  const directory = z.object({ rounds: z.array(z.unknown()).max(GOVERNANCE_LIMITS.rounds).default([]) }).parse(raw);
+  const identity = z.object({ endorsers: z.array(z.object({ endorser_id: z.string(), address: z.string() })).max(GOVERNANCE_LIMITS.endorsers).default([]) }).parse(registry);
+  const endorsed = z.object({ vote_round_ids: z.array(bytes32).max(GOVERNANCE_LIMITS.rounds).default([]) }).parse(endorsements);
   const trusted = identity.endorsers.some(e => e.endorser_id === TRUSTED_ENDORSER.id && e.address === TRUSTED_ENDORSER.address);
   const ids = new Set(trusted ? endorsed.vote_round_ids : []);
   const rounds: Round[] = [];
@@ -83,8 +86,8 @@ export function parseRoundVote(round: Round, summary: unknown, tally: unknown, n
   if (round.status === 1) return { ...vote, state: now >= round.vote_end_time * 1000 ? 'tallying' : 'active' };
   if (round.status === 2) return { ...vote, state: 'tallying' };
   if (round.status !== 3) return vote;
-  const parsed = z.object({ vote_round_id: z.literal(round.vote_round_id), status: z.literal(3), vote_end_time: z.literal(round.vote_end_time), proposals: z.array(proposal) }).safeParse(summary);
-  const totals = z.object({ results: z.array(z.object({ vote_round_id: z.literal(round.vote_round_id), proposal_id: integer, vote_decision: integer.default(0), total_value: integer.default(0) })) }).safeParse(tally);
+  const parsed = z.object({ vote_round_id: z.literal(round.vote_round_id), status: z.literal(3), vote_end_time: z.literal(round.vote_end_time), proposals: z.array(proposal).max(GOVERNANCE_LIMITS.proposals) }).safeParse(summary);
+  const totals = z.object({ results: z.array(z.object({ vote_round_id: z.literal(round.vote_round_id), proposal_id: integer, vote_decision: integer.default(0), total_value: integer.default(0) })).max(GOVERNANCE_LIMITS.results) }).safeParse(tally);
   if (!parsed.success || !totals.success || parsed.data.proposals.length !== round.proposals.length) return vote;
   const expected = new Set(round.proposals.flatMap(p => p.options.map(o => `${p.id}:${o.index}`)));
   const tuples = new Map(totals.data.results.map(r => [`${r.proposal_id}:${r.vote_decision}`, r.total_value]));
