@@ -210,6 +210,8 @@ jobs:
             git fetch origin main
             git merge-base --is-ancestor "$sha" origin/main
             git checkout --detach "$sha"
+            # Shared lib modules resolve dependencies from the repository root.
+            npm ci --omit=dev --no-audit --no-fund
             (cd server/api && npm ci --omit=dev --no-audit --no-fund)
             # Keep the failover checkout current without turning the database
             # standby into a second public API host. The primary API already

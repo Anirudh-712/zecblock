@@ -1,12 +1,13 @@
 import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
 import { fetchWithDeadline } from './server-fetch';
+import { readBoundedJson } from './bounded-json';
 import { GOVERNANCE_API, TRUSTED_ENDORSER, selectTrustedRounds, parseRoundVote, roundHex, type Catalog, type Round } from './governance';
 
 async function fetchJson(path: string): Promise<unknown> {
   const response = await fetchWithDeadline(`${GOVERNANCE_API}/${path}`, { cache: 'no-store' }, 8000);
   if (!response.ok) throw new Error('Voting API unavailable');
-  return response.json();
+  return readBoundedJson(response);
 }
 
 const getPublishedVote = unstable_cache(async (round: Round) => {
@@ -15,7 +16,7 @@ const getPublishedVote = unstable_cache(async (round: Round) => {
   const vote = parseRoundVote(round, summary, tally, Date.now());
   if (vote.state !== 'results') throw new Error('Incomplete finalized tally');
   return vote;
-}, ['governance-published-vote-v2'], { revalidate: 300 });
+}, ['governance-published-vote-v3'], { revalidate: 300 });
 
 const refreshCatalog = unstable_cache(async (): Promise<Catalog> => {
   const [directory, registry, endorsements] = await Promise.all([
@@ -35,7 +36,7 @@ const refreshCatalog = unstable_cache(async (): Promise<Catalog> => {
     })));
   }
   return { votes: votes.sort((a, b) => b.round.vote_end_time - a.round.vote_end_time), checkedAt: Date.now(), unavailable: false };
-}, ['governance-catalog-v2'], { revalidate: 60 });
+}, ['governance-catalog-v3'], { revalidate: 60 });
 
 // Throwing refreshes preserve Next's last successful cached catalog. The timestamp
 // travels with the data so stale content is never described as a fresh API check.
