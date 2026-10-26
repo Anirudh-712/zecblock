@@ -25,8 +25,6 @@ const nodes: Resource[] = [
   { name: 'lightwalletd', description: 'Backend service that supplies compact blockchain data to light wallets.', href: 'https://github.com/zcash/lightwalletd' },
 ];
 const development: Resource[] = [
-  { name: 'Thus Spoke Zakura', description: 'Local Zcash development environment with wallets, a faucet, mining controls and an explorer. Uses an isolated Regtest chain, separate from public testnet.', href: 'https://github.com/zcashlabs/thus-spoke-zakura' },
-  { name: 'ZecBlock API', description: 'Explorer endpoints, data definitions and integration examples.', href: '/docs' },
   { name: 'librustzcash', description: 'Rust libraries for Zcash transactions, keys and wallet functionality.', href: 'https://github.com/zcash/librustzcash' },
   { name: 'Zingolib', description: 'Light-wallet library for building Zcash applications.', href: 'https://github.com/zingolabs/zingolib' },
   { name: 'Protocol & ZIPs', description: 'Protocol specifications and Zcash Improvement Proposals.', href: 'https://zips.z.cash/' },
@@ -91,6 +89,7 @@ export default function LearnPage() {
             <Destination href="http://pool.tazminer.com:3000" className={styles.button}>Mine testnet ZEC <Arrow external /></Destination>
           </div>
           <p className={styles.heroNote}>Browser mining uses testnet Zcash (TAZ), for learning and testing. Testnet coins have no monetary value.</p>
+          <a href="#build" className={styles.textLink}>Want to build on Zcash? Start here <Arrow /></a>
         </div>
         <PrivacyTerminal />
       </div>
@@ -174,17 +173,43 @@ export default function LearnPage() {
     </section>
 
     <section id="build" className={styles.section}>
-      <SectionTitle number="04" title="Build on Zcash. Verify it yourself." description="Full nodes verify the chain. Indexers and libraries help applications use it." />
+      <SectionTitle number="04" title="Build on Zcash. Verify it yourself." description="From your first local experiment to your first contribution." />
+      <ol className={styles.buildSteps} aria-label="Start building on Zcash">
+        <li>
+          <span className={styles.meta}>01 · Run locally</span>
+          <h3>Thus Spoke Zakura</h3>
+          <p>Start a disposable Zcash Regtest chain with wallets, funding and block controls. Your local sandbox is separate from public testnet.</p>
+          <Destination href="https://github.com/zcashlabs/thus-spoke-zakura" className={styles.textLink}>Start locally <Arrow external /></Destination>
+        </li>
+        <li>
+          <span className={styles.meta}>02 · Build an application</span>
+          <h3>zcash.js</h3>
+          <p>An experimental TypeScript SDK for Zcash queries and local wallet development in Node and browsers.</p>
+          <Destination href="https://github.com/zcashlabs/zcashjs" className={styles.textLink}>Explore the SDK <Arrow external /></Destination>
+        </li>
+        <li>
+          <span className={styles.meta}>03 · Test and inspect</span>
+          <h3>Get testnet ZEC</h3>
+          <p>Mine testnet ZEC (TAZ) in your browser to use when testing your application. Inspect public transactions and query explorer data with ZecBlock.</p>
+          <div className={styles.buildActions}>
+            <Destination href="http://pool.tazminer.com:3000" className={styles.button}>Mine in your browser <Arrow external /></Destination>
+            <div className={styles.buildLinks}>
+              <Destination href="https://testnet.zecblock.com/" className={styles.textLink}>Open testnet <Arrow external /></Destination>
+              <Destination href="/docs" className={styles.textLink}>API docs <Arrow /></Destination>
+            </div>
+          </div>
+        </li>
+        <li>
+          <span className={styles.meta}>04 · Find people & contribute</span>
+          <h3>Zypherpunk</h3>
+          <p>A developer community from Zcash Labs. Learn with other builders through open-source projects, education, events and hackathons.</p>
+          <Destination href="https://x.com/zypherpunks/status/2110032705119232296" className={styles.textLink}>Explore Zypherpunk <Arrow external /></Destination>
+        </li>
+      </ol>
+      <p className={styles.testnetNote}>Use your wallet’s testnet receive address to receive TAZ. Testnet coins have no monetary value; local Regtest uses a separate chain.</p>
       <div className={styles.twoColumns}>
         <div className={styles.directory}><h3>Nodes & indexing</h3><ResourceList items={nodes} /></div>
-        <div className={styles.directory}><h3>Developer tools & references</h3><ResourceList items={development} /></div>
-      </div>
-      <div className={styles.sectionNote}>
-        <p>Testing on public testnet? Use testnet ZEC (TAZ) and a testnet address. Testnet coins have no monetary value.</p>
-        <div className={styles.inlineLinks}>
-          <Destination href="http://pool.tazminer.com:3000" className={styles.textLink}>Mine testnet ZEC in browser <Arrow external /></Destination>
-          <Destination href="https://testnet.zecblock.com/" className={styles.textLink}>Open testnet explorer <Arrow external /></Destination>
-        </div>
+        <div className={styles.directory}><h3>Libraries & protocol references</h3><ResourceList items={development} /></div>
       </div>
       <SectionTransition href="#reading" label="Further reading" />
     </section>
