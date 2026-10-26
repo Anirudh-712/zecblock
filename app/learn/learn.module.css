@@ -77,12 +77,16 @@
 .resource { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; padding: 16px 0; border-radius: 4px; }
 .resource:hover strong { text-decoration: underline; text-underline-offset: 4px; }
 .resource strong { font-size: .875rem; font-weight: 500; }
+.resourceName { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.resourceLogo { width: 28px; height: 28px; margin-top: 2px; flex-shrink: 0; object-fit: contain; border-radius: 5px; }
 .resource > span:last-child { color: var(--color-text-muted); }
 .description { display: block; color: var(--color-text-muted); font-size: .75rem; line-height: 1.6; margin-top: 5px; }
 .buildSteps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); list-style: none; margin: 0 0 24px; padding: 0; border-block: 1px solid var(--color-border); }
 .buildSteps li { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; padding: 20px; }
 .buildSteps li + li { border-left: 1px solid var(--color-border); }
 .buildSteps h3 { margin-top: 12px; font-size: 1rem; font-weight: 500; }
+.buildIdentity { display: flex; align-items: center; gap: 12px; }
+.projectLogo { width: 32px; height: 32px; flex-shrink: 0; object-fit: contain; border-radius: 6px; }
 .buildSteps p { margin: 12px 0 20px; color: var(--color-text-secondary); font-size: .875rem; line-height: 1.7; }
 .buildSteps .textLink, .buildLinks { margin-top: auto; }
 .buildLinks { display: flex; flex-wrap: wrap; gap: 12px 20px; }
