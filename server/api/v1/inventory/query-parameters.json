@@ -236,6 +236,9 @@
     "period",
     "pool"
   ],
+  "GET /v1/shielded-pools/activity": [
+    "period"
+  ],
   "GET /v1/shielded-pools/turnstile": [
     "since"
   ],

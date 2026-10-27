@@ -35,6 +35,9 @@ const softwareFilters = {
   bucket: {type:'string',enum:['auto','day','week'],default:'auto',description:'Auto selects weekly for ranges longer than 121 days. Weekly buckets start Monday; boundary weeks contain only requested days.'},
 };
 function getQueryConstraint(route, name) {
+  if (route === '/v1/shielded-pools/activity' && name === 'period') {
+    return { required: false, schema: { type: 'string', enum: ['7d', '30d', '90d', '1y'], default: '30d' }, description: 'Trailing complete UTC calendar days, excluding today. One year means 365 days.' };
+  }
   if (['/v1/crosschain/analytics','/v1/crosschain/swaps'].includes(route)) {
     const schemas = {
       period: {type:'string',enum:['24h','7d','30d','90d','1y','all'],default:'30d',description:'Trailing UTC window; all starts at the earliest indexed record. Coverage can be incomplete.'},
