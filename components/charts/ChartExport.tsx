@@ -20,7 +20,7 @@ export function ChartExport({ data, logo = '/brand/zecblock-logotype.png' }: { d
     </div>
     <div style={{ display: 'flex', marginTop: 10, fontSize: 17, color: '#9CA4B0' }}>{chartDateRange(chart, rows)} · {chart.unit}</div>
     <div style={{ display: 'flex', gap: 22, marginTop: 19, height: 32, fontSize: 16 }}>
-      {chart.series.map(s => <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 9, height: 9, background: colors[s.color] }}/>{s.label}</div>)}
+      {chart.series.map(s => <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{s.marker === 'diamond' ? <svg width={12} height={12} viewBox="0 0 12 12"><path d="M6 1 L11 6 L6 11 L1 6 Z" stroke={colors[s.color]} strokeWidth={1.5} fill="#0B0C0E"/></svg> : <span style={{ width: 9, height: 9, background: colors[s.color] }}/>} {s.label}</div>)}
     </div>
     <div style={{ display: 'flex', position: 'relative', height: 350, marginTop: 18 }}>
       {!rows.length ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', color: '#9CA4B0', fontSize: 24 }}>Observations unavailable</div> : category ?
@@ -36,15 +36,17 @@ export function ChartExport({ data, logo = '/brand/zecblock-logotype.png' }: { d
           <svg width={1020} height={310} viewBox="0 0 1020 310" style={{ position: 'absolute', left: 90, top: 0 }}>
             {g.ticks.map(tick => <line key={tick} x1={0} x2={1020} y1={g.y(tick)} y2={g.y(tick)} stroke="#20242A"/>)}
             {chart.reference != null && <line x1={0} x2={1020} y1={g.y(chart.reference)} y2={g.y(chart.reference)} stroke="#565D68" strokeDasharray="4 4"/>}
-            {g.paths.map(({ series, line, area, segments }, si) => <g key={series.key}>
+            {g.paths.map(({ series, line, area, segments, markers }, si) => <g key={series.key}>
               {chart.kind === 'bar' ? g.rows.map((row, i) => {
                 const value = row[series.key]; if (typeof value !== 'number') return null;
                 const width = Math.min(16, 850 / Math.max(1, rows.length) / chart.series.length);
                 return <rect key={i} x={g.x(row, i) - width * chart.series.length / 2 + width * si} y={Math.min(g.y(0), g.y(value))} width={width} height={Math.abs(g.y(0) - g.y(value))} fill={colors[series.color]}/>;
               }) : <g>
                 {chart.kind === 'area' && <path d={area || 'M0 0'} fill={colors[series.color]} fillOpacity={.28}/>}
-                <path d={line || 'M0 0'} stroke={colors[series.color]} strokeWidth={2.5} fill="none"/>
-                {segments.filter(segment => segment.length === 1).map((segment, i) => <circle key={i} cx={segment[0].x} cy={segment[0].top} r={3} fill={colors[series.color]}/>)}
+                <path d={line || 'M0 0'} stroke={colors[series.color]} strokeWidth={series.strokeWidth ?? 2.5} fill="none"/>
+                {series.marker === 'diamond'
+                  ? markers.map(point => <path key={point.index} data-marker="diamond" d={`M${point.x},${point.top - 4} l4,4 l-4,4 l-4,-4 Z`} stroke={colors[series.color]} strokeWidth={1.5} fill="#0B0C0E"/>)
+                  : segments.filter(segment => segment.length === 1).map((segment, i) => <circle key={i} cx={segment[0].x} cy={segment[0].top} r={3} fill={colors[series.color]}/>)}
               </g>}
             </g>)}
           </svg>

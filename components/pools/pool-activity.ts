@@ -32,6 +32,22 @@ export const ACTIVITY_POOLS = [
 ] as const;
 
 export const ACTIVITY_NOTE = 'Percentages use all confirmed non-coinbase transactions. Transactions can use multiple pools, so shares may total over 100%.';
+export const RECOVERY_LABEL = 'Quantum recoverable';
+export const RECOVERY_NOTE = 'Ironwood is designed to support a future recovery protocol (ZIP 2005). Full quantum security requires further upgrades.';
+
+/** Selection changes presentation only; pool values retain the network denominator. */
+export function selectedActivityPools(selection: readonly ActivityPool[]) {
+  return ACTIVITY_POOLS.filter(pool => selection.includes(pool.key)).map(pool => ({
+    ...pool, marker: pool.key === 'ironwood' ? 'diamond' as const : undefined,
+    strokeWidth: pool.key === 'ironwood' ? 3 : 2,
+  }));
+}
+
+export function toggleActivityPool(selection: ActivityPool[], key: ActivityPool): ActivityPool[] {
+  if (selection.includes(key) && selection.length === 1) return selection;
+  const next = selection.includes(key) ? selection.filter(pool => pool !== key) : [...selection, key];
+  return ACTIVITY_POOLS.filter(pool => next.includes(pool.key)).map(pool => pool.key);
+}
 
 function count(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
