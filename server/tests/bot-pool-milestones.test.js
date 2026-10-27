@@ -29,6 +29,7 @@ function activity(target, counts = () => ({})) {
 
 const achievements = stories => stories.flatMap(story => story.evidence.achievements);
 const ofKind = (stories, kind) => achievements(stories).filter(a => a.kind === kind);
+const visualValues = visual => visual.kind === 'comparison' ? visual.series.flatMap(s => s.values) : visual.values;
 
 test('leadership requires a strictly greater complete seven-day or thirty-day count', () => {
   for (const periodDays of [7, 30]) {
@@ -139,9 +140,9 @@ test('simultaneous first crossings become one bounded attributed story retaining
   assert.ok(story.content.length <= 280);
   assert.ok(story.content.endsWith('https://zecblock.com/pools'));
   assert.equal(story.evidence.card.source, 'zecblock.com/pools');
-  assert.equal(story.evidence.card.visual.kind, 'series');
-  assert.ok(story.evidence.card.visual.values.length > 1);
-  assert.ok(story.evidence.card.visual.values.every(Number.isFinite));
+  assert.equal(story.evidence.card.visual.kind, 'comparison');
+  assert.ok(story.evidence.card.visual.series.every(s => s.values.length > 1));
+  assert.ok(visualValues(story.evidence.card.visual).every(Number.isFinite));
   assert.equal(story.evidence.activation.height, 3428143);
   assert.equal(story.evidence.capturedAt, rows.capturedAt);
   assert.deepEqual(story.evidence.tip, rows.tip);
@@ -163,7 +164,112 @@ test('large measured values retain a 280-character claim and finite card evidenc
   const rows = activity(launch, i => i === 0 ? { totalTransactions: 9000000000000, ironwood: 9000000000000 } : {});
   const [story] = poolMilestoneStories(rows, launch);
   assert.ok(story.content.length <= 280);
-  assert.ok(story.evidence.card.visual.values.every(Number.isFinite));
+  assert.ok(visualValues(story.evidence.card.visual).every(Number.isFinite));
+});
+
+function crossoverSource(target, periodDays) {
+  const crossingDay = dayNumber(target);
+  return activity(target, i => i > 0 ? {
+    orchard: 100, ironwood: i === crossingDay ? periodDays * 100 + 1 : 2,
+  } : {});
+}
+
+function assertRollingComparison(story, source) {
+  const lead = story.evidence.achievements.find(a => a.id === story.evidence.lead);
+  const visual = story.evidence.card.visual, target = story.evidence.target;
+  const start = [addDays(launch, -1), addDays(target, -89)].sort().at(-1);
+  const pointCount = (Date.parse(target) - Date.parse(start)) / 86400000 + 1;
+  assert.equal(visual.kind, 'comparison');
+  assert.equal(visual.label, `Transactions · rolling ${lead.periodDays} days`);
+  assert.equal(visual.unit, 'transactions');
+  assert.equal(visual.start, start);
+  assert.equal(visual.end, target);
+  assert.deepEqual(visual.series.map(s => ({ key: s.key, label: s.label, tone: s.tone })), [
+    { key: 'ironwood', label: 'Ironwood', tone: 'ironwood' },
+    { key: 'orchard', label: 'Orchard', tone: 'orchard' },
+  ]);
+  assert.ok(pointCount >= 2 && pointCount <= 90);
+  for (const series of visual.series) {
+    assert.equal(series.values.length, pointCount);
+    for (let i = 0; i < pointCount; i++) {
+      const date = addDays(start, i), windowStart = addDays(date, 1 - lead.periodDays);
+      const total = source.days.filter(row => row.date >= windowStart && row.date <= date)
+        .reduce((sum, row) => sum + row[series.key], 0);
+      assert.equal(series.values[i], total, `${series.label} ${lead.periodDays}-day endpoint at ${date}`);
+    }
+    assert.equal(series.values.at(-1), lead[series.key]);
+  }
+}
+
+test('weekly and monthly crossover cards compare exact rolling counts on shared UTC dates', () => {
+  for (const periodDays of [7, 30]) {
+    const target = addDays(launch, periodDays), source = crossoverSource(target, periodDays);
+    const [story] = poolMilestoneStories(source, target);
+    assert.equal(story.evidence.achievements[0].kind, 'leadership');
+    assert.equal(story.evidence.achievements[0].periodDays, periodDays);
+    assertRollingComparison(story, source);
+    assert.equal(story.evidence.card.visual.start, addDays(launch, -1));
+    assert.equal(story.evidence.card.visual.series[0].values[0], 0);
+    assert.notEqual(story.evidence.card.visual.series[1].values.at(-1), source.days.at(-1).orchard);
+    assert.match(story.content, periodDays === 7 ? /week|7.day/i : /month|30.day/i);
+    assert.doesNotMatch(story.content, /led Orchard over \d+ complete days for the first time/i);
+    assert.ok(story.content.length <= 280);
+  }
+});
+
+test('annual parity cards show both rolling365 counts including a measured pre-launch zero baseline', () => {
+  const source = activity(launch, i => i === 0 ? { totalTransactions: 500000, ironwood: 365000 } : {});
+  const [story] = poolMilestoneStories(source, launch);
+  assert.equal(story.evidence.achievements[0].kind, 'parity');
+  assertRollingComparison(story, source);
+  assert.equal(story.evidence.card.visual.start, addDays(launch, -1));
+  assert.deepEqual(story.evidence.card.visual.series[0].values, [0, 365000]);
+  assert.deepEqual(story.evidence.card.visual.series[1].values, [365000, 365000]);
+  assert.match(story.content, /caught up|matched|reached/i);
+  assert.match(story.content, /past year|365 days/i);
+  assert.doesNotMatch(story.content, /trailing-year transaction count/i);
+  assert.ok(story.content.length <= 280);
+});
+
+test('comparison charts retain a bounded shared timeline across a calendar year', () => {
+  const target = '2027-01-05', source = crossoverSource(target, 7);
+  const [story] = poolMilestoneStories(source, target);
+  assertRollingComparison(story, source);
+  assert.equal(story.evidence.card.visual.series[0].values.length, 90);
+  assert.match(story.evidence.card.date, /2026/);
+  assert.match(story.evidence.card.date, /2027/);
+});
+
+test('recovered crossover charts end on the original crossing and preserve its exact endpoints', () => {
+  const crossing = addDays(launch, 10), target = addDays(crossing, 2);
+  const original = crossoverSource(crossing, 7);
+  const extended = activity(target, (i, date) => i > 0 ? {
+    orchard: 100, ironwood: date === crossing ? 701 : 2,
+  } : {});
+  const [initial] = poolMilestoneStories(original, crossing);
+  const [recovered] = poolMilestoneStories(extended, target, { activatedAt: `${launch}T00:00:00Z` });
+  assert.equal(recovered.evidence.target, crossing);
+  assert.deepEqual(recovered.evidence.card.visual, initial.evidence.card.visual);
+  assertRollingComparison(recovered, extended);
+});
+
+test('volume and involvement-share cards retain single-metric visuals and natural count-aware copy', () => {
+  const target = addDays(launch, 13), volume = delayedVolume(target, target);
+  const [volumeStory] = poolMilestoneStories(volume, target);
+  assert.equal(volumeStory.evidence.card.visual.kind, 'series');
+  assert.match(volumeStory.content.split('\n')[0], /reached/i);
+  assert.doesNotMatch(volumeStory.content.split('\n')[0], /passed|crossed/i);
+  assert.match(volumeStory.content, /since launch|since activation/i);
+  const week = addDays(launch, 7);
+  const share = activity(week, i => i > 0 ? {
+    totalTransactions: 1000, orchard: 1000, ironwood: i === 7 ? 560 : 490,
+  } : {});
+  const [shareStory] = poolMilestoneStories(share, week);
+  assert.equal(shareStory.evidence.card.visual.kind, 'series');
+  assert.match(shareStory.content, /50%.*transactions.*use Ironwood/i);
+  assert.match(shareStory.content, /week|7.day/i);
+  assert.doesNotMatch(shareStory.content, /appeared in at least/i);
+  for (const story of [volumeStory, shareStory]) assert.ok(story.content.length <= 280);
 });
 
 function delayedVolume(target, crossing) {

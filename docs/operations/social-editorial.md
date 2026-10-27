@@ -61,6 +61,10 @@ qualifier, the shortened source link and UTC date. Visuals by type:
 - Daily activity, signals, hashrate, milestones: a series with a zero-based
   y-axis and a dashed reference (30-day average, previous peak or the level).
   Hashrate charts only the samples behind the claim, at most 91 days.
+- Ironwood transaction crossovers: Ironwood gold and dashed Orchard purple
+  lines on a shared zero-based axis. Each point is the same rolling 7-, 30-
+  or 365-day transaction count as the headline, with exact endpoint counts
+  in the legend and the chart's own UTC endpoint-date range.
 - Weekly activity: a top-ten rank strip when ranked ≤10, otherwise number only.
 - Cross-chain daily: into/out-of-ZEC bars. Reorg: a fork diagram.
 
@@ -220,6 +224,15 @@ thirty-day leadership, seven-day leadership, volume landmarks, weekly share and
 approaching-parity thresholds. Percentage cards use a threshold qualifier (≥).
 Age context uses completed elapsed days from the indexed activation block,
 and is included in the tweet when the complete copy fits within 280 characters.
+
+Copy follows the existing event-first voice: "Ironwood just caught up with
+Orchard's transaction count over the past year" and "Ironwood just overtook
+Orchard in weekly transaction activity." Exact counts, dates and coinbase
+exclusion remain in the body/footer. The frame, fonts, large headline number,
+Ironwood gold and source footer use the existing card renderer. Comparison
+charts show up to 90 daily endpoints; each endpoint uses the full stated
+rolling window. For launch-day crossovers, a measured pre-launch endpoint
+keeps both lines drawable without inventing a repeated point.
 
 ### Data authority
 

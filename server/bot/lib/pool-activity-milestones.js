@@ -98,41 +98,55 @@ function firstCrossingStories(activity, target) {
     ? f.rangeText(lead.period.start, target) : `${f.dayYear(lead.period.start)} – ${f.dayYear(target)}`;
   const window = `${range} UTC`;
   const ageDays = Math.floor((Date.parse(`${addDays(target, 1)}T00:00:00Z`) / 1000 - activity.activation.timestamp) / 86400);
+  const ageText = ageDays === 0 ? 'Less than a day after Ironwood launched.' : `${ageDays} days after Ironwood launched.`;
   let headline, detail, hero, line, qualifier;
   if (lead.kind === 'leadership') {
-    headline = `Ironwood led Orchard over ${lead.periodDays} complete days for the first time.`;
-    detail = `${f.number(lead.ironwood)} vs ${f.number(lead.orchard)} transactions involving each pool.`;
-    hero = f.number(lead.ironwood); line = `transactions in ${lead.periodDays} complete days.`;
-    qualifier = `Orchard: ${f.number(lead.orchard)} transactions.`;
+    headline = lead.periodDays === 7 ? 'Ironwood just overtook Orchard in weekly transaction activity.'
+      : "Ironwood just passed Orchard's 30-day transaction count.";
+    detail = `${f.number(lead.ironwood)} transactions vs Orchard's ${f.number(lead.orchard)} over ${lead.periodDays} days.`;
+    hero = f.number(lead.ironwood); line = `transactions in the past ${lead.periodDays} days.`;
+    qualifier = `Ahead of Orchard's ${f.number(lead.orchard)}.`;
   } else if (lead.kind === 'parity') {
-    headline = lead.level === 100 ? "Ironwood reached Orchard's trailing-year transaction count."
-      : `Ironwood reached ${lead.level}% of Orchard's trailing-year transaction count.`;
-    detail = `${f.number(lead.ironwood)} vs ${f.number(lead.orchard)} over 365 complete days.`;
-    hero = `≥${lead.level}%`; line = "of Orchard's trailing-year tx count.";
-    qualifier = `${f.number(lead.ironwood)} vs ${f.number(lead.orchard)} transactions.`;
+    headline = lead.level === 100 ? "Ironwood just caught up with Orchard's transaction count over the past year."
+      : `Ironwood just reached ${lead.level}% of Orchard's transaction count over the past year.`;
+    detail = `${f.number(lead.ironwood)} vs ${f.number(lead.orchard)} transactions over 365 days.`;
+    hero = `≥${lead.level}%`; line = "of Orchard's past-year transactions.";
+    qualifier = ageText;
   } else if (lead.kind === 'volume') {
-    headline = `Ironwood crossed ${f.number(lead.level)} transactions since activation.`;
-    detail = `${f.number(lead.ironwood)} transactions involving Ironwood; ${ageDays} days after activation.`;
-    hero = f.levelText(lead.level); line = 'transactions since activation.';
-    qualifier = `${ageDays} days after activation.`;
+    headline = `Ironwood just reached ${f.number(lead.level)} transactions.`;
+    detail = `${f.number(lead.ironwood)} transactions since launch. ${ageText}`;
+    hero = f.levelText(lead.level); line = 'transactions since launch.';
+    qualifier = ageText;
   } else {
-    headline = `Ironwood appeared in at least ${lead.level}% of Zcash transactions over 7 complete days.`;
-    detail = `${f.number(lead.ironwood)} of ${f.number(lead.totalTransactions)} non-coinbase transactions.`;
-    hero = `≥${lead.level}%`; line = 'of transactions involved Ironwood.';
-    qualifier = '7 complete UTC days; coinbase excluded.';
+    headline = `At least ${lead.level}% of Zcash transactions now use Ironwood.`;
+    detail = `${f.number(lead.ironwood)} of ${f.number(lead.totalTransactions)} transactions over the past week.`;
+    hero = `≥${lead.level}%`; line = 'of transactions used Ironwood.';
+    qualifier = 'Over the past week; coinbase excluded.';
   }
   // Dates, counts and the denominator take precedence over optional age context.
   const compose = extra => `🟨 ${headline}\n\n${detail}${extra}\n\n${window}. Coinbase excluded.\nhttps://zecblock.com/pools`;
-  const withAge = compose(lead.kind === 'volume' ? '' : ` ${ageDays} days after activation.`);
+  const withAge = compose(lead.kind === 'volume' ? '' : ` ${ageText}`);
   const content = withAge.length <= 280 ? withAge : compose('');
   const chartRows = days.slice(-30);
   const cumulative = lead.kind === 'volume';
   const values = chartRows.map((row, offset) => cumulative
     ? prefixes[days.length - chartRows.length + offset + 1].ironwood : row.ironwood);
+  let visual = { kind: 'series', values,
+    label: cumulative ? 'Ironwood transactions since launch' : 'Ironwood transactions per UTC day',
+    start: chartRows[0].date, end: target };
+  if (lead.kind === 'leadership' || lead.kind === 'parity') {
+    // Plot the same rolling count as the claim, for both pools on every date.
+    // One pre-launch endpoint supplies a real zero baseline for launch-day events.
+    const startIndex = Math.max(launchIndex - 1, days.length - 90);
+    const indices = Array.from({ length: days.length - startIndex }, (_, i) => startIndex + i);
+    visual = { kind: 'comparison', label: `Transactions · rolling ${lead.periodDays} days`, unit: 'transactions',
+      start: days[startIndex].date, end: target,
+      series: ['ironwood', 'orchard'].map(key => ({ key, label: key === 'ironwood' ? 'Ironwood' : 'Orchard', tone: key,
+        values: indices.map(index => sum(index, lead.periodDays)[key]) })) };
+  }
   const card = { kicker: 'Milestone · Ironwood activity', hero, tone: 'ironwood', line, qualifier,
     source: 'zecblock.com/pools', date: range,
-    visual: { kind: 'series', values, label: cumulative ? 'Ironwood transactions since activation' : 'Ironwood transactions per UTC day',
-      start: chartRows[0].date, end: target } };
+    visual };
   return [candidate('milestone', `milestone:pool_activity:${lead.id}`, content, {
     target, achievements, lead: lead.id, activation: activity.activation, ageDays,
     historyStart: activity.historyStart, capturedAt: activity.capturedAt, tip: activity.tip,
