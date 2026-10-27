@@ -8,7 +8,7 @@ const compiled = ts.transpileModule(fs.readFileSync('components/pools/pool-activ
 }).outputText;
 const loaded = { exports: {} };
 new Function('exports', compiled)(loaded.exports);
-const { activityValue, poolActivityRows, activityNumber } = loaded.exports;
+const { activityValue, poolActivityRows, activityNumber, selectedActivityPools, toggleActivityPool, poolActivitySummary } = loaded.exports;
 
 const point = {
   date: '2026-10-25', totalTransactions: 10,
@@ -45,4 +45,32 @@ test('invalid observations cannot become plausible percentages or UTC dates', ()
   for (const value of [-1, 11, NaN, Infinity, 0.5, '3']) assert.equal(activityValue(value, 10, 'share'), null);
   assert.deepEqual(poolActivityRows([{ ...point, date: 'invalid' }], 'count'), []);
   assert.equal(poolActivityRows([point], 'count')[0].x, Date.UTC(2026, 9, 25));
+});
+
+test('pool selection retains at least one series and restores canonical legend order', () => {
+  const all = ['ironwood', 'orchard', 'sapling', 'sprout'];
+  assert.deepEqual(toggleActivityPool(all, 'ironwood'), ['orchard', 'sapling', 'sprout']);
+  const last = ['sapling'];
+  assert.equal(toggleActivityPool(last, 'sapling'), last);
+  assert.deepEqual(toggleActivityPool(last, 'ironwood'), ['ironwood', 'sapling']);
+});
+
+test('selected export series retain the original percentage denominator and only Ironwood carries recovery metadata', () => {
+  const rows = poolActivityRows([point], 'share');
+  const withoutIronwood = selectedActivityPools(['orchard', 'sapling', 'sprout']);
+  assert.deepEqual(withoutIronwood.map(pool => pool.key), ['orchard', 'sapling', 'sprout']);
+  assert.ok(withoutIronwood.every(pool => pool.marker === undefined && pool.strokeWidth === 2));
+  assert.equal(rows[0].sapling, 70);
+  assert.equal(rows[0].ironwood, 80);
+  assert.equal(selectedActivityPools(['ironwood'])[0].marker, 'diamond');
+  assert.equal(selectedActivityPools(['ironwood'])[0].strokeWidth, 3);
+});
+
+test('period summaries show count and network share in both modes without treating unavailable shares as zero', () => {
+  assert.deepEqual(poolActivitySummary(6355, 220427, 'count'), { primary: '6,355', secondary: '2.88%' });
+  assert.deepEqual(poolActivitySummary(6355, 220427, 'share'), { primary: '2.88%', secondary: '6,355 txs' });
+  assert.deepEqual(poolActivitySummary(0, 100, 'count'), { primary: '0', secondary: '0%' });
+  assert.deepEqual(poolActivitySummary(0, 0, 'count'), { primary: '0', secondary: '—' });
+  assert.deepEqual(poolActivitySummary(0, 0, 'share'), { primary: '—', secondary: '0 txs' });
+  assert.deepEqual(poolActivitySummary(null, null, 'count'), { primary: '—', secondary: '—' });
 });
