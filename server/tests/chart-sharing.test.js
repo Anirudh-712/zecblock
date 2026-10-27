@@ -1,7 +1,7 @@
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const ts=require('typescript');
 function load(file){const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const m={exports:{}};new Function('module','exports','require',code)(m,m.exports,name=>load(path.resolve(path.dirname(file),name+'.ts')));return m.exports;}
 const {CHART_CATALOG}=load('lib/chart-catalog.ts');
-const sharing=load('lib/chart-sharing.ts');const {chartGeometry}=load('lib/chart-geometry.ts');
+const sharing=load('lib/chart-sharing.ts');const {chartGeometry,chartMarkerIndices}=load('lib/chart-geometry.ts');
 const chart=CHART_CATALOG.find(c=>c.id==='shielded-supply');
 test('every catalog chart has one base sitemap URL and no range variants',()=>{
  const source=fs.readFileSync('lib/sitemaps.ts','utf8');
@@ -45,6 +45,38 @@ test('stacked incomplete rows do not look like a sudden collapse',()=>{
  const c=CHART_CATALOG.find(c=>c.id==='supply');
  const g=chartGeometry(c,[{x:1,shielded:5,transparent:10},{x:2,shielded:null,transparent:10}]);
  assert.equal(g.paths[0].segments[0].length,1);assert.equal(g.paths[1].segments[0].length,1);
+});
+test('diamond sampling retains the last valid and isolated observations without bridging gaps',()=>{
+ const c={...chart,percent:false,series:[{key:'ironwood',label:'Ironwood',color:'ironwood',marker:'diamond',strokeWidth:3}]};
+ const rows=Array.from({length:365},(_,i)=>({x:i,ironwood:i}));
+ const indices=chartMarkerIndices(rows,'ironwood');
+ assert.ok(indices.size<=25);assert.ok(indices.has(364));
+ rows[6].ironwood=null;rows[8].ironwood=null;rows[364].ironwood=null;
+ const sampled=chartMarkerIndices(rows,'ironwood');
+ assert.ok(sampled.has(7),'isolated observations remain visible outside the regular stride');
+ assert.ok(sampled.has(363),'the last valid observation is retained when trailing data is missing');
+ assert.ok(!sampled.has(6));assert.ok(!sampled.has(8));assert.ok(!sampled.has(364));
+ const g=chartGeometry(c,rows,300,120);
+ assert.deepEqual(g.paths[0].markers.map(point=>point.index).sort((a,b)=>a-b),[...sampled].sort((a,b)=>a-b));
+ assert.ok(g.paths[0].segments.some(segment=>segment.length===1 && segment[0].index===7));
+ assert.ok(g.paths[0].markers.every(point=>point.top>=5 && point.top<=115),'full markers fit inside the plot');
+ assert.equal(chartGeometry(c,[{x:1,ironwood:null}]).paths[0].markers.length,0);
+});
+test('exported diamond line styling follows selected pools and preserves isolated observations',()=>{
+ const {renderToStaticMarkup}=require('react-dom/server');
+ const {ChartExport}=loadRoute('components/charts/ChartExport.tsx');
+ const ironwood={key:'ironwood',label:'Ironwood',color:'ironwood',marker:'diamond',strokeWidth:3};
+ const sapling={key:'sapling',label:'Sapling',color:'sapling',strokeWidth:2};
+ const data={chart:{...chart,percent:false,series:[ironwood,sapling]},rows:[{x:1,ironwood:100,sapling:3},{x:2,ironwood:null,sapling:2},{x:3,ironwood:0,sapling:1}]};
+ const markup=renderToStaticMarkup(ChartExport({data}));
+ assert.equal((markup.match(/data-marker="diamond"/g)||[]).length,2,'both isolated points are diamonds');
+ assert.match(markup,/stroke-width="3"/);assert.match(markup,/stroke-width="2"/);
+ assert.match(markup,/data-marker="diamond"[^>]+fill="#0B0C0E"/);
+ const selected={...data,chart:{...data.chart,series:[sapling]}};
+ assert.doesNotMatch(renderToStaticMarkup(ChartExport({data:selected})),/data-marker="diamond"/);
+ assert.equal(chartGeometry(selected.chart,selected.rows).max,3,'hidden pool data cannot inflate the axis');
+ const missing={...data,rows:[{x:1,ironwood:null,sapling:3}]};
+ assert.doesNotMatch(renderToStaticMarkup(ChartExport({data:missing})),/data-marker="diamond"/);
 });
 test('CSV retains numeric precision, quotes values, distinguishes missing, neutralizes formulas',()=>{
  const c={...chart,axis:'category',series:[{key:'value',label:'Value',color:'gold'}]};
