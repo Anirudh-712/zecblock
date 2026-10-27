@@ -210,7 +210,7 @@ Implemented locally; production has not been deployed or enabled by this change.
 - First Ironwood lead over Orchard in thirty complete post-activation UTC days.
 - First 90%, 95% and 100% thresholds against Orchard's transaction count in the
   same trailing 365 complete UTC days. The 100% event includes equality and says
-  "reached". It is not a comparison with Orchard's lifetime count.
+  "caught up". It is not a comparison with Orchard's lifetime count.
 - Lifetime Ironwood transaction landmarks: 100,000; 250,000; 500,000; 1 million;
   2 million; 5 million; and 10 million. These include the partial activation day.
 - First 10%, 25%, 50% and 75% thresholds for Ironwood involvement in all canonical
