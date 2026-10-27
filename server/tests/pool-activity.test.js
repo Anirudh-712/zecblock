@@ -135,6 +135,37 @@ test('canonical pool activity and missing coverage execute against PostgreSQL', 
     // A canonical block's day comes from its header, with counts independent
     // of the connection time zone, and retained orphan transactions excluded.
     assert.equal(data.sourceHeight, 108);
+    // Legacy NULL pool fields mean unavailable, rather than a measured absence.
+    // A flag can classify presence/absence without counts; raw counts can also
+    // classify a pool, with both Sapling counts required to establish absence.
+    for (const [flag, counts] of [
+      ['has_sprout', ['sprout_joinsplit_count']],
+      ['has_sapling', ['sapling_spend_count', 'sapling_output_count']],
+      ['has_orchard', ['orchard_actions']],
+      ['has_ironwood', ['ironwood_actions']],
+    ]) {
+      const setCounts = value => counts.map(column => `${column}=${value}`).join(',');
+      await db.query(`UPDATE transactions SET ${flag}=NULL,${setCounts('NULL')} WHERE txid='transparent-103'`);
+      const unknown = await read();
+      assert.equal(unknown.points[2].complete, false, flag);
+      assert.equal(unknown.points[2].totalTransactions, null, flag);
+      assert.ok(Object.values(unknown.totals).every(value => value === null), flag);
+      await db.query(`UPDATE transactions SET ${flag}=false WHERE txid='transparent-103'`);
+      assert.equal((await read()).points[2].complete, true, `${flag} authoritative absence`);
+      await db.query(`UPDATE transactions SET ${flag}=true WHERE txid='transparent-103'`);
+      assert.equal((await read()).points[2].complete, true, `${flag} authoritative presence`);
+      await db.query(`UPDATE transactions SET ${flag}=NULL,${setCounts('0')} WHERE txid='transparent-103'`);
+      assert.equal((await read()).points[2].complete, true, `${flag} count-based absence`);
+      await db.query(`UPDATE transactions SET ${flag}=false WHERE txid='transparent-103'`);
+    }
+    await db.query("UPDATE transactions SET has_sapling=NULL,sapling_spend_count=0,sapling_output_count=NULL WHERE txid='transparent-103'");
+    assert.equal((await read()).points[2].complete, false, 'one zero Sapling count cannot establish absence');
+    await db.query("UPDATE transactions SET sapling_spend_count=2 WHERE txid='transparent-103'");
+    assert.equal((await read()).points[2].complete, true, 'positive Sapling spend establishes presence');
+    assert.equal((await read()).points[2].sapling, 3);
+    await db.query("UPDATE transactions SET sapling_spend_count=NULL,sapling_output_count=1 WHERE txid='transparent-103'");
+    assert.equal((await read()).points[2].complete, true, 'positive Sapling output establishes presence');
+    await db.query("UPDATE transactions SET has_sapling=false,sapling_spend_count=0,sapling_output_count=0 WHERE txid='transparent-103'");
     await db.query(`UPDATE blocks SET timestamp = CASE height
       WHEN 102 THEN extract(epoch FROM timestamptz '2026-10-22T23:59:59Z')
       WHEN 103 THEN extract(epoch FROM timestamptz '2026-10-21T00:00:00Z') END

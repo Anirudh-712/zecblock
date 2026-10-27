@@ -27,6 +27,14 @@ WITH tip AS (
     COUNT(t.txid) AS indexed_transactions,
     COUNT(t.txid) FILTER (WHERE t.is_coinbase = true) AS coinbase_transactions,
     COUNT(t.txid) FILTER (WHERE t.is_coinbase = false) AS total_transactions,
+    COUNT(t.txid) FILTER (WHERE t.is_coinbase = false AND NOT (
+      (t.has_sprout IS NOT NULL OR t.sprout_joinsplit_count IS NOT NULL)
+      AND (t.has_sapling IS NOT NULL
+        OR (t.sapling_spend_count > 0 OR t.sapling_output_count > 0) IS TRUE
+        OR (t.sapling_spend_count IS NOT NULL AND t.sapling_output_count IS NOT NULL))
+      AND (t.has_orchard IS NOT NULL OR t.orchard_actions IS NOT NULL)
+      AND (t.has_ironwood IS NOT NULL OR t.ironwood_actions IS NOT NULL)
+    )) AS unknown_pool_transactions,
     COUNT(t.txid) FILTER (WHERE t.is_coinbase = false AND
       (t.has_sprout = true OR t.sprout_joinsplit_count > 0)) AS sprout,
     COUNT(t.txid) FILTER (WHERE t.is_coinbase = false AND
@@ -46,7 +54,8 @@ WITH tip AS (
     SUM(orchard) AS orchard, SUM(ironwood) AS ironwood,
     BOOL_AND(transaction_count >= 1 AND indexed_transactions = transaction_count
       AND coinbase_transactions = 1
-      AND total_transactions + coinbase_transactions = indexed_transactions) AS complete
+      AND total_transactions + coinbase_transactions = indexed_transactions
+      AND unknown_pool_transactions = 0) AS complete
   FROM per_block GROUP BY 1
 )
 SELECT day::date::text AS date, d.total_transactions,
