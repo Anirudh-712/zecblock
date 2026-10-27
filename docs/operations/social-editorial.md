@@ -68,7 +68,7 @@ Missing values, a non-`zecblock.com` link, or text that cannot fit at a minimum
 size throw, and delivery falls back to text instead of a clipped or misleading
 image. `node output/bot-examples/render.js` renders every fixture type locally.
 
-The source change does not alter credentials, automatic posting cadence,
+The image integration does not alter credentials, automatic posting cadence,
 activation watermark, deduplication, selection thresholds or historical claims.
 Changing the X profile is a separate account setting. Render regression fixtures
 never contact X; they exercise all scheduled types and the media-upload handoff
@@ -194,3 +194,87 @@ and milestone SQL. New tests cover milestone first-crossing, hovering, thin
 history, stale target and daily cap; worst-case 280-character bounds; integer
 truncation (512.05 ZEC stays 512.05). All 15 fixture cards were rendered and
 inspected visually.
+
+
+## Ironwood transaction milestone alerts — 2026-10-27
+
+Implemented locally; production has not been deployed or enabled by this change.
+
+### Events
+
+- First Ironwood lead over Orchard in seven complete post-activation UTC days.
+- First Ironwood lead over Orchard in thirty complete post-activation UTC days.
+- First 90%, 95% and 100% thresholds against Orchard's transaction count in the
+  same trailing 365 complete UTC days. The 100% event includes equality and says
+  "reached". It is not a comparison with Orchard's lifetime count.
+- Lifetime Ironwood transaction landmarks: 100,000; 250,000; 500,000; 1 million;
+  2 million; 5 million; and 10 million. These include the partial activation day.
+- First 10%, 25%, 50% and 75% thresholds for Ironwood involvement in all canonical
+  non-coinbase transactions over seven complete post-activation UTC days.
+
+Every event retains exact counts, inclusive start and exclusive end, the
+canonical source tip, capture time, activation height/timestamp and all
+simultaneous first crossings. One lead achievement becomes the post and card;
+the others remain structured evidence. Trailing-year parity leads, followed by
+thirty-day leadership, seven-day leadership, volume landmarks, weekly share and
+approaching-parity thresholds. Percentage cards use a threshold qualifier (≥).
+Age context uses completed elapsed days from the indexed activation block,
+and is included in the tweet when the complete copy fits within 280 characters.
+
+### Data authority
+
+`readPoolActivity` uses a read-only repeatable-read PostgreSQL snapshot and a
+60-second statement timeout. It requires the mainnet database, a tip no more
+than 30 minutes old (or two hours in the future), and canonical activation block
+3,428,143 on July 28, 2026 UTC. Activation-day activity is included in lifetime
+counts; rate/share windows begin with the next complete UTC day.
+
+History starts 365 days before activation and continues through yesterday.
+This covers every relevant historical rolling window since Ironwood launched.
+An enclosing contiguous canonical height span, including both shoulders,
+detects missing blocks. Transactions join blocks by height and hash. Every
+included block must have its expected transaction count and exactly one
+coinbase. Missing pool classification, missing days and unsafe counts make the
+comparison unavailable and cause the collector to fail for retry.
+
+Transactions count once per pool they involve; pool series overlap. Transparent
+transactions remain in the total denominator. Migrations are included. These
+counts measure activity, not unique users, independent payments, private value
+transferred or organic demand. A pool transaction is not an action or note.
+
+### Scheduling and delivery
+
+The existing five-minute bot tick evaluates newly completed days after 06:00
+UTC. A separate persistent marker,
+`analysis:pool_activity:activation:v1`, starts this feature with future reporting
+periods. Existing global bot activation is preserved. Initial deployment does
+not post the historical Ironwood milestones already achieved.
+
+Each scan can recover original first-crossing reports from the last seven
+completed reporting dates, provided their reporting time (next day at 06:00
+UTC) is at or after the feature marker. Source failures are not marked evaluated.
+Recovery preserves each milestone's original counts and dates. The existing
+primary outbox history suppresses posted, posting and uncertain keys, and a
+permanent unique key based on the lead achievement protects against duplicates
+even if chain corrections move its first-crossing date. Ambiguous deliveries
+retain the existing manual-reconciliation behavior.
+
+The existing one-milestone-per-UTC-day cap and twenty-minute global spacing
+apply. A higher-priority alert can defer this collector to a later run. Several
+missed reporting dates may drain over several days; events older than seven
+reporting dates are not recovered automatically. A published lead can carry
+other simultaneous achievements as evidence without separately publishing each.
+
+### Verification and release
+
+`ACTIVITY_TEST_POSTGRES=1 npm run test:bot` includes the pure milestone policies,
+feature activation/recovery/orchestration tests and real isolated PostgreSQL
+coverage fixtures. Existing editorial delivery and card tests remain included.
+Scoped ESLint covers the changed JavaScript files.
+
+`node server/bot/preview.js --output=/tmp/pool-milestone-preview.json` uses the
+existing read-only preview. It does not initialize the feature marker or publish
+posts, and therefore intentionally previews no pool backlog before activation.
+Release through the normal source review/deployment process, then verify the
+feature activation marker and daily collector logs. Local fixtures do not prove
+production completeness or query latency. No production rollout is claimed.

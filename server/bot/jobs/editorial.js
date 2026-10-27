@@ -10,12 +10,13 @@ const { select, isNew } = require('../lib/editorial-policy');
 // protect deduplication even after a crash or lost advisory-lock connection.
 const LOCK = 839307;
 const ACTIVATION_KEY = 'analysis:activation:v1';
+const POOL_ACTIVATION_KEY = 'analysis:pool_activity:activation:v1';
 
-async function activationTime(pool, dryRun, now) {
+async function activationTime(pool, dryRun, now, key = ACTIVATION_KEY) {
   if (!dryRun) await pool.query(`INSERT INTO social_post_outbox(post_type,dedup_key,content,metadata,status)
     VALUES ('editorial_activation',$1,'Future events only',$2::jsonb,'active')
-    ON CONFLICT(dedup_key) DO NOTHING`, [ACTIVATION_KEY,JSON.stringify({activatedAt:now.toISOString()})]);
-  const { rows: [row] } = await pool.query('SELECT metadata FROM social_post_outbox WHERE dedup_key=$1',[ACTIVATION_KEY]);
+    ON CONFLICT(dedup_key) DO NOTHING`, [key,JSON.stringify({activatedAt:now.toISOString()})]);
+  const { rows: [row] } = await pool.query('SELECT metadata FROM social_post_outbox WHERE dedup_key=$1',[key]);
   const value = row?.metadata?.activatedAt;
   if (value && Number.isFinite(Date.parse(value))) return value;
   if (dryRun && !row) return now.toISOString();
@@ -64,6 +65,8 @@ async function run(pool, xClient, { now = new Date(), logger = console, render, 
     if (!locked) return { skipped: 'another-run-active' };
     await collectors.assertMainnetFresh(pool,now);
     const activatedAt = await activationTime(pool,xClient.dryRun,now);
+    const poolActivatedAt = collectors.poolActivityCandidates
+      ? await activationTime(pool,xClient.dryRun,now,POOL_ACTIVATION_KEY) : null;
     const { rows: history } = await pool.query(`SELECT post_type,dedup_key,status,created_at,metadata
       FROM social_post_outbox WHERE created_at >= $1::timestamptz-interval '90 days'`, [now.toISOString()]);
     const pacing = history.some(p => p.metadata?.editorialVersion === 1 &&
@@ -89,6 +92,11 @@ async function run(pool, xClient, { now = new Date(), logger = console, render, 
       const includeWeekly = Date.parse(`${completedWeekEnd(now)}T06:00:00Z`) >= Date.parse(activatedAt) && !history.some(p => p.dedup_key === `analysis:week:${week}` ||
         (p.dedup_key === `activity_week:v1:${week}` && !['draft','withdrawn'].includes(p.status)));
       for (const [name, fn] of [
+        ...(poolActivatedAt && Date.parse(`${now.toISOString().slice(0,10)}T06:00:00Z`) >= Date.parse(poolActivatedAt)
+          ? [['pool_activity', () => collectors.poolActivityCandidates(reader,now, {
+            activatedAt: poolActivatedAt,
+            excludedKeys: history.filter(p => ['posted','posting','uncertain'].includes(p.status)).map(p => p.dedup_key),
+          })]] : []),
         ['activity', () => collectors.activityCandidates(reader,now,includeWeekly)],
         ['hashrate', () => collectors.hashrateCandidate(reader,now)],
         ['signals', () => collectors.signalCandidates(reader,now)],

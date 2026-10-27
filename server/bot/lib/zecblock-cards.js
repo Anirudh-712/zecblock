@@ -127,6 +127,16 @@ function drawSeries(ctx, v, accent) {
   // The brand block marks the latest observation.
   ctx.fillStyle = accent;
   ctx.fillRect(px(values.length - 1) - 8, py(values.at(-1)) - 8, 16, 16);
+  if (v.label) {
+    ctx.font = 'normal 15px GeistMono'; ctx.fillStyle = C.muted;
+    ctx.fillText(v.label, x, y - 28);
+    ctx.fillText('0', x, y + h + 24);
+    ctx.fillText(Math.max(...values).toLocaleString('en-US'), x, y - 8);
+    if (v.start && v.end) {
+      const range = `${v.start} – ${v.end} UTC`;
+      ctx.fillText(range, x, y + h + 49);
+    }
+  }
 }
 
 // Public side on top, shielded pool below. The arrow stays neutral; colour
