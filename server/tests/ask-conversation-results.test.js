@@ -25,6 +25,7 @@ function workspace(handoff) {
     '@/components/ask/AskFeedback': {AskFeedback:() => null, AskFailureFeedback:() => null, useAskFeedback:() => ({blocked:false})},
     '@/lib/ask/data': require('../../lib/ask/data'),
     '@/lib/ask/research-share': require('../../lib/ask/research-share'),
+    '@/lib/ask/follow-ups': require('../../lib/ask/follow-ups'),
     './AskAnalysis': {AskAnalysis:({spec}) => React.createElement('article', {'data-record':'preset', 'data-period':spec.period}, spec.metric)},
   };
   return renderToStaticMarkup(React.createElement(loadComponent('app/ask/AskWorkspace.tsx', imports).AskWorkspace));

@@ -25,6 +25,7 @@ import { AskFeedback, AskFailureFeedback, useAskFeedback } from '@/components/as
 import { describeMetric } from '@/lib/ask/data';
 import { AskAnalysis } from './AskAnalysis';
 import { readResearchLink, type ResearchShare } from '@/lib/ask/research-share';
+import { researchFollowUps } from '@/lib/ask/follow-ups';
 
 const categories = ['Featured', 'Pools', 'Ironwood', 'Cross-chain', 'Network'];
 type Message = { state?: 'pending' | 'complete' | 'failed' | 'cancelled'; sql?: string; research?: ResearchResult; analytics?: AskReply['analytics']; transactions?: AskReply['transactions']; blocks?: AskReply['blocks']; dataContext?: AskReply['dataContext']; id: number; question: string; answer: string; spec?: AnalysisSpec; viewSpec?: AnalysisSpec; sources?: AskSource[]; transfers?: AskReply['transfers']; locale?: string; scope?: string };
@@ -166,20 +167,29 @@ export function AskWorkspace() {
       transaction: transactions ? transactions.query.txid || transactions.rows[0]?.txid : item.transaction,
       spec: research || analytics || transfers || blocks || transactions ? null : next ?? item.spec,
     } : item));
+    let completedResearch: ResearchResult | undefined;
     try {
       if (!next || capability.mode === 'ai' && verified && !feedback.blocked) {
         let reply = await askChat(trimmed, session.page || 'ask', context, 'auto', session.messages.filter(message => !message.sql && (!message.state || message.state === 'complete')).map(message => message.question), token, controller.signal, context ? undefined : session.block, context ? undefined : session.transaction, !context && analytics?.plan.version === 2 ? analytics.plan : undefined, !context && capability.researchEnabled ? research?.query : undefined);
         if(reply.job){
           const ticket=jobTicketSchema.parse(reply.job);
           const result=await waitResearch(ticket,controller.signal,setJobStatus);
-          // Display validated data even if a paid explanation is unavailable.
+          controller.signal.throwIfAborted();
+          if (request.current !== controller) return;
+          // The checked data is usable while the separate explanation is pending.
+          completedResearch = result;
+          setSessions(all => all.map(item => item.id === activeId ? { ...item, spec: null, messages: item.messages.map(message => message.id === id ? { ...message, research: result } : message) } : item));
+          tools.accept(result,trimmed);
           setPhase('explaining');
           try{reply=await explainResearch(ticket,trimmed,reply.locale,controller.signal);}
           catch(cause){if(controller.signal.aborted)throw cause;reply={answer:'Your query is complete. The results are below; an AI explanation is temporarily unavailable.',sources:[],spec:null,locale:reply.locale,mode:'ai',research:result};}
         }
-        if (controller.signal.aborted) return;
-        append(reply.answer, reply.spec ? analysisSchema.parse(reply.spec) : undefined, reply.sources, reply.locale, reply.scope, reply.transfers, reply.dataContext, reply.blocks, reply.transactions, reply.analytics, reply.research ? researchResultSchema.parse(reply.research) : undefined);
-        if(reply.research)tools.accept(researchResultSchema.parse(reply.research),trimmed);
+        controller.signal.throwIfAborted();
+        if (request.current !== controller) return;
+        const shownResearch = completedResearch || (reply.research ? researchResultSchema.parse(reply.research) : undefined);
+        append(reply.answer, reply.spec ? analysisSchema.parse(reply.spec) : undefined, reply.sources, reply.locale, reply.scope, reply.transfers, reply.dataContext, reply.blocks, reply.transactions, reply.analytics, shownResearch);
+        // Preserve any chart changes made while the explanation was being written.
+        if(shownResearch && !completedResearch)tools.accept(shownResearch,trimmed);
       } else {
         append(`Opened ${describeMetric(next.metric).title.toLowerCase()} for ${next.period === '1y' ? 'the past year' : `the past ${next.period.slice(0, -1)} days`}${next.pool === 'all' ? '' : `, filtered to ${next.pool}`}. The analysis shows the source observations and updates as you change the controls.`, next);
       }
@@ -188,10 +198,10 @@ export function AskWorkspace() {
     } catch (cause) {
       if (request.current === controller) {
         setQuestion(trimmed);
-        setSessions(all => all.map(item => item.id === activeId ? { ...item, messages: item.messages.map(message => message.id === id ? { ...message, state: controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'cancelled' as const : 'failed' as const, answer: controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'Stopped. Your question has been restored to the input.' : 'This request did not complete. Your question has been restored to the input; see the error below.' } : message) } : item));
+        setSessions(all => all.map(item => item.id === activeId ? { ...item, messages: item.messages.map(message => message.id === id ? { ...message, state: controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'cancelled' as const : 'failed' as const, answer: message.research ? controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'Your query results are ready. The explanation was stopped; your question is back in the input.' : 'Your query results are ready, but the explanation did not finish. Your question is back in the input.' : controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'Stopped. Your question has been restored to the input.' : 'This request did not complete. Your question has been restored to the input; see the error below.' } : message) } : item));
         if (!controller.signal.aborted || controller.signal.reason?.name === 'TimeoutError') {
           feedback.report(controller.signal.aborted ? controller.signal.reason : cause);
-          if (next) updateSpec(next, true);
+          if (next && !completedResearch) updateSpec(next, true);
         } else setNotice('Stopped. Your draft is still here.');
       }
     } finally {
@@ -328,7 +338,7 @@ export function AskWorkspace() {
 
           </div>
           <div className={styles.conversationFooter}>
-            <div className="flex flex-wrap gap-2 mb-3">{(spec ? ranking ? ['Show as a bar chart', 'Show as a table'] : ['Show 90 days', poolMetric ? spec.pool === 'ironwood' ? 'Just Orchard' : 'Just Ironwood' : 'Show as a line chart', 'Show as a table'] : transactions ? ['Show the latest 5 transactions', 'Explain this transaction'] : blocks ? ['Tell me about the latest block', 'Explain this block'] : research ? ['Compare the leading results', 'Group these results by day'] : starters.slice(0, 2).map(item => item.title)).map(text => <button key={text} disabled={busy} onClick={() => void ask(text)} className={styles.followup}>{text}</button>)}</div>
+            <div className="flex flex-wrap gap-2 mb-3">{(spec ? ranking ? ['Show as a bar chart', 'Show as a table'] : ['Show 90 days', poolMetric ? spec.pool === 'ironwood' ? 'Just Orchard' : 'Just Ironwood' : 'Show as a line chart', 'Show as a table'] : transactions ? ['Show the latest 5 transactions', 'Explain this transaction'] : blocks ? ['Tell me about the latest block', 'Explain this block'] : research ? researchFollowUps(research) : starters.slice(0, 2).map(item => item.title)).map(text => <button key={text} disabled={busy} onClick={() => void ask(text)} className={styles.followup}>{text}</button>)}</div>
             {composer}{researchEditor}<p className="mt-3 text-caption text-muted leading-relaxed">{sqlMode ? 'SQL runs directly against public data. Your SQL is not sent to AI.' : capability.mode === 'ai' ? `Questions are sent to ${capability.provider}. Use public information only.` : 'Guided preview · No AI provider connected.'}</p>
           </div>
         </section>
