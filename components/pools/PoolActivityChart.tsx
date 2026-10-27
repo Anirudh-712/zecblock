@@ -15,7 +15,7 @@ import type { ChartExportData } from '@/lib/chart-sharing';
 import { CHART_DATE_AXIS, getChartColors, getChartTooltipStyle } from '@/lib/chart-theme';
 import { chartMarkerIndices } from '@/lib/chart-geometry';
 import {
-  ACTIVITY_NOTE, ACTIVITY_POOLS, RECOVERY_LABEL, RECOVERY_NOTE, activityNumber, activityValue, poolActivityRows,
+  ACTIVITY_NOTE, ACTIVITY_EXPORT_NOTE, ACTIVITY_POOLS, RECOVERY_LABEL, RECOVERY_NOTE, activityNumber, poolActivityRows, poolActivitySummary,
   selectedActivityPools, toggleActivityPool,
   type ActivityMode, type ActivityPeriod, type ActivityPool, type PoolActivityData,
 } from './pool-activity';
@@ -61,20 +61,22 @@ export function PoolActivityChart() {
   const exportData = useMemo<ChartExportData>(() => {
     const chart: CatalogChart = {
       id: 'pool-transaction-activity',
-      title: mode === 'share' ? 'Shielded pool transaction share' : 'Shielded pool transaction counts',
+      title: mode === 'share' ? 'Shielded pool transaction share · Zcash' : 'Shielded pool transaction counts · Zcash',
       description: visiblePools.some(pool => pool.key === 'ironwood')
-        ? `${ACTIVITY_NOTE} Ironwood supports future quantum recovery (ZIP 2005).`
-        : ACTIVITY_NOTE,
+        ? `${ACTIVITY_EXPORT_NOTE} Ironwood supports future quantum recovery (ZIP 2005).`
+        : ACTIVITY_EXPORT_NOTE,
       category: 'Supply & flows', href: '/pools#activity',
       endpoint: `/v1/shielded-pools/activity?period=${period}`, rows: 'points', x: 'date',
       window: period.toUpperCase(), unit: mode === 'share' ? '%' : 'Transactions',
-      series: visiblePools, kind: 'line',
+      series: visiblePools.map(pool => ({
+        ...pool, summary: poolActivitySummary(data?.totals[pool.key] ?? null, total, mode),
+      })), kind: 'line',
     };
     return {
       chart, rows, network: NETWORK, source: 'ZecBlock indexed transactions',
       asOf: data ? `${coverage}${data.sourceHeight != null ? ` · through block ${data.sourceHeight.toLocaleString('en-US')}` : ''}` : undefined,
     };
-  }, [mode, period, rows, data, coverage, visiblePools]);
+  }, [mode, period, rows, data, total, coverage, visiblePools]);
 
   return (
     <ShareableCard
@@ -104,6 +106,7 @@ export function PoolActivityChart() {
           <div className="mb-5 grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4" role="group" aria-label="Pools shown on chart">
             {ACTIVITY_POOLS.map(({ key, label, color }) => {
               const visible = selected.includes(key);
+              const summary = poolActivitySummary(data.totals[key], total, mode);
               return <div key={key} className="min-w-0">
                 <button type="button" aria-pressed={visible} aria-label={`${label} pool`}
                   title={visible && selected.length === 1 ? 'At least one pool stays visible' : `${visible ? 'Hide' : 'Show'} ${label}`}
@@ -114,8 +117,11 @@ export function PoolActivityChart() {
                       {visible && <svg width="9" height="9" viewBox="0 0 12 12" fill="none" className="text-cipher-bg" aria-hidden="true"><path d="m2 6 2.5 2.5L10 3" stroke="currentColor" strokeWidth="1.5" /></svg>}
                     </span>{label}
                   </span>
-                  <span className="block font-mono text-lg tabular-nums" aria-label={`${label} total`}>
-                    {activityNumber(activityValue(data.totals[key], total, mode), mode)}
+                  <span className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-mono text-lg tabular-nums" aria-label={`${label} total`}>{summary.primary}</span>
+                    <span className="font-mono text-caption tabular-nums text-muted" aria-label={`${label} ${mode === 'count' ? 'share' : 'count'}`}>
+                      ({summary.secondary})
+                    </span>
                   </span>
                 </button>
                 {key === 'ironwood' && <div className="mt-1 pl-2">

@@ -8,7 +8,7 @@ const compiled = ts.transpileModule(fs.readFileSync('components/pools/pool-activ
 }).outputText;
 const loaded = { exports: {} };
 new Function('exports', compiled)(loaded.exports);
-const { activityValue, poolActivityRows, activityNumber, selectedActivityPools, toggleActivityPool } = loaded.exports;
+const { activityValue, poolActivityRows, activityNumber, selectedActivityPools, toggleActivityPool, poolActivitySummary } = loaded.exports;
 
 const point = {
   date: '2026-10-25', totalTransactions: 10,
@@ -64,4 +64,13 @@ test('selected export series retain the original percentage denominator and only
   assert.equal(rows[0].ironwood, 80);
   assert.equal(selectedActivityPools(['ironwood'])[0].marker, 'diamond');
   assert.equal(selectedActivityPools(['ironwood'])[0].strokeWidth, 3);
+});
+
+test('period summaries show count and network share in both modes without treating unavailable shares as zero', () => {
+  assert.deepEqual(poolActivitySummary(6355, 220427, 'count'), { primary: '6,355', secondary: '2.88%' });
+  assert.deepEqual(poolActivitySummary(6355, 220427, 'share'), { primary: '2.88%', secondary: '6,355 txs' });
+  assert.deepEqual(poolActivitySummary(0, 100, 'count'), { primary: '0', secondary: '0%' });
+  assert.deepEqual(poolActivitySummary(0, 0, 'count'), { primary: '0', secondary: '—' });
+  assert.deepEqual(poolActivitySummary(0, 0, 'share'), { primary: '—', secondary: '0 txs' });
+  assert.deepEqual(poolActivitySummary(null, null, 'count'), { primary: '—', secondary: '—' });
 });
