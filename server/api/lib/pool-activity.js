@@ -7,12 +7,16 @@ const POOLS = Object.freeze(['sprout', 'sapling', 'orchard', 'ironwood']);
 // One database snapshot binds transaction counts to canonical block identities.
 // The surrounding height range detects missing blocks without treating ordinary
 // out-of-order block timestamps as gaps in an individual calendar day.
+// Materialize timestamp-filtered heights before MIN/MAX: otherwise PostgreSQL
+// can search the height primary key from genesis to find the first timestamp.
 const ACTIVITY_SQL = `
 WITH tip AS (
   SELECT height, timestamp FROM blocks ORDER BY height DESC LIMIT 1
+), window_heights AS MATERIALIZED (
+  SELECT height FROM blocks WHERE timestamp >= $1 AND timestamp < $2
 ), bounds AS (
   SELECT MIN(height) AS first_height, MAX(height) AS last_height
-  FROM blocks WHERE timestamp >= $1 AND timestamp < $2
+  FROM window_heights
 ), height_range AS MATERIALIZED (
   SELECT b.height, b.hash, b.timestamp, b.transaction_count
   FROM blocks b CROSS JOIN bounds r
