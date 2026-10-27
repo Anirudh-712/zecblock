@@ -127,6 +127,85 @@ function drawSeries(ctx, v, accent) {
   // The brand block marks the latest observation.
   ctx.fillStyle = accent;
   ctx.fillRect(px(values.length - 1) - 8, py(values.at(-1)) - 8, 16, 16);
+  if (v.label) {
+    ctx.font = 'normal 15px GeistMono'; ctx.fillStyle = C.muted;
+    ctx.fillText(v.label, x, y - 28);
+    ctx.fillText('0', x, y + h + 24);
+    ctx.fillText(Math.max(...values).toLocaleString('en-US'), x, y - 8);
+    if (v.start && v.end) {
+      const range = `${v.start} – ${v.end} UTC`;
+      ctx.fillText(range, x, y + h + 49);
+    }
+  }
+}
+
+// Both pools share one zero-based transaction scale. Orchard's dashed trace
+// and outlined endpoint remain visible when the two series meet or overlap.
+function drawComparison(ctx, v) {
+  const keys = ['ironwood', 'orchard'];
+  const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && Number.isFinite(Date.parse(`${value}T00:00:00Z`))
+    && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+  if (typeof v.label !== 'string' || !v.label.trim() || v.unit !== 'transactions'
+    || !validDate(v.start) || !validDate(v.end) || !Array.isArray(v.series)
+    || v.series.length !== 2 || new Set(v.series.map(s => s?.key)).size !== 2) {
+    throw new Error('Invalid comparison evidence');
+  }
+  const series = keys.map(key => v.series.find(s => s?.key === key));
+  const length = series[0]?.values?.length;
+  if (!Number.isInteger(length) || length < 2
+    || (Date.parse(v.end) - Date.parse(v.start)) / 86400000 + 1 !== length
+    || series.some((s, i) => !s || s.label !== (i ? 'Orchard' : 'Ironwood') || s.tone !== keys[i]
+      || !Array.isArray(s.values) || s.values.length !== length
+      || Array.from(s.values).some(value => !Number.isSafeInteger(value) || value < 0))) {
+    throw new Error('Invalid comparison values or dates');
+  }
+  const x = 700, y = 225, w = W - PAD - x, h = 235;
+  const max = series.reduce((peak, s) => s.values.reduce((n, value) => Math.max(n, value), peak), 1);
+  const px = i => x + i / (length - 1) * w;
+  const py = value => y + h - value / max * h;
+  const colors = [C.ironwood, C.orchard];
+  ctx.save();
+  ctx.fillStyle = C.muted;
+  fit(ctx, v.label, 'normal', 15, 13, w, 'GeistMono');
+  ctx.fillText(v.label, x, 142);
+  series.forEach((s, i) => {
+    const ly = 170 + i * 24;
+    ctx.strokeStyle = colors[i]; ctx.fillStyle = colors[i]; ctx.lineWidth = 2;
+    if (i) ctx.strokeRect(x + 1, ly - 10, 10, 10);
+    else ctx.fillRect(x + 1, ly - 10, 10, 10);
+    fit(ctx, s.label, 'normal', 15, 13, 150, 'GeistMono');
+    ctx.fillStyle = C.secondary; ctx.fillText(s.label, x + 24, ly);
+    const value = fmt(s.values.at(-1));
+    fit(ctx, value, 'normal', 15, 13, w - 175, 'GeistMono');
+    ctx.fillStyle = colors[i];
+    ctx.fillText(value, x + w - ctx.measureText(value).width, ly);
+  });
+  const topLabel = `${fmt(max)} ${v.unit}`;
+  ctx.fillStyle = C.muted;
+  fit(ctx, topLabel, 'normal', 15, 13, w, 'GeistMono');
+  ctx.fillText(topLabel, x, y - 8);
+  ctx.fillStyle = C.border;
+  ctx.fillRect(x, y + h, w, 1);
+  series.forEach((s, i) => {
+    ctx.beginPath();
+    s.values.forEach((value, j) => (j ? ctx.lineTo(px(j), py(value)) : ctx.moveTo(px(j), py(value))));
+    ctx.strokeStyle = colors[i]; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+    ctx.setLineDash(i ? [7, 5] : []);
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+  const endX = px(length - 1);
+  ctx.fillStyle = colors[0];
+  ctx.fillRect(endX - 6, py(series[0].values.at(-1)) - 6, 12, 12);
+  ctx.strokeStyle = colors[1]; ctx.lineWidth = 2;
+  ctx.strokeRect(endX - 9, py(series[1].values.at(-1)) - 9, 18, 18);
+  ctx.fillStyle = C.muted; ctx.font = 'normal 15px GeistMono';
+  ctx.fillText('0', x, y + h + 24);
+  const range = `${v.start} – ${v.end} UTC`;
+  fit(ctx, range, 'normal', 15, 13, w, 'GeistMono');
+  ctx.fillText(range, x, y + h + 49);
+  ctx.restore();
 }
 
 // Public side on top, shielded pool below. The arrow stays neutral; colour
@@ -241,6 +320,7 @@ async function renderEditorial(story) {
   const v = card.visual;
   drawText(ctx, card, accent, v ? 590 : W - 2 * PAD);
   if (v?.kind === 'series') drawSeries(ctx, v, accent);
+  else if (v?.kind === 'comparison') drawComparison(ctx, v);
   else if (v?.kind === 'transfer') drawTransfer(ctx, v);
   else if (v?.kind === 'swap') await drawSwap(ctx, v);
   else if (v?.kind === 'rank') drawRank(ctx, v);
