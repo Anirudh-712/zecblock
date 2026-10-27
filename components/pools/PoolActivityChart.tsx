@@ -61,7 +61,7 @@ export function PoolActivityChart() {
   const exportData = useMemo<ChartExportData>(() => {
     const chart: CatalogChart = {
       id: 'pool-transaction-activity',
-      title: mode === 'share' ? 'Shielded pool transaction share' : 'Shielded pool transaction counts',
+      title: mode === 'share' ? 'Shielded pool transaction share · Zcash' : 'Shielded pool transaction counts · Zcash',
       description: visiblePools.some(pool => pool.key === 'ironwood')
         ? `${ACTIVITY_EXPORT_NOTE} Ironwood supports future quantum recovery (ZIP 2005).`
         : ACTIVITY_EXPORT_NOTE,
@@ -117,11 +117,11 @@ export function PoolActivityChart() {
                       {visible && <svg width="9" height="9" viewBox="0 0 12 12" fill="none" className="text-cipher-bg" aria-hidden="true"><path d="m2 6 2.5 2.5L10 3" stroke="currentColor" strokeWidth="1.5" /></svg>}
                     </span>{label}
                   </span>
-                  <span className="block font-mono text-lg tabular-nums" aria-label={`${label} total`}>
-                    {summary.primary}
-                  </span>
-                  <span className="mt-1 block font-mono text-caption tabular-nums text-muted" aria-label={`${label} ${mode === 'count' ? 'share' : 'count'}`}>
-                    {summary.secondary}
+                  <span className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-mono text-lg tabular-nums" aria-label={`${label} total`}>{summary.primary}</span>
+                    <span className="font-mono text-caption tabular-nums text-muted" aria-label={`${label} ${mode === 'count' ? 'share' : 'count'}`}>
+                      ({summary.secondary})
+                    </span>
                   </span>
                 </button>
                 {key === 'ironwood' && <div className="mt-1 pl-2">

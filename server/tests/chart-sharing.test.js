@@ -81,20 +81,20 @@ test('exported diamond line styling follows selected pools and preserves isolate
 test('exported summaries retain selected pool totals and the complementary transaction share',()=>{
  const {renderToStaticMarkup}=require('react-dom/server');
  const {ChartExport}=loadRoute('components/charts/ChartExport.tsx');
- const ironwood={key:'ironwood',label:'Ironwood',color:'ironwood',marker:'diamond',summary:{primary:'119,492',secondary:'54.21% of transactions'}};
- const sapling={key:'sapling',label:'Sapling',color:'sapling',summary:{primary:'6,355',secondary:'2.88% of transactions'}};
+ const ironwood={key:'ironwood',label:'Ironwood',color:'ironwood',marker:'diamond',summary:{primary:'119,492',secondary:'54.21%'}};
+ const sapling={key:'sapling',label:'Sapling',color:'sapling',summary:{primary:'6,355',secondary:'2.88%'}};
  const data={chart:{...chart,percent:false,unit:'Transactions',series:[ironwood,sapling]},rows:[{x:1,ironwood:100,sapling:3}]};
  const markup=renderToStaticMarkup(ChartExport({data}));
- for(const value of ['119,492','54.21% of transactions','6,355','2.88% of transactions']) assert.ok(markup.includes(value),value);
+ for(const value of ['119,492','(54.21%)','6,355','(2.88%)']) assert.ok(markup.includes(value),value);
  assert.equal((markup.match(/data-series-summary=/g)||[]).length,2);
- assert.match(markup,/<svg width="1020" height="278"/);
+ assert.match(markup,/<svg width="1020" height="294"/);
  const selected={...data,chart:{...data.chart,series:[sapling]}};
  const selectedMarkup=renderToStaticMarkup(ChartExport({data:selected}));
- assert.ok(selectedMarkup.includes('6,355'));assert.ok(selectedMarkup.includes('2.88% of transactions'));
- assert.doesNotMatch(selectedMarkup,/119,492|54\.21% of transactions|data-marker="diamond"/);
- const percentage={...data,chart:{...data.chart,unit:'%',series:[{...ironwood,summary:{primary:'54.21%',secondary:'119,492 transactions'}}]}};
+ assert.ok(selectedMarkup.includes('6,355'));assert.ok(selectedMarkup.includes('(2.88%)'));
+ assert.doesNotMatch(selectedMarkup,/119,492|54\.21%|data-marker="diamond"/);
+ const percentage={...data,chart:{...data.chart,unit:'%',series:[{...ironwood,summary:{primary:'54.21%',secondary:'119,492 txs'}}]}};
  const percentageMarkup=renderToStaticMarkup(ChartExport({data:percentage}));
- assert.ok(percentageMarkup.includes('54.21%'));assert.ok(percentageMarkup.includes('119,492 transactions'));
+ assert.ok(percentageMarkup.includes('54.21%'));assert.ok(percentageMarkup.includes('(119,492 txs)'));
 });
 test('ordinary exports keep their compact legend and unavailable summaries remain unavailable',()=>{
  const {renderToStaticMarkup}=require('react-dom/server');

@@ -8,7 +8,7 @@ export function ChartExport({ data, logo = '/brand/zecblock-logotype.png' }: { d
   const { chart, rows, source = chartSource(chart), network = 'mainnet' } = data;
   const colors = getChartColors('dark');
   const hasSummaries = chart.series.some(series => series.summary);
-  const plotHeight = hasSummaries ? 278 : 310;
+  const plotHeight = hasSummaries ? 294 : 310;
   const g = chartGeometry(chart, rows, 1020, plotHeight);
   const category = chart.axis === 'category';
   const latest = rows.at(-1);
@@ -21,13 +21,13 @@ export function ChartExport({ data, logo = '/brand/zecblock-logotype.png' }: { d
       <img src={logo} alt="ZecBlock" width={155} height={36} />
     </div>
     <div style={{ display: 'flex', marginTop: 10, fontSize: 17, color: '#9CA4B0' }}>{chartDateRange(chart, rows)} · {chart.unit}</div>
-    <div style={{ display: 'flex', gap: 22, marginTop: 19, height: hasSummaries ? 64 : 32, fontSize: hasSummaries ? 14 : 16 }}>
+    <div style={{ display: 'flex', gap: 22, marginTop: 19, height: hasSummaries ? 48 : 32, fontSize: hasSummaries ? 14 : 16 }}>
       {chart.series.map(s => <div key={s.key} data-series-summary={s.summary ? s.key : undefined} style={{ display: 'flex', flex: hasSummaries ? 1 : undefined, minWidth: 0, flexDirection: 'column', gap: 2, justifyContent: hasSummaries ? 'flex-start' : 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: hasSummaries ? 18 : undefined }}>{s.marker === 'diamond' ? <svg width={12} height={12} viewBox="0 0 12 12"><path d="M6 1 L11 6 L6 11 L1 6 Z" stroke={colors[s.color]} strokeWidth={1.5} fill="#0B0C0E"/></svg> : <span style={{ width: 9, height: 9, background: colors[s.color] }}/>} {s.label}</div>
-        {s.summary ? <>
+        {s.summary ? <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
           <span style={{ fontSize: 22, lineHeight: 1.1 }}>{s.summary.primary}</span>
-          <span style={{ fontSize: 13, lineHeight: 1.25, color: '#9CA4B0' }}>{s.summary.secondary}</span>
-        </> : null}
+          <span style={{ fontSize: 13, lineHeight: 1.25, color: '#9CA4B0' }}>({s.summary.secondary})</span>
+        </div> : null}
       </div>)}
     </div>
     <div style={{ display: 'flex', position: 'relative', height: plotHeight + 40, marginTop: 18 }}>
