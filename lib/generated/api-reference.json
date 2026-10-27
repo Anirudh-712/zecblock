@@ -3322,6 +3322,39 @@
   },
   {
     "method": "GET",
+    "path": "/v1/shielded-pools/activity",
+    "description": "Daily canonical non-coinbase transaction counts by shielded pool.",
+    "category": "shielded-pools",
+    "query": [
+      "period"
+    ],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Trailing complete UTC days, excluding today. Counts each transaction once in every pool it touches, so pool counts overlap. The percentage denominator is all canonical confirmed non-coinbase transactions, including ordinary mining-payout and ZCG activity. Missing blocks or incomplete transaction indexing produce null day counts and null period totals; zero activity is preserved. Results are cached for up to 300 seconds. No monetary values or unique-user counts.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [
+      {
+        "name": "period",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "7d",
+            "30d",
+            "90d",
+            "1y"
+          ],
+          "default": "30d"
+        },
+        "description": "Trailing complete UTC calendar days, excluding today. One year means 365 days."
+      }
+    ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
     "path": "/v1/shielded-pools/turnstile",
     "description": "Public deshielding cohorts and subsequent observed destinations.",
     "category": "shielded-pools",
