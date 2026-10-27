@@ -78,6 +78,34 @@ test('exported diamond line styling follows selected pools and preserves isolate
  const missing={...data,rows:[{x:1,ironwood:null,sapling:3}]};
  assert.doesNotMatch(renderToStaticMarkup(ChartExport({data:missing})),/data-marker="diamond"/);
 });
+test('exported summaries retain selected pool totals and the complementary transaction share',()=>{
+ const {renderToStaticMarkup}=require('react-dom/server');
+ const {ChartExport}=loadRoute('components/charts/ChartExport.tsx');
+ const ironwood={key:'ironwood',label:'Ironwood',color:'ironwood',marker:'diamond',summary:{primary:'119,492',secondary:'54.21% of transactions'}};
+ const sapling={key:'sapling',label:'Sapling',color:'sapling',summary:{primary:'6,355',secondary:'2.88% of transactions'}};
+ const data={chart:{...chart,percent:false,unit:'Transactions',series:[ironwood,sapling]},rows:[{x:1,ironwood:100,sapling:3}]};
+ const markup=renderToStaticMarkup(ChartExport({data}));
+ for(const value of ['119,492','54.21% of transactions','6,355','2.88% of transactions']) assert.ok(markup.includes(value),value);
+ assert.equal((markup.match(/data-series-summary=/g)||[]).length,2);
+ assert.match(markup,/<svg width="1020" height="278"/);
+ const selected={...data,chart:{...data.chart,series:[sapling]}};
+ const selectedMarkup=renderToStaticMarkup(ChartExport({data:selected}));
+ assert.ok(selectedMarkup.includes('6,355'));assert.ok(selectedMarkup.includes('2.88% of transactions'));
+ assert.doesNotMatch(selectedMarkup,/119,492|54\.21% of transactions|data-marker="diamond"/);
+ const percentage={...data,chart:{...data.chart,unit:'%',series:[{...ironwood,summary:{primary:'54.21%',secondary:'119,492 transactions'}}]}};
+ const percentageMarkup=renderToStaticMarkup(ChartExport({data:percentage}));
+ assert.ok(percentageMarkup.includes('54.21%'));assert.ok(percentageMarkup.includes('119,492 transactions'));
+});
+test('ordinary exports keep their compact legend and unavailable summaries remain unavailable',()=>{
+ const {renderToStaticMarkup}=require('react-dom/server');
+ const {ChartExport}=loadRoute('components/charts/ChartExport.tsx');
+ const ordinary=renderToStaticMarkup(ChartExport({data:{chart,rows:[{x:1,shieldedSupplyPct:5}]}}));
+ assert.doesNotMatch(ordinary,/data-series-summary=/);assert.match(ordinary,/<svg width="1020" height="310"/);
+ const missing={...chart,series:[{...chart.series[0],summary:{primary:'—',secondary:'—'}}]};
+ const unavailable=renderToStaticMarkup(ChartExport({data:{chart:missing,rows:[]}}));
+ assert.match(unavailable,/data-series-summary="shieldedSupplyPct"/);
+ assert.ok(unavailable.includes('—'));assert.ok(unavailable.includes('Observations unavailable'));
+});
 test('CSV retains numeric precision, quotes values, distinguishes missing, neutralizes formulas',()=>{
  const c={...chart,axis:'category',series:[{key:'value',label:'Value',color:'gold'}]};
  const csv=sharing.chartCsv({chart:c,rows:[{x:'=HYPERLINK("evil")',value:0},{x:'missing',value:null},{x:'exact',value:.00000001}]});
