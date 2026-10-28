@@ -154,12 +154,15 @@ function firstCrossingStories(activity, target) {
     // One pre-launch endpoint supplies a real zero baseline for launch-day events.
     const startIndex = Math.max(launchIndex - 1, days.length - 90);
     const indices = Array.from({ length: days.length - startIndex }, (_, i) => startIndex + i);
-    visual = { kind: 'comparison', label: `Transactions · rolling ${lead.periodDays} days`, unit: 'transactions',
+    visual = { kind: 'comparison', label: `Transactions · rolling ${lead.periodDays} days`, unit: 'transactions', periodDays: lead.periodDays,
       start: days[startIndex].date, end: target,
       series: ['ironwood', 'orchard'].map(key => ({ key, label: key === 'ironwood' ? 'Ironwood' : 'Orchard', tone: key,
         values: indices.map(index => sum(index, lead.periodDays)[key]) })) };
   }
-  const card = { kicker: 'Milestone · Ironwood activity', title: headline, hero, tone: 'ironwood', line, qualifier,
+  const comparisonTitle = lead.kind === 'leadership' ? 'Ironwood overtakes Orchard'
+    : lead.kind === 'parity' ? lead.level === 100 ? 'Ironwood catches up with Orchard'
+      : `Ironwood reaches ${lead.level}% of Orchard` : null;
+  const card = { kicker: 'Milestone · Ironwood activity', title: comparisonTitle || headline, hero, tone: 'ironwood', line, qualifier,
     source: 'zecblock.com/pools', date: range,
     visual };
   return [candidate('milestone', `milestone:pool_activity:${lead.id}`, content, {

@@ -248,11 +248,12 @@ function drawSeries(ctx, v, accent) {
 
 // Both pools share one zero-based transaction scale. Orchard's dashed trace
 // and outlined endpoint remain visible when the two series meet or overlap.
-function drawComparison(ctx, v) {
+function drawComparison(ctx, v, card) {
   const keys = ['ironwood', 'orchard'];
   if (typeof v.label !== 'string' || !v.label.trim() || v.unit !== 'transactions'
     || !validDate(v.start) || !validDate(v.end) || !Array.isArray(v.series)
-    || v.series.length !== 2 || new Set(v.series.map(s => s?.key)).size !== 2) {
+    || v.series.length !== 2 || new Set(v.series.map(s => s?.key)).size !== 2
+    || v.periodDays != null && ![7, 30, 365].includes(v.periodDays)) {
     throw new Error('Invalid comparison evidence');
   }
   const series = keys.map(key => v.series.find(s => s?.key === key));
@@ -264,24 +265,32 @@ function drawComparison(ctx, v) {
       || Array.from(s.values).some(value => !Number.isSafeInteger(value) || value < 0))) {
     throw new Error('Invalid comparison values or dates');
   }
-  const x = 195, y = 354, w = W - PAD - x, h = 150;
-  const max = series.reduce((peak, s) => s.values.reduce((n, value) => Math.max(n, value), peak), 1);
+  const colors = [C.ironwood, C.orchard];
+  wrappedText(ctx, card.title || card.line, PAD, 159, { width: W - 2 * PAD, size: 44, min: 36, lines: 1 });
+  const description = v.periodDays ? `Rolling ${v.periodDays}-day transactions · coinbase excluded` : v.label;
+  fit(ctx, description, 'normal', 22, 20, W - 2 * PAD);
+  ctx.fillStyle = C.muted; ctx.fillText(description, PAD, 197);
+
+  // Each endpoint appears once, directly under its pool label. These totals
+  // replace the separate hero, comparison sentence and repeated legend.
+  series.forEach((s, i) => {
+    const lx = PAD + i * 540;
+    ctx.font = 'normal 19px GeistMono'; ctx.fillStyle = colors[i];
+    ctx.fillText(s.label, lx, 242);
+    fit(ctx, fmt(s.values.at(-1)), '500', 46, 36, 480);
+    ctx.fillText(fmt(s.values.at(-1)), lx, 294);
+  });
+
+  const x = 195, y = 338, w = W - PAD - x, h = 182;
+  const peak = series.reduce((n, s) => s.values.reduce((m, value) => Math.max(m, value), n), 1);
+  const step = 10 ** Math.floor(Math.log10(peak)) / 2;
+  const max = Math.ceil(peak * 1.1 / step) * step;
   const px = i => x + i / (length - 1) * w;
   const py = plotAxes(ctx, { x, y, w, h, max, unit: v.unit, start: v.start, end: v.end });
-  const colors = [C.ironwood, C.orchard];
+  ctx.font = 'normal 16px GeistMono'; ctx.fillStyle = C.muted;
+  const axisLabel = 'Window end date';
+  ctx.fillText(axisLabel, x + (w - ctx.measureText(axisLabel).width) / 2, 540);
   ctx.save();
-  ctx.fillStyle = C.muted;
-  fit(ctx, v.label, '500', 22, 18, W - 2 * PAD);
-  ctx.fillText(v.label, PAD, 302);
-  series.forEach((s, i) => {
-    const lx = PAD + i * 540, ly = 331;
-    ctx.strokeStyle = colors[i]; ctx.fillStyle = colors[i]; ctx.lineWidth = 2;
-    if (i) ctx.strokeRect(lx + 1, ly - 12, 12, 12);
-    else ctx.fillRect(lx + 1, ly - 12, 12, 12);
-    const label = `${s.label}: ${fmt(s.values.at(-1))} transactions`;
-    fit(ctx, label, 'normal', 20, 18, 500, 'GeistMono');
-    ctx.fillStyle = colors[i]; ctx.fillText(label, lx + 26, ly);
-  });
   series.forEach((s, i) => {
     ctx.beginPath();
     s.values.forEach((value, j) => (j ? ctx.lineTo(px(j), py(value)) : ctx.moveTo(px(j), py(value))));
@@ -435,17 +444,18 @@ async function renderEditorial(story) {
   await drawFrame(ctx, card.kicker, accent);
   const v = card.visual;
   if (v?.kind === 'briefing') drawBriefing(ctx, card, accent);
-  else if (['series', 'comparison'].includes(v?.kind)) drawChartHeading(ctx, card, accent);
+  else if (v?.kind === 'series') drawChartHeading(ctx, card, accent);
+  else if (v?.kind === 'comparison') { /* Comparison has its own paired heading. */ }
   else drawText(ctx, card, accent, v ? 590 : W - 2 * PAD);
   if (v?.kind === 'series') drawSeries(ctx, seriesModel(story), accent);
-  else if (v?.kind === 'comparison') drawComparison(ctx, v);
+  else if (v?.kind === 'comparison') drawComparison(ctx, v, card);
   else if (v?.kind === 'transfer') drawTransfer(ctx, v);
   else if (v?.kind === 'swap') await drawSwap(ctx, v);
   else if (v?.kind === 'rank') drawRank(ctx, v);
   else if (v?.kind === 'bars') drawBars(ctx, v);
   else if (v?.kind === 'reorg') drawReorg(ctx, v);
   else if (v && v.kind !== 'briefing') throw new Error(`Unknown card visual: ${v.kind}`);
-  drawFooter(ctx, card.source, card.date);
+  drawFooter(ctx, card.source, v?.kind === 'comparison' && card.date ? `Latest window: ${card.date} UTC` : card.date);
   const file = path.join(os.tmpdir(), `zecblock-card-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`);
   fs.writeFileSync(file, canvas.toBuffer('image/png'));
   return file;
