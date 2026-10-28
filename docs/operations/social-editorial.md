@@ -73,9 +73,10 @@ sparkline. Visuals by type:
   lines on a shared zero-based axis. Each point is the same rolling 7-, 30-
   or 365-day transaction count as the headline. A compact headline sits above
   the chart; exact totals and inline `txs` units label the line endpoints in
-  a shared right gutter. Pool names retain the series colors. Close labels
-  separate vertically in data order, joined by thin neutral leaders; actual
-  points never move. The chart labels rolling-window endpoint dates; the footer
+  a shared right gutter, with space between the plot and labels. Pool names
+  retain the series colors without connector lines. Close labels separate
+  vertically in data order; actual points never move. The chart labels
+  rolling-window endpoint dates; the footer
   separately labels the latest measurement window in UTC. There is no separate
   metrics row, hero number or legend.
 - Weekly activity: a top-ten rank strip when ranked ≤10, otherwise number only.

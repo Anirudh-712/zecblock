@@ -305,8 +305,8 @@ function drawComparison(ctx, v, card) {
   labels[0].top = Math.max(minTop, Math.min(maxTop - gap, labels[0].top));
   labels[1].top = Math.max(labels[0].top + gap, Math.min(maxTop, labels[1].top));
   // Label positions may separate close values; the actual lines and endpoint
-  // markers never move. Sort by data height so near-parity leaders cannot cross.
-  const labelX = 882, labelWidth = W - PAD - labelX;
+  // markers never move. Keep the label order consistent with the data heights.
+  const labelX = 910, labelWidth = W - PAD - labelX;
   const totals = series.map(s => fmt(s.values.at(-1)));
   let numberSize = 32, unitSize;
   for (; numberSize >= 16; numberSize -= 2) {
@@ -317,10 +317,7 @@ function drawComparison(ctx, v, card) {
     if (totals.every(total => ctx.measureText(total).width + 8 + unitWidth <= labelWidth)) break;
   }
   if (numberSize < 16) throw new Error('Comparison total exceeds safe bounds');
-  labels.forEach(({ s, i, top, pointY }) => {
-    ctx.strokeStyle = C.faint; ctx.lineWidth = 1; ctx.setLineDash([]);
-    ctx.beginPath(); ctx.moveTo(endX + 10, pointY); ctx.lineTo(endX + 25, pointY);
-    ctx.lineTo(labelX - 15, top + 32); ctx.stroke(); ctx.setLineDash([]);
+  labels.forEach(({ s, i, top }) => {
     ctx.font = 'normal 20px Geist'; ctx.fillStyle = colors[i];
     ctx.fillText(s.label, labelX, top + 18);
     ctx.font = `500 ${numberSize}px Geist`; ctx.fillStyle = C.text;
