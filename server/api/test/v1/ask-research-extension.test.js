@@ -51,7 +51,10 @@ test('real research reply contract returns a dated pool finding without a second
  const {researchReply}=require('../../v1/lib/ask-research-reply');
  const result={query:{version:3,sql:"SELECT date,orchard::numeric/100000000 AS orchard_zec,ironwood::numeric/100000000 AS ironwood_zec FROM daily ORDER BY date",limit:100},columns:[{key:'c0',label:'date',type:'text'},{key:'c1',label:'orchard_zec',type:'number'},{key:'c2',label:'ironwood_zec',type:'number'}],rows:[['2026-07-31','3097385.74932661','652626.41075424'],['2026-08-31','470512.11868503','3840173.43322017']],truncated:false,datasets:['daily'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-07T16:00:00Z',indexedThrough:'2026-10-07T15:59:00Z',coverage:'verified canonical core; history unverified',units:'exact zatoshis unless query converts'};
  const reply=await researchReply(result,{question:'Compare pool snapshots'},async()=>{assert.fail('Checked pool finding should not call the model');},'en',()=>{assert.fail('No generated explanation needed');});
- assert.match(reply.answer,/Aug 31, 2026/);assert.match(reply.answer,/652,626.41 to 3,840,173.43/);assert.deepEqual(reply.research,result);assert.ok(reply.sources.length);
+ assert.match(reply.answer,/Ironwood balance was larger on Aug 31, 2026/);
+ assert.match(reply.answer,/3,840,173\.43322017 ZEC/);assert.match(reply.answer,/652,626\.41075424 ZEC/);
+ assert.match(reply.answer,/Jul 31, 2026/);assert.doesNotMatch(reply.answer,/query returned/i);
+ assert.deepEqual(reply.research,result);assert.ok(reply.sources.length);
 });
 
 test('monthly pool rows never promote bucket dates to actual snapshot dates',()=>{
