@@ -298,3 +298,13 @@ test('an expired request cannot release an explanation claim owned by a newer re
   assert.equal(response.status, 503); assert.equal(response.body.code, 'ask-answer');
   assert.equal(state.provider, 0); assert.equal(state.reserved, 0); assert.deepEqual(state.attempts, { ai: 1, sql: 1 });
 });
+
+
+test('an exact standalone concept remains a direct answer within a conversation after AI exhaustion', async t => {
+  const { state, post } = await fixture(t); state.denial.ai = -2;
+  const response = await post('/chat', { ...chatBody, question: 'What is a viewing key?', history: ['Rank recent blocks by their recorded fees', 'Compare those results'] });
+  assert.equal(response.status, 200); assert.equal(response.body.data.mode, 'guided');
+  assert.match(response.body.data.answer, /[Vv]iewing keys/); assert.equal(response.body.data.sources[0].id, 'unified_addresses');
+  assert.equal(state.requests, 1); assert.equal(state.verified, 1); assert.equal(state.source, 0);
+  assert.deepEqual(state.attempts, { ai: 0, sql: 0 }); assert.equal(state.provider, 0); assert.equal(state.reserved, 0);
+});

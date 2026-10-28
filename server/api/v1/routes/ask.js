@@ -254,7 +254,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
       // answers even while AI is enabled or its paid allowance is exhausted.
       const transactionQuery=resolveTransactionQuery(parsed.data),blockQuery=resolveBlockQuery(parsed.data);
       if(transactionQuery||blockQuery)return {...await (transactionQuery?transactionReply:blockReply)(transactionQuery||blockQuery,parsed.data,dependencies.internalClient,signal),scope:'Public API lookup · no AI'};
-      if(!parsed.data.history.length&&['auto','en'].includes(parsed.data.locale)){
+      if(['auto','en'].includes(parsed.data.locale)){
         const direct=guidedReply(parsed.data);
         const explainMeasurements=direct?.spec&&/^explain this (?:page|view|chart)[?.!]?$/i.test(parsed.data.question.trim());
         if(direct&&!explainMeasurements)return {...direct,scope:direct.spec?'Indexed starter chart · no AI':'Reviewed guide · no AI'};
