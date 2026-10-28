@@ -51,3 +51,8 @@ assess_indexer_progress() {
     fi
   fi
 }
+
+# The regression harness runs this file directly; production sources the function.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  assess_indexer_progress "$@"
+fi

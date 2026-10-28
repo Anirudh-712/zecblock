@@ -11,8 +11,8 @@ const helper = path.resolve(__dirname, '../deploy/lib/indexer-progress-health.sh
 const monitor = path.resolve(__dirname, '../deploy/check-ops-health.sh');
 const now = 1_793_150_000;
 function assess({ indexed = 100, tip = 100, success = now - 30, poll = now - 5, pending = 'none' } = {}) {
-  const result = spawnSync('bash', ['-c', 'source "$1"; assess_indexer_progress "${@:2}"',
-    'test', helper, ...[indexed, tip, success, poll, pending, now, 3, 600].map(String)], { encoding: 'utf8' });
+  const result = spawnSync('bash', [helper,
+    ...[indexed, tip, success, poll, pending, now, 3, 600].map(String)], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim().split('\n').filter(Boolean).map(line => line.split('|')[0]);
 }
