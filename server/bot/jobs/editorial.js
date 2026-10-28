@@ -5,12 +5,15 @@ const { addDays } = require('../../lib/transaction-activity');
 const { completedWeekEnd } = require('../../lib/activity-milestones');
 const data = require('../lib/editorial-data');
 const { select, isNew } = require('../lib/editorial-policy');
+const { preparePublication } = require('../lib/editorial-source');
+const { deliverSourceReply, recoverSourceReplies } = require('../lib/editorial-source-delivery');
 
 // One sender across overlapping service instances. Per-story atomic claims
 // protect deduplication even after a crash or lost advisory-lock connection.
 const LOCK = 839307;
 const ACTIVATION_KEY = 'analysis:activation:v1';
 const POOL_ACTIVATION_KEY = 'analysis:pool_activity:activation:v1';
+const INSIGHTS_ACTIVATION_KEY = 'analysis:insights:activation:v1';
 
 async function activationTime(pool, dryRun, now, key = ACTIVATION_KEY) {
   if (!dryRun) await pool.query(`INSERT INTO social_post_outbox(post_type,dedup_key,content,metadata,status)
@@ -24,26 +27,34 @@ async function activationTime(pool, dryRun, now, key = ACTIVATION_KEY) {
 }
 
 async function publish(db, xClient, story, { logger = console, render } = {}) {
-  if (!story.content || story.content.length > 280) throw new Error('Refusing invalid editorial copy');
+  const publication = preparePublication(story);
   if (xClient.dryRun) {
-    logger.info(`[Editorial preview] ${story.key}\n${story.content}`);
-    return { key: story.key, status: 'preview' };
+    logger.info(`[Editorial preview] ${story.key}\n${publication.content}`);
+    return { key: story.key, status: 'preview', ...publication };
   }
+  const metadata = { ...story.evidence, ...(publication.sourceReply
+    ? { deliveryVersion: 2, sourceReply: publication.sourceReply } : {}) };
   const { rows: [claim] } = await db.query(`INSERT INTO social_post_outbox
     (post_type,dedup_key,content,metadata,status) VALUES ($1,$2,$3,$4::jsonb,'posting')
-    ON CONFLICT(dedup_key) DO NOTHING RETURNING id`, [story.type,story.key,story.content,JSON.stringify(story.evidence)]);
+    ON CONFLICT(dedup_key) DO NOTHING RETURNING id`, [story.type,story.key,publication.content,JSON.stringify(metadata)]);
   if (!claim) return { key: story.key, status: 'duplicate' };
   let imagePath;
   try {
     try { if (render) imagePath = await render(story); }
     catch (error) { logger.warn(`[Editorial] Card unavailable: ${error.message}`); }
-    const result = imagePath ? await xClient.postWithMedia(story.content,imagePath) : await xClient.post(story.content);
+    const result = imagePath ? await xClient.postWithMedia(publication.content,imagePath) : await xClient.post(publication.content);
     if (!result?.id || String(result.id).startsWith('dry_run')) throw new Error('Missing real X post ID');
     // Record the ID in logs too, so a DB failure after acceptance is reconcilable.
     logger.info(`[Editorial] X accepted ${story.key}: ${result.id}`);
     await db.query(`UPDATE social_post_outbox SET status='posted',x_post_id=$2,
       posted_at=NOW(),attempts=attempts+1,updated_at=NOW() WHERE id=$1`, [claim.id,result.id]);
-    return { key: story.key, status: 'posted', id: result.id };
+    // Parent acceptance is durable before the independent reply step. Reply
+    // failures must never mark a successfully published parent uncertain.
+    let sourceReply;
+    try { sourceReply = await deliverSourceReply(db, xClient,
+      { key: story.key, id: result.id, sourceReply: publication.sourceReply }, { logger }); }
+    catch (error) { logger.error(`[Editorial source] Deferred ${story.key}: ${error.message}`); sourceReply = { status: 'deferred' }; }
+    return { key: story.key, status: 'posted', id: result.id, sourceReply };
   } catch (error) {
     // A timeout can occur after X accepts a post. Blind retries create duplicates.
     // Keep the claim for operator reconciliation; never reset it automatically.
@@ -64,11 +75,15 @@ async function run(pool, xClient, { now = new Date(), logger = console, render, 
     locked = row.acquired;
     if (!locked) return { skipped: 'another-run-active' };
     await collectors.assertMainnetFresh(pool,now);
+    const sourceReplies = await recoverSourceReplies(pool, xClient, { logger });
     const activatedAt = await activationTime(pool,xClient.dryRun,now);
     const poolActivatedAt = collectors.poolActivityCandidates
       ? await activationTime(pool,xClient.dryRun,now,POOL_ACTIVATION_KEY) : null;
+    const insightsActivatedAt = collectors.insightCandidates
+      ? await activationTime(pool,xClient.dryRun,now,INSIGHTS_ACTIVATION_KEY) : null;
     const { rows: history } = await pool.query(`SELECT post_type,dedup_key,status,created_at,metadata
-      FROM social_post_outbox WHERE created_at >= $1::timestamptz-interval '90 days'`, [now.toISOString()]);
+      FROM social_post_outbox WHERE created_at >= $1::timestamptz-interval '90 days'
+        AND post_type<>'source_reply'`, [now.toISOString()]);
     const pacing = history.some(p => p.metadata?.editorialVersion === 1 &&
       ['posted','posting','uncertain'].includes(p.status) && now-new Date(p.created_at)<20*60000);
     const candidates = [], decisions = [], scans = [];
@@ -100,7 +115,11 @@ async function run(pool, xClient, { now = new Date(), logger = console, render, 
         ['activity', () => collectors.activityCandidates(reader,now,includeWeekly)],
         ['hashrate', () => collectors.hashrateCandidate(reader,now)],
         ['signals', () => collectors.signalCandidates(reader,now)],
-        ['crosschain', () => collectors.crosschainDaily(reader,now)],
+        // Routine cross-chain totals remain available as source data. Only
+        // comparative findings should occupy a standalone editorial slot.
+        ...(insightsActivatedAt && Date.parse(`${now.toISOString().slice(0,10)}T06:00:00Z`) >= Date.parse(insightsActivatedAt)
+          ? [['insights', async () => (await collectors.insightCandidates(reader,now))
+            .filter(story => isNew(story,insightsActivatedAt))]] : []),
         ['milestones', () => collectors.milestoneCandidates?.(reader,now) ?? []],
       ]) {
         const key = `analysis:scan:${name}:${target}`;
@@ -129,7 +148,7 @@ async function run(pool, xClient, { now = new Date(), logger = console, render, 
         VALUES ('editorial_scan',$1,'',$2::jsonb,'evaluated') ON CONFLICT(dedup_key) DO NOTHING`,
       [scan.key,JSON.stringify({ capturedAt:now.toISOString(),decisions,selected:toPublish.map(c => c.key) })]);
     }
-    return { activatedAt, candidates, selected:selection.selected, decisions, results };
+    return { activatedAt, candidates, selected:selection.selected, decisions, results, sourceReplies };
   } finally {
     if (locked) await lock.query('SELECT pg_advisory_unlock($1)',[LOCK]);
     lock.removeListener?.('error',leaseLost);

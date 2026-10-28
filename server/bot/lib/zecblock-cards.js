@@ -1,12 +1,12 @@
 'use strict';
 
-// ZecBlock social cards: one headline number, one plain sentence, a short
-// qualifier and one visual. Content comes from the story's `evidence.card`,
-// built alongside the tweet copy, so the two cannot disagree.
+// Social cards share the site's type and palette. Chart stories lead with the
+// event, then give the evidence enough room to read in a small social preview.
 const { createCanvas, registerFont, loadImage } = require('canvas');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { floorTo } = require('./editorial-format');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
 const LOGO = path.join(__dirname, '..', '..', '..', 'public', 'brand', 'zecblock-logotype.png');
@@ -34,6 +34,11 @@ function ensureFonts() {
 }
 
 const fmt = (n, d = 0) => n.toLocaleString('en-US', { maximumFractionDigits: d });
+const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+  && Number.isFinite(Date.parse(`${value}T00:00:00Z`))
+  && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+const dateLabel = value => new Date(`${value}T00:00:00Z`)
+  .toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
 
 // Shrinks a line to fit, down to a floor; past that the card is refused and
 // the post falls back to text rather than clipping wording.
@@ -43,6 +48,37 @@ function fit(ctx, text, weight, size, min, width, family = 'Geist') {
     if (ctx.measureText(text).width <= width) return s;
   }
   throw new Error('Card text exceeds safe bounds');
+}
+
+function wrappedText(ctx, text, x, y, { width, size = 32, min = 26, lines = 2, color = C.text, gap = 1.18 } = {}) {
+  const words = String(text).trim().split(/\s+/);
+  for (let fontSize = size; fontSize >= min; fontSize -= 2) {
+    ctx.font = `500 ${fontSize}px Geist`;
+    const result = [''];
+    let fits = true;
+    for (const word of words) {
+      if (ctx.measureText(word).width > width) { fits = false; break; }
+      const last = result.length - 1, next = result[last] ? `${result[last]} ${word}` : word;
+      if (ctx.measureText(next).width <= width) result[last] = next;
+      else result.push(word);
+    }
+    if (!fits || result.length > lines) continue;
+    ctx.fillStyle = color;
+    result.forEach((line, i) => ctx.fillText(line, x, y + i * fontSize * gap));
+    return;
+  }
+  throw new Error('Card text exceeds safe bounds');
+}
+
+function drawChartHeading(ctx, card, accent) {
+  wrappedText(ctx, card.title || card.line, PAD, 155, { width: W - 2 * PAD, size: 36, min: 30 });
+  const unit = card.unit ? ` ${card.unit}` : '';
+  fit(ctx, `${card.hero}${unit}`, '500', 78, 44, 550);
+  ctx.fillStyle = accent;
+  ctx.fillText(`${card.hero}${unit}`, PAD - 3, 257);
+  if (card.qualifier) wrappedText(ctx, card.qualifier, 680, 224, {
+    width: W - PAD - 680, size: 24, min: 20, color: C.secondary,
+  });
 }
 
 async function drawFrame(ctx, kicker, accent) {
@@ -98,54 +134,122 @@ function drawFooter(ctx, source, date) {
   if (date) ctx.fillText(date, W - PAD - ctx.measureText(date).width, H - 62);
 }
 
-// y always starts at zero so small moves are not exaggerated.
-function drawSeries(ctx, v, accent) {
-  const x = 700, y = 170, w = W - PAD - x, h = 290;
-  const values = v.values;
-  if (values.length < 2 || values.some(n => !Number.isFinite(n) || n < 0)) throw new Error('Missing editorial value');
-  const max = Math.max(...values, v.reference ?? 0) * 1.08 || 1;
-  const px = i => x + (i / (values.length - 1)) * w;
-  const py = n => y + h - (n / max) * h;
-  ctx.fillStyle = C.border;
-  ctx.fillRect(x, y + h, w, 1);
-  if (v.reference != null) {
-    ctx.strokeStyle = C.faint; ctx.lineWidth = 1;
-    ctx.setLineDash([4, 6]);
-    ctx.beginPath(); ctx.moveTo(x, py(v.reference)); ctx.lineTo(x + w, py(v.reference)); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.font = 'normal 15px GeistMono'; ctx.fillStyle = C.muted;
-    ctx.fillText(v.referenceLabel, x, py(v.reference) - 10);
-  }
-  const grad = ctx.createLinearGradient(0, y, 0, y + h);
-  grad.addColorStop(0, `${accent}38`);
-  grad.addColorStop(1, `${accent}00`);
-  const trace = () => values.forEach((n, i) => (i ? ctx.lineTo(px(i), py(n)) : ctx.moveTo(px(i), py(n))));
-  ctx.beginPath(); trace(); ctx.lineTo(x + w, y + h); ctx.lineTo(x, y + h); ctx.closePath();
-  ctx.fillStyle = grad; ctx.fill();
-  ctx.beginPath(); trace();
-  ctx.strokeStyle = accent; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.stroke();
-  // The brand block marks the latest observation.
-  ctx.fillStyle = accent;
-  ctx.fillRect(px(values.length - 1) - 8, py(values.at(-1)) - 8, 16, 16);
-  if (v.label) {
-    ctx.font = 'normal 15px GeistMono'; ctx.fillStyle = C.muted;
-    ctx.fillText(v.label, x, y - 28);
-    ctx.fillText('0', x, y + h + 24);
-    ctx.fillText(Math.max(...values).toLocaleString('en-US'), x, y - 8);
-    if (v.start && v.end) {
-      const range = `${v.start} – ${v.end} UTC`;
-      ctx.fillText(range, x, y + h + 49);
+function chartValue(value, unit, { signed = false } = {}) {
+  const magnitude = Math.abs(value), sign = value < 0 ? '−' : signed && value > 0 ? '+' : '';
+  if (unit === 'Sol/s') {
+    for (const [scale, suffix] of [[1e12, 'TSol/s'], [1e9, 'GSol/s'], [1e6, 'MSol/s'], [1e3, 'KSol/s']]) {
+      if (magnitude >= scale) return `${sign}${fmt(floorTo(magnitude / scale, 2), 2)} ${suffix}`;
     }
   }
+  const digits = magnitude > 0 && magnitude < 0.01 ? 8 : unit === '%' ? 1 : 2;
+  const number = magnitude >= 1e9 ? `${fmt(floorTo(magnitude / 1e9, 2), 2)}B`
+    : magnitude >= 1e6 ? `${fmt(floorTo(magnitude / 1e6, 2), 2)}M`
+      : magnitude >= 1e4 ? `${fmt(floorTo(magnitude / 1e3, 1), 1)}K` : fmt(floorTo(magnitude, digits), digits);
+  return `${sign}${unit === 'USD' ? '$' : ''}${number}${unit && unit !== 'USD' ? unit === '%' ? '%' : ` ${unit}` : ''}`;
+}
+
+// Older builders have dated evidence but no chart metadata. Only recover dates
+// from that evidence; a target date alone does not prove a contiguous history.
+function seriesModel(story) {
+  const evidence = story.evidence, card = evidence.card, v = card.visual;
+  const values = v.values;
+  if (!Array.isArray(values) || values.length < 1 || Array.from(values).some(n => !Number.isFinite(n) || (!v.allowNegative && n < 0))) {
+    throw new Error('Missing editorial value');
+  }
+  if (v.reference != null && (!Number.isFinite(v.reference) || (!v.allowNegative && v.reference < 0))) throw new Error('Invalid chart reference');
+  const metric = evidence.metric;
+  const unit = v.unit || (story.type === 'activity_daily' ? metric === 'share' ? '%' : 'transactions'
+    : story.type === 'hashrate' ? 'Sol/s' : metric === 'mvrv' ? 'ratio'
+      : metric === 'shielded_share' ? '%' : metric === 'shielded_usd' ? 'USD'
+        : metric?.endsWith('_zat') || metric?.endsWith('_zec') ? 'ZEC' : card.unit || '');
+  const label = v.label || (story.type === 'hashrate' ? '7-day average hashrate'
+    : story.type === 'activity_daily' ? metric === 'share' ? 'Shielded share of transactions' : 'Transactions per UTC day'
+      : metric === 'mvrv' ? 'MVRV ratio' : card.kicker.replace(/^[^·]+·\s*/, ''));
+  let start = v.start, end = v.end;
+  if ((start != null) !== (end != null) || (start != null && !validDate(start)) || (end != null && !validDate(end))) {
+    throw new Error('Invalid chart dates');
+  }
+  if (!start && !end) {
+    const rows = evidence.days || evidence.rows;
+    if (Array.isArray(rows) && rows.length >= values.length) {
+      const dates = rows.slice(-values.length).map(row => row.date);
+      if (dates.every(validDate) && dates.every((date, i) => !i || Date.parse(date) - Date.parse(dates[i - 1]) === 86400000)) {
+        start = dates[0]; end = dates.at(-1);
+      }
+    } else if (story.type === 'hashrate' && evidence.point?.date) {
+      end = evidence.point.date.slice(0, 10);
+      if (validDate(end)) start = new Date(Date.parse(end) - (values.length - 1) * 86400000).toISOString().slice(0, 10);
+      else end = undefined;
+    }
+    if (!end && validDate(evidence.target)) end = evidence.target;
+  }
+  if (start && end && ((Date.parse(end) - Date.parse(start)) / 86400000 + 1 !== values.length)) throw new Error('Invalid chart date span');
+  const low = Math.min(...values, v.reference ?? 0, 0), high = Math.max(...values, v.reference ?? 0, 0);
+  const min = v.scale?.min ?? (low < 0 ? low * 1.1 : 0);
+  const max = v.scale?.max ?? (high > 0 ? high * 1.1 : low < 0 ? 0 : 1);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min > 0 || max < 0 || min >= max
+    || values.some(value => value < min || value > max) || (v.reference != null && (v.reference < min || v.reference > max))) {
+    throw new Error('Invalid chart scale');
+  }
+  return { ...v, values, unit, label, start, end, min, max };
+}
+
+function plotAxes(ctx, { x, y, w, h, min = 0, max, unit, start, end }) {
+  const py = value => y + h - (value - min) / (max - min) * h;
+  const ticks = [...new Set([min, 0, max])];
+  ctx.font = 'normal 18px GeistMono';
+  for (const value of ticks) {
+    ctx.strokeStyle = value === 0 ? C.faint : C.border; ctx.lineWidth = value === 0 ? 1.5 : 1;
+    ctx.beginPath(); ctx.moveTo(x, py(value)); ctx.lineTo(x + w, py(value)); ctx.stroke();
+    const label = chartValue(value, ['%', 'USD', 'Sol/s'].includes(unit) ? unit : '');
+    fit(ctx, label, 'normal', 18, 14, x - PAD - 14, 'GeistMono');
+    ctx.fillStyle = C.muted;
+    ctx.fillText(label, x - 14 - ctx.measureText(label).width, py(value) + 6);
+  }
+  ctx.font = 'normal 18px GeistMono'; ctx.fillStyle = C.muted;
+  const first = start && start === end ? 'One complete reporting window' : start ? dateLabel(start) : 'Earlier observations';
+  const last = end ? `${dateLabel(end)} UTC` : 'Latest observation';
+  ctx.fillText(first, x, 540);
+  ctx.fillText(last, x + w - ctx.measureText(last).width, 540);
+  return py;
+}
+
+function drawSeries(ctx, v, accent) {
+  const x = 195, y = 354, w = W - PAD - x, h = 150;
+  const { values, unit, min, max } = v;
+  ctx.fillStyle = C.secondary;
+  fit(ctx, v.label, '500', 22, 18, 650);
+  ctx.fillText(v.label, PAD, 302);
+  const latest = `Latest: ${chartValue(values.at(-1), unit, { signed: v.allowNegative })}`;
+  fit(ctx, latest, 'normal', 20, 16, 370, 'GeistMono');
+  ctx.fillStyle = accent; ctx.fillText(latest, W - PAD - ctx.measureText(latest).width, 302);
+  if (v.reference != null) {
+    const reference = `${v.referenceLabel || 'Reference'}: ${chartValue(v.reference, unit, { signed: v.allowNegative })}`;
+    fit(ctx, reference, 'normal', 18, 16, W - 2 * PAD, 'GeistMono');
+    ctx.fillStyle = C.muted; ctx.fillText(reference, PAD, 331);
+  }
+  const py = plotAxes(ctx, { x, y, w, h, min, max, unit, start: v.start, end: v.end });
+  const px = i => values.length === 1 ? x + w : x + i / (values.length - 1) * w;
+  if (v.reference != null) {
+    ctx.strokeStyle = C.muted; ctx.lineWidth = 1.5; ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.moveTo(x, py(v.reference)); ctx.lineTo(x + w, py(v.reference)); ctx.stroke(); ctx.setLineDash([]);
+  }
+  const trace = () => values.forEach((n, i) => (i ? ctx.lineTo(px(i), py(n)) : ctx.moveTo(px(i), py(n))));
+  // A first complete weekly window has one observation. It gets a marker,
+  // without an area that could suggest an invented earlier observation.
+  if (values.length > 1) {
+    // Fill to the actual zero line, including signed net flows below zero.
+    ctx.beginPath(); trace(); ctx.lineTo(x + w, py(0)); ctx.lineTo(x, py(0)); ctx.closePath();
+    ctx.fillStyle = `${accent}18`; ctx.fill();
+  }
+  ctx.beginPath(); trace(); ctx.strokeStyle = accent; ctx.lineWidth = 3.5; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.fillStyle = accent; ctx.fillRect(px(values.length - 1) - 6, py(values.at(-1)) - 6, 12, 12);
 }
 
 // Both pools share one zero-based transaction scale. Orchard's dashed trace
 // and outlined endpoint remain visible when the two series meet or overlap.
 function drawComparison(ctx, v) {
   const keys = ['ironwood', 'orchard'];
-  const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
-    && Number.isFinite(Date.parse(`${value}T00:00:00Z`))
-    && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
   if (typeof v.label !== 'string' || !v.label.trim() || v.unit !== 'transactions'
     || !validDate(v.start) || !validDate(v.end) || !Array.isArray(v.series)
     || v.series.length !== 2 || new Set(v.series.map(s => s?.key)).size !== 2) {
@@ -160,33 +264,24 @@ function drawComparison(ctx, v) {
       || Array.from(s.values).some(value => !Number.isSafeInteger(value) || value < 0))) {
     throw new Error('Invalid comparison values or dates');
   }
-  const x = 700, y = 225, w = W - PAD - x, h = 235;
+  const x = 195, y = 354, w = W - PAD - x, h = 150;
   const max = series.reduce((peak, s) => s.values.reduce((n, value) => Math.max(n, value), peak), 1);
   const px = i => x + i / (length - 1) * w;
-  const py = value => y + h - value / max * h;
+  const py = plotAxes(ctx, { x, y, w, h, max, unit: v.unit, start: v.start, end: v.end });
   const colors = [C.ironwood, C.orchard];
   ctx.save();
   ctx.fillStyle = C.muted;
-  fit(ctx, v.label, 'normal', 15, 13, w, 'GeistMono');
-  ctx.fillText(v.label, x, 142);
+  fit(ctx, v.label, '500', 22, 18, W - 2 * PAD);
+  ctx.fillText(v.label, PAD, 302);
   series.forEach((s, i) => {
-    const ly = 170 + i * 24;
+    const lx = PAD + i * 540, ly = 331;
     ctx.strokeStyle = colors[i]; ctx.fillStyle = colors[i]; ctx.lineWidth = 2;
-    if (i) ctx.strokeRect(x + 1, ly - 10, 10, 10);
-    else ctx.fillRect(x + 1, ly - 10, 10, 10);
-    fit(ctx, s.label, 'normal', 15, 13, 150, 'GeistMono');
-    ctx.fillStyle = C.secondary; ctx.fillText(s.label, x + 24, ly);
-    const value = fmt(s.values.at(-1));
-    fit(ctx, value, 'normal', 15, 13, w - 175, 'GeistMono');
-    ctx.fillStyle = colors[i];
-    ctx.fillText(value, x + w - ctx.measureText(value).width, ly);
+    if (i) ctx.strokeRect(lx + 1, ly - 12, 12, 12);
+    else ctx.fillRect(lx + 1, ly - 12, 12, 12);
+    const label = `${s.label}: ${fmt(s.values.at(-1))} transactions`;
+    fit(ctx, label, 'normal', 20, 18, 500, 'GeistMono');
+    ctx.fillStyle = colors[i]; ctx.fillText(label, lx + 26, ly);
   });
-  const topLabel = `${fmt(max)} ${v.unit}`;
-  ctx.fillStyle = C.muted;
-  fit(ctx, topLabel, 'normal', 15, 13, w, 'GeistMono');
-  ctx.fillText(topLabel, x, y - 8);
-  ctx.fillStyle = C.border;
-  ctx.fillRect(x, y + h, w, 1);
   series.forEach((s, i) => {
     ctx.beginPath();
     s.values.forEach((value, j) => (j ? ctx.lineTo(px(j), py(value)) : ctx.moveTo(px(j), py(value))));
@@ -200,12 +295,33 @@ function drawComparison(ctx, v) {
   ctx.fillRect(endX - 6, py(series[0].values.at(-1)) - 6, 12, 12);
   ctx.strokeStyle = colors[1]; ctx.lineWidth = 2;
   ctx.strokeRect(endX - 9, py(series[1].values.at(-1)) - 9, 18, 18);
-  ctx.fillStyle = C.muted; ctx.font = 'normal 15px GeistMono';
-  ctx.fillText('0', x, y + h + 24);
-  const range = `${v.start} – ${v.end} UTC`;
-  fit(ctx, range, 'normal', 15, 13, w, 'GeistMono');
-  ctx.fillText(range, x, y + h + 49);
   ctx.restore();
+}
+
+function drawBriefing(ctx, card, accent) {
+  const v = card.visual;
+  if (!Array.isArray(v.items) || v.items.length < 1 || v.items.length > 3
+    || v.items.some(item => typeof item.label !== 'string' || !item.label.trim()
+      || typeof item.value !== 'string' || !item.value.trim()
+      || item.detail != null && typeof item.detail !== 'string')) throw new Error('Invalid briefing evidence');
+  wrappedText(ctx, card.title || `${card.hero} ${card.line}`, PAD, 165, {
+    width: W - 2 * PAD, size: 46, min: 34,
+  });
+  if (card.qualifier) wrappedText(ctx, card.qualifier, PAD, 245, {
+    width: W - 2 * PAD, size: 24, min: 22, lines: 1, color: C.muted,
+  });
+  const gap = 24, width = (W - 2 * PAD - gap * (v.items.length - 1)) / v.items.length;
+  v.items.forEach((item, i) => {
+    const x = PAD + i * (width + gap), tone = TONES[item.tone] || accent;
+    ctx.fillStyle = C.surface; ctx.fillRect(x, 290, width, 225);
+    ctx.fillStyle = tone; ctx.fillRect(x, 290, width, 3);
+    wrappedText(ctx, item.label, x + 22, 335, { width: width - 44, size: 23, min: 21, lines: 1, color: C.secondary });
+    fit(ctx, item.value, '500', 49, 30, width - 44);
+    ctx.fillStyle = tone; ctx.fillText(item.value, x + 22, 408);
+    if (item.detail) wrappedText(ctx, item.detail, x + 22, 457, {
+      width: width - 44, size: 21, min: 19, lines: 2, color: C.secondary,
+    });
+  });
 }
 
 // Public side on top, shielded pool below. The arrow stays neutral; colour
@@ -318,19 +434,21 @@ async function renderEditorial(story) {
   const accent = TONES[card.tone] || C.gold;
   await drawFrame(ctx, card.kicker, accent);
   const v = card.visual;
-  drawText(ctx, card, accent, v ? 590 : W - 2 * PAD);
-  if (v?.kind === 'series') drawSeries(ctx, v, accent);
+  if (v?.kind === 'briefing') drawBriefing(ctx, card, accent);
+  else if (['series', 'comparison'].includes(v?.kind)) drawChartHeading(ctx, card, accent);
+  else drawText(ctx, card, accent, v ? 590 : W - 2 * PAD);
+  if (v?.kind === 'series') drawSeries(ctx, seriesModel(story), accent);
   else if (v?.kind === 'comparison') drawComparison(ctx, v);
   else if (v?.kind === 'transfer') drawTransfer(ctx, v);
   else if (v?.kind === 'swap') await drawSwap(ctx, v);
   else if (v?.kind === 'rank') drawRank(ctx, v);
   else if (v?.kind === 'bars') drawBars(ctx, v);
   else if (v?.kind === 'reorg') drawReorg(ctx, v);
-  else if (v) throw new Error(`Unknown card visual: ${v.kind}`);
+  else if (v && v.kind !== 'briefing') throw new Error(`Unknown card visual: ${v.kind}`);
   drawFooter(ctx, card.source, card.date);
   const file = path.join(os.tmpdir(), `zecblock-card-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`);
   fs.writeFileSync(file, canvas.toBuffer('image/png'));
   return file;
 }
 
-module.exports = { renderEditorial, W, H, C, fmt };
+module.exports = { renderEditorial, seriesModel, chartValue, W, H, C, fmt };

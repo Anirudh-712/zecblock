@@ -272,6 +272,55 @@ test('volume and involvement-share cards retain single-metric visuals and natura
   for (const story of [volumeStory, shareStory]) assert.ok(story.content.length <= 280);
 });
 
+test('weekly-share charts plot exact rolling weighted involvement and the all-transaction denominator', () => {
+  const target = addDays(launch, 14);
+  const source = activity(target, i => {
+    if (i <= 0) return {};
+    const totalTransactions = 1000 + i % 3 * 500;
+    return { totalTransactions, orchard: totalTransactions,
+      ironwood: Math.round(totalTransactions * (i < 8 ? 0.05 : i === 14 ? 0.95 : 0.45)) };
+  });
+  const [story] = poolMilestoneStories(source, target);
+  assert.equal(story.evidence.lead, 'share:7:50');
+  const visual = story.evidence.card.visual;
+  assert.equal(visual.kind, 'series'); assert.equal(visual.unit, '%');
+  assert.equal(visual.start, addDays(launch, 7)); assert.equal(visual.end, target);
+  assert.deepEqual(visual.scale, { min: 0, max: 100 }); assert.equal(visual.reference, 50);
+  assert.equal(visual.values.length, 8);
+  visual.values.forEach((value, index) => {
+    const end = addDays(visual.start, index), start = addDays(end, -6);
+    const rows = source.days.filter(row => row.date >= start && row.date <= end);
+    const numerator = rows.reduce((total, row) => total + row.ironwood, 0);
+    const denominator = rows.reduce((total, row) => total + row.totalTransactions, 0);
+    assert.equal(visual.numerators[index], numerator);
+    assert.equal(visual.denominators[index], denominator);
+    assert.equal(value, 100 * numerator / denominator);
+  });
+  const lastWeek = source.days.slice(-7);
+  const unweighted = lastWeek.reduce((total, row) => total + 100 * row.ironwood / row.totalTransactions, 0) / 7;
+  assert.notEqual(visual.values.at(-1), unweighted, 'daily percentages must not be averaged');
+  assert.equal(visual.numerators.at(-1), story.evidence.achievements.find(a => a.id === story.evidence.lead).ironwood);
+});
+
+test('weekly-share charts leave zero-denominator windows unavailable and show one first full window honestly', () => {
+  const first = addDays(launch, 7);
+  const [initial] = poolMilestoneStories(activity(first, i => i > 0 ? {
+    totalTransactions: 1000, orchard: 1000, ironwood: i === 7 ? 560 : 490,
+  } : {}), first);
+  assert.deepEqual(initial.evidence.card.visual.values, [50]);
+  assert.equal(initial.evidence.card.visual.start, first);
+  assert.equal(initial.evidence.card.visual.end, first);
+  const target = addDays(launch, 15);
+  const source = activity(target, i => i <= 0 ? {} : i < 14 ? {
+    totalTransactions: 0, orchard: 0, ironwood: 0,
+  } : { totalTransactions: 1000, orchard: 1000, ironwood: i === 14 ? 490 : 520 });
+  const [story] = poolMilestoneStories(source, target);
+  assert.equal(story.evidence.lead, 'share:7:50');
+  assert.deepEqual(story.evidence.card.visual.values, [49, 50.5]);
+  assert.deepEqual(story.evidence.card.visual.denominators, [1000, 2000]);
+  assert.equal(story.evidence.card.visual.start, addDays(launch, 14));
+});
+
 function delayedVolume(target, crossing) {
   return activity(target, (i, date) => ({
     totalTransactions: 2000000,
