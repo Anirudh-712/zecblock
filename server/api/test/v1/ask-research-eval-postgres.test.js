@@ -153,5 +153,9 @@ test('disposable PG16 catalogue SQL and exact wire transport',{skip:process.env.
   assert.deepEqual(defaultOrder.rows,[['missing',null]]);
   assert.deepEqual(knownFirst.rows,[['decrease','-5']]);
  });
+ await t.test('summary-row counts and public-record counts have different grains',async()=>{
+  const compiled=await compileResearchSQL({version:3,sql:"SELECT count(*) AS summary_rows,sum(records) AS public_records FROM flow_daily WHERE date=DATE '2026-09-01' AND direction='shield'",limit:1},{extended:true});
+  assert.deepEqual((await read(compiled)).rows,[['2','4']]);
+ });
  await reader.query('ROLLBACK');
 });

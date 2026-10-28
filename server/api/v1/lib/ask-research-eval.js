@@ -193,12 +193,12 @@ function leaderComparison(claim){
  const separator=/,?\s+\b(?:compared\s+with|versus)\b\s+/i.exec(claim);
  return separator?{primary:claim.slice(0,separator.index).trim(),comparison:claim.slice(separator.index+separator[0].length).trim()}:null;
 }
-function validLeaderComparison(tail,row,reference,keys,roles,check){
+function validLeaderComparison(tail,row,reference,keys,roles,check,primary){
  // Only the fixed, explicitly dated same-measure comparison shape is known.
  // Arbitrary comparison prose still needs review rather than being discarded.
  if(!tail||keys.length!==1||!['date','month'].includes(roles[keys[0]])||!check.unit)return false;
  const amount='[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?',measure=amount+'\\s*'+unitPattern(check.unit),shape=new RegExp('^(?:'+measure+'\\s+on\\s+DATE|DATE\\s+(?:at\\s+)?'+measure+')\\.?$','i');
- return reference.some(other=>keys.some(i=>normalized(other[i],roles[i])!==normalized(row[i],roles[i])&&keyMention(tail,other[i],roles[i],check.keyAliases?.[i]))&&!competingKey(tail,other,reference,keys,roles,check.keyAliases)&&shape.test(withoutKeys(tail,other,keys,roles))&&valueClaim('Comparison value was '+withoutKeys(tail,other,keys,roles),other[check.valueColumn],roles[check.valueColumn],{...check,subject:'comparison value'}));
+ return reference.some(other=>(!/\blarger\b/i.test(primary)||other[check.valueColumn]!==null&&compareDecimal(row[check.valueColumn],other[check.valueColumn])>0)&&keys.some(i=>normalized(other[i],roles[i])!==normalized(row[i],roles[i])&&keyMention(tail,other[i],roles[i],check.keyAliases?.[i]))&&!competingKey(tail,other,reference,keys,roles,check.keyAliases)&&shape.test(withoutKeys(tail,other,keys,roles))&&valueClaim('Comparison value was '+withoutKeys(tail,other,keys,roles),other[check.valueColumn],roles[check.valueColumn],{...check,subject:'comparison value'}));
 }
 function withoutKeys(claim,row,keys,roles){
  let text=claim;
@@ -226,6 +226,15 @@ function attachedUnit(number,unit){
  if(!unit)return true;
  const pattern=unitPattern(unit),suffix=new RegExp('^\\s*'+pattern+'(?![\\p{L}\\p{N}_])','iu'),prefix=new RegExp('(?:^|\\s)'+pattern+'\\s*$','iu');
  return suffix.test(number.after)||prefix.test(number.before)||String(unit).toLowerCase()==='usd'&&/\$\s*$/.test(number.before);
+}
+function implicitCountUnit(claim,number,role,check){
+ // A fixed count subject may name its own unit. Recognize only an immediate
+ // value assertion and an optional key location, never arbitrary bare figures.
+ const unit=String(check.unit||'').toLowerCase();
+ if(role!=='count'||!['transaction','transactions','record','records','block','blocks','swap','swaps','amount','amounts','observation','observations','row','rows','address','addresses','event','events','input','inputs','output','outputs'].includes(unit))return false;
+ const named=new RegExp('(?<![\\p{L}\\p{N}])'+unitPattern(unit)+'(?![\\p{L}\\p{N}])','iu'),subjects=aliases(check.subject).filter(subject=>named.test(subject));
+ const bound=phraseSpans(claim,subjects).some(span=>span.end<=number.before.length&&/^\s*(?:is|was|are|were|equals?|:|=)\s*$/i.test(number.before.slice(span.end)));
+ return bound&&/^[\s,.]*(?:(?:at\s+(?:height|block|rank|position|group|bucket)\s*#?\s*\d+|(?:on|in)\s+DATE)[\s,.]*)?$/i.test(number.after);
 }
 function nearestNumbers(claim,subject){
  const found=numbers(claim).map(number=>({...number,start:number.before.length,end:number.before.length+number.value.length})),selected=[];
@@ -260,7 +269,7 @@ function valueClaim(claim,value,role,check){
  if(check.unit&&numbers(claim).some(number=>attachedUnit(number,check.unit)&&normalized(number.value,role)!==normalized(value,role)))return false;
  const expectedUnit=String(check.unit||'').toLowerCase();
  if(['zec','usd','zatoshi','zatoshis','zat','zats','%','percent'].includes(expectedUnit)&&numbers(claim).some(number=>['ZEC','USD','zatoshi','%'].some(unit=>attachedUnit(number,unit)&&!attachedUnit(number,check.unit))))return false;
- return nearestNumbers(claim,check.subject).some(number=>normalized(number.value,role)===normalized(value,role)&&attachedUnit(number,check.unit)&&denominatorClaim(claim,number,check.denominator));
+ return nearestNumbers(claim,check.subject).some(number=>normalized(number.value,role)===normalized(value,role)&&(attachedUnit(number,check.unit)||implicitCountUnit(claim,number,role,check))&&denominatorClaim(claim,number,check.denominator));
 }
 // Reviewed English canary contracts. Unrecognized associations require manual
 // review; lexical checks do not prove arbitrary prose or SQL semantics.
@@ -287,7 +296,7 @@ function genericFinding(item,answer,reference){
   const comparison=check.type==='leader'?leaderComparison(original):null,primary=comparison?.primary??original;
   if(!keys.every(i=>keyMention(primary,row[i],item.roles[i],check.keyAliases?.[i])))continue;
   if(['leader','change'].includes(check.type)&&competingKey(primary,row,reference,keys,item.roles,check.keyAliases))return review(false,check.type+'-key-association-unresolved');
-  if(comparison&&!validLeaderComparison(comparison.comparison,row,reference,keys,item.roles,check))return review(false,'leader-comparison-unresolved');
+  if(comparison&&!validLeaderComparison(comparison.comparison,row,reference,keys,item.roles,check,primary))return review(false,'leader-comparison-unresolved');
   const claim=withoutKeys(primary,row,keys,item.roles);
   if(check.type==='leader'){
    if(rows.length>1&&/\b(?:alone|unique(?:ly)?|sole|only)\b/i.test(claim))return review(false,'leader-tie-conflict');

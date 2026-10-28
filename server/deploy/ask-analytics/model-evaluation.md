@@ -97,6 +97,21 @@ Explicit null ordering, matching known-value filters and unresolved lineage stay
 accepted. Handwritten SQL and the SQL security compiler do not take this draft
 repair path; their supported relational operations and limits remain unchanged.
 
+For explicit public boundary-record questions, a directly resolved `flow_daily`
+COUNT draft gets the same single SQL repair: its rows are daily/pool/direction
+aggregates, while `SUM(records)` counts underlying records. Explicit coverage
+row counts, joins and unresolved lineage stay accepted. A valid record sum
+divided by an observed-day count also stays accepted. This is a narrow quality
+hint, not a general proof of aggregation grain or a restriction on manual SQL.
+
+If generated research prose contains an unbound English calendar month, it can
+receive one format-only explanation repair using the same checked evidence and
+schema. The repair must use date facts or neutral period wording. It cannot
+modify SQL or result rows; failure retains the existing guarded fallback.
+It uses the ordinary provider reservation and attempt accounting, so it may be
+unavailable when allowance runs out. No extra request is made for already valid
+prose, and there is no repeated repair loop.
+
 ## Prerequisites
 
 - Use a reviewed exact application commit and Node 22 with the API dependencies.
@@ -191,10 +206,11 @@ stays unchanged and still requires truncation/correctness testing. Default fixed
 `annual_2025`, `shielded_baseline`, `fee_units`, `ambiguous_growth` and
 `private_ownership`; additional eligible IDs are in the operator catalogue.
 There are at most six selected cases per live run and twelve **actual**
-provider attempts; no new retry is introduced. The client pauses thirty-one seconds between live cases to preserve existing
+provider attempts, including the bounded repairs. The client pauses thirty-one seconds between live cases to preserve existing
 per-IP admission, without simulated identities or quota resets. The API retains
 its existing single SQL repair. Research cases need room for selection, possible repair and
-explanation; insufficient remaining allowance fails rather than overruns it.
+explanation and any calendar-format repair; insufficient remaining allowance
+fails rather than overruns it.
 A subset's acceptance applies only to that selected subset.
 
 The research verifier re-executes candidate and reviewed reference SQL in one

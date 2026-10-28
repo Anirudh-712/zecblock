@@ -233,3 +233,32 @@ test('explicit leader comparisons validate each date and value without borrowing
  for(const separator of ['compared with','versus'])for(const apostrophe of ["'",'’'])assert.equal(grade(spec,rows,`Ironwood${apostrophe}s larger closing balance was observed on 30 Sept 2026, at 60 ZEC, ${separator} 50 ZEC on 31 Aug 2026.`).passed,true,separator+apostrophe);
  for(const answer of ["Ironwood's larger closing balance was observed on 31 Aug 2026, at 60 ZEC, compared with 50 ZEC on 30 Sept 2026.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 50 ZEC, compared with 60 ZEC on 31 Aug 2026.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with 51 ZEC on 31 Aug 2026.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with 50 USD on 31 Aug 2026.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with 50 ZEC.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with 50 ZEC on 30 Aug 2026.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with a mean fee of 50 ZEC on 31 Aug 2026."])assert.equal(grade(spec,rows,answer).passed,false,answer);
 });
+
+
+test('an explicitly named count subject supplies its unit without weakening leader key and value binding',()=>{
+ const spec=cases.find(value=>value.id==='bounded_block_transaction_join'),rows=Array.from({length:20},(_,i)=>[String(3500000+i),String(i===7?372:i+2),String(i===7?371:i+1)]);
+ const answer='The largest observed non-coinbase transaction count is 371 at height 3500007; its block transaction count, including coinbase, is 372.';
+ const good=grade(spec,rows,answer);assert.equal(good.passed,true);assert.equal(good.dimensions.result,'passed');
+ for(const wrong of [answer.replace('371 at','371 USD at'),answer.replace('371 at','371 bytes at'),answer.replace('371 at','371 records at'),answer.replace('371 at','371% at'),answer.replace('371 at','370 at'),answer.replace('height 3500007','height 3500008'),answer.replace('371 at','371, or in fact 372 at')])assert.equal(grade(spec,rows,wrong).passed,false,wrong);
+});
+
+test('implicit count units require a matched unit-bearing subject and immediate value assertion',()=>{
+ for(const [subject,unit] of [['transaction count','transactions'],['boundary record count','records'],['canonical block count','blocks']]){
+  const spec=item(['count'],{type:'value',row:0,column:0,subject,unit});
+  assert.equal(grade(spec,[['10']],`The ${subject} is 10.`).passed,true,unit);
+  for(const ending of ['is 10 USD.','is 10 bytes.','is 10 bananas.','is 10%.','is 9.','mentions a treasury with 10.'])assert.equal(grade(spec,[['10']],`The ${subject} ${ending}`).passed,false,subject+ending);
+ }
+ const vague=item(['count'],{type:'value',row:0,column:0,subject:['activity','transaction count'],unit:'transactions'});
+ assert.equal(grade(vague,[['10']],'The activity is 10.').passed,false);
+ const numeric=item(['numeric'],{type:'value',row:0,column:0,subject:'transaction count',unit:'transactions'});
+ assert.equal(grade(numeric,[['10']],'The transaction count is 10.').passed,false);
+ for(const [role,unit,subject] of [['zec','ZEC','ZEC balance'],['usd','USD','USD total'],['percent','%','percent share']])assert.equal(grade(item([role],{type:'value',row:0,column:0,subject,unit}),[['10']],`The ${subject} is 10.`).passed,false,unit);
+});
+
+
+test('larger dated leader comparisons require strict inequality while honest joint maxima remain valid',()=>{
+ const spec=item(['date','zec','zec'],{type:'leader',valueColumn:2,keyColumns:[0],direction:'max',subject:["Ironwood's larger closing balance",'Ironwood balance'],unit:'ZEC'},{keyColumns:[0],ordered:false}),rows=[['2026-08-31','100','60'],['2026-09-30','90','60']];
+ for(const apostrophe of ["'",'’'])assert.equal(grade(spec,rows,`Ironwood${apostrophe}s larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with 60 ZEC on 31 Aug 2026.`).passed,false,apostrophe);
+ for(const wording of ['joint highest','tied for the highest'])assert.equal(grade(spec,rows,`The Ironwood balance was ${wording} on 30 Sept 2026, at 60 ZEC, compared with 60 ZEC on 31 Aug 2026.`).passed,true,wording);
+ assert.equal(grade(spec,[['2026-08-31','100','50'],['2026-09-30','90','60']],"Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with 50 ZEC on 31 Aug 2026.").passed,true);
+});
