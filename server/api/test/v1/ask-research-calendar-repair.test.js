@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {researchReply}=require('../../v1/lib/ask-research-reply');
 const {answerTaskFor}=require('../../v1/lib/ask-chat');
-const result={query:{version:3,sql:"SELECT date,transactions FROM activity_daily WHERE date>=DATE '2026-08-01' AND date<DATE '2026-10-01' ORDER BY date LIMIT 2",limit:2},columns:[{key:'c0',label:'date',type:'text'},{key:'c1',label:'transactions',type:'number'}],rows:[['2026-08-31','10'],['2026-09-30','20']],truncated:false,datasets:['activity_daily'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-28T00:00:00Z',indexedThrough:'2026-10-28T00:00:00Z',coverage:'verified canonical records',units:'exact decimal strings'};
+const result={query:{version:3,sql:"SELECT date,transactions + 0 AS transactions FROM activity_daily WHERE date>=DATE '2026-08-01' AND date<DATE '2026-10-01' ORDER BY date LIMIT 2",limit:2},columns:[{key:'c0',label:'date',type:'text'},{key:'c1',label:'transactions',type:'number'}],rows:[['2026-08-31','10'],['2026-09-30','20']],truncated:false,datasets:['activity_daily'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-28T00:00:00Z',indexedThrough:'2026-10-28T00:00:00Z',coverage:'verified canonical records',units:'exact decimal strings'};
 const input={question:'Explain the highest returned transaction count.',history:[]};
 const prose=summary=>({summary,observations:[],limitation:'',sources:['transactions']});
 const original=prose('September had the highest returned transaction count, at {{row_b_b}}.');

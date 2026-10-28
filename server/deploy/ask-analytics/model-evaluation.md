@@ -112,6 +112,27 @@ It uses the ordinary provider reservation and attempt accounting, so it may be
 unavailable when allowance runs out. No extra request is made for already valid
 prose, and there is no repeated repair loop.
 
+Direct daily observations now have a source-grounded natural-language fallback
+before a receipt. It resolves reviewed `daily`/`activity_daily` fields through
+simple projections, CTEs and subquery aliases, with exact denomination changes
+and one actual source date. It compares complete returned tables of two through
+forty observations, keeping nulls, zeros, ties and exact decimals distinct.
+Metric names come from source fields rather than query aliases. Aggregates,
+derived/fabricated dates, lossy casts, joins, truncated results and unsupported
+question meanings do not acquire a source-measure interpretation. The fixed
+published source-column order is checked against the destination view SQL and
+the disposable native fixture; it is not a new runtime schema attestation.
+
+The older paired-pool shortcut also checks true source identity and question
+meaning before describing balances. Swapping monetary column aliases cannot
+swap the pools in a checked explanation. Valid model prose stays intact; when
+an unbound month would remove a recognized finding, the server renders the
+checked comparison directly and skips the otherwise redundant format call.
+Other supported research keeps its model path. No SQL is rewritten or newly
+forbidden by this explanation layer. The evaluation digest binds the new
+helper, its catalogue and comparison/fallback dependencies. Pipeline acceptance
+that uses this renderer must not be described as model-only prose accuracy.
+
 ## Prerequisites
 
 - Use a reviewed exact application commit and Node 22 with the API dependencies.

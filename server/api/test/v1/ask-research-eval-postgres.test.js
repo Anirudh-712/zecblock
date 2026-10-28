@@ -5,6 +5,7 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const {cases}=require('../../v1/lib/ask-research-eval-cases');
 const {compileResearchSQL,researchEvidence}=require('../../v1/lib/ask-research-sql');
 const {comparisonQuery,splitComparison,matchRoles}=require('../../v1/lib/ask-research-eval');
+const {researchObservedColumns,researchGroundedSummary}=require('../../v1/lib/ask-research-grounded-summary');
 const when='2026-10-28T00:00:00Z';
 
 const schemaSQL=`
@@ -156,6 +157,30 @@ test('disposable PG16 catalogue SQL and exact wire transport',{skip:process.env.
  await t.test('summary-row counts and public-record counts have different grains',async()=>{
   const compiled=await compileResearchSQL({version:3,sql:"SELECT count(*) AS summary_rows,sum(records) AS public_records FROM flow_daily WHERE date=DATE '2026-09-01' AND direction='shield'",limit:1},{extended:true});
   assert.deepEqual((await read(compiled)).rows,[['2','4']]);
+ });
+ await t.test('native partial table aliases preserve observed pool positions and reject swapped meanings',async()=>{
+  // This table/view order is declared independently in schemaSQL above. The
+  // first four positions are date and counts, before either pool balance.
+  const from=" FROM daily AS x(d,t,s,u,o,i) WHERE d IN(DATE '2025-12-25',DATE '2025-12-26') ORDER BY d";
+  const run=async projection=>read(await compileResearchSQL({version:3,sql:'SELECT '+projection+from,limit:2},{extended:true}));
+  const result=await run('d AS snapshot_day,t AS tally,s AS shield_count,u AS plain_count,o::numeric/100000000 AS stock_a,i::numeric/100000000 AS stock_b');
+  assert.equal(result.truncated,false);
+  assert.deepEqual(result.rows.map(row=>row.map(value=>value?.replace(/\.0+$/,''))),[
+   ['2025-12-25','300','100','200','1000','100'],
+   ['2025-12-26','300','100','200','998','103'],
+  ]);
+  const before=structuredClone(result),columns=await researchObservedColumns(result.query.sql);
+  assert.deepEqual(columns.map(({field,unit})=>({field,unit})),[
+   {field:'date',unit:'date'},{field:undefined,unit:'unknown'},{field:undefined,unit:'unknown'},{field:undefined,unit:'unknown'},
+   {field:'orchard',unit:'zec'},{field:'ironwood',unit:'zec'},
+  ]);
+  const question='Compare the observed Orchard and Ironwood balances and explain the larger Ironwood balance.';
+  const answer=researchGroundedSummary(result,columns,question,'en');
+  const date=value=>new Date(value+'T00:00:00Z').toLocaleDateString('en',{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
+  assert.equal(answer,`Among the returned observations, the Ironwood balance was larger on ${date('2025-12-26')}, at 103 ZEC, compared with 100 ZEC on ${date('2025-12-25')}. Among the returned observations, the Orchard balance was larger on ${date('2025-12-25')}, at 1,000 ZEC, compared with 998 ZEC on ${date('2025-12-26')}.`);
+  assert.deepEqual(result,before,'grounded prose preserves native evidence');
+  const swapped=await run('d AS snapshot_day,i::numeric/100000000 AS orchard_zec,o::numeric/100000000 AS ironwood_zec');
+  assert.equal(researchGroundedSummary(swapped,await researchObservedColumns(swapped.query.sql),question,'en'),null,'output aliases cannot swap proven pool meanings');
  });
  await reader.query('ROLLBACK');
 });

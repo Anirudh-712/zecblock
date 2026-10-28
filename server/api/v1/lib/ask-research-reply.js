@@ -6,6 +6,7 @@ const {renderExplanation}=require('./ask-explanation');
 const {researchUnitsFor}=require('./ask-research-plan-quality');
 const {researchValueSummary}=require('./ask-research-summary');
 const {researchExtrema}=require('./ask-research-extrema');
+const {researchObservedColumns,poolProvenanceMatches,researchGroundedSummary,allowsObservedSummary}=require('./ask-research-grounded-summary');
 const {askError}=require('./ask-errors');
 function display(value,type,locale){
  if(value===null)return 'Unavailable';
@@ -55,10 +56,12 @@ async function researchReply(raw,input,run,locale,answerTaskFor){
  let inferred=[];
  try{inferred=(await researchUnitsFor(result.query.sql)).columns;}catch{/* An unresolved unit cannot substantiate a monetary claim. */}
  const units=columns.map((_,i)=>inferred.length===columns.length?inferred[i].unit:'unknown');
+ const observed=await researchObservedColumns(result.query.sql);
+ const groundedAnswer=researchGroundedSummary(result,observed,question,locale);
  // The server-authored paired-pool shortcut also needs proven denominations;
  // an alias alone must never turn stored zatoshis into already converted ZEC.
- const verifiedPoolUnits=columns.every((column,i)=>!/^\b(?:orchard|ironwood)(?:_zec|_zatoshis)?$/.test(column.label)||units[i]===(column.label.endsWith('_zec')?'zec':'zatoshi'));
- const checkedAnswer=verifiedPoolUnits?poolComparisonAnswer(result,locale):null;
+ const verifiedPoolUnits=poolProvenanceMatches(result,observed)&&columns.every((column,i)=>!/^\b(?:orchard|ironwood)(?:_zec|_zatoshis)?$/.test(column.label)||units[i]===(column.label.endsWith('_zec')?'zec':'zatoshi'));
+ const checkedAnswer=verifiedPoolUnits&&allowsObservedSummary(question)?groundedAnswer||poolComparisonAnswer(result,locale):null;
  if(checkedAnswer)return {answer:checkedAnswer,sources:publicSources(records),spec:null,locale,research:result,evidenceKey:result.fingerprint};
  // Small daily/ranked tables should be explained as a whole. Keep narrative
  // evidence bounded independently of the larger downloadable result.
@@ -83,6 +86,7 @@ async function researchReply(raw,input,run,locale,answerTaskFor){
  const narrativeInput={question:input.question,history:input.history,locale,documents:records,evidence};
  let rawAnswer=await run(narrativeInput,task);
  let rendered=renderExplanation({summary:rawAnswer.summary,observations:rawAnswer.observations,limitation:rawAnswer.limitation},facts);
+ if(hasUnboundCalendar(rawAnswer.summary)&&groundedAnswer)return {answer:groundedAnswer,sources:publicSources(records),spec:null,locale,research:result,evidenceKey:result.fingerprint};
  if(hasUnboundCalendar(rawAnswer.summary)){
   // One format repair uses the caller's existing admission, reservation and
   // cancellation path. A rejected repair retains the original safe fallback.
@@ -132,7 +136,7 @@ async function researchReply(raw,input,run,locale,answerTaskFor){
  // A date or label alone does not cite a numerical measure.
  const uncited=result.rows.length>0&&columns.some(c=>c.type==='number')&&!templates.some(text=>[...text.matchAll(/\{\{([a-z_]+)\}\}/g)].some(([,id])=>numericFact(id)));
  const total=result.rows.length;
- const answer=(!summary||malformedTable||fusedNumbers||decodingArtifact||unitMislabel||uncited)?researchValueSummary(result,inferred,locale)||`Your query returned ${total} ${total===1?'record':'records'}. The results are available in the table below.`:paragraphs.join('\n\n').replace(/[ \t]{2,}/g,' ');
+ const answer=(!summary||malformedTable||fusedNumbers||decodingArtifact||unitMislabel||uncited)?groundedAnswer||researchValueSummary(result,inferred,locale)||`Your query returned ${total} ${total===1?'record':'records'}. The results are available in the table below.`:paragraphs.join('\n\n').replace(/[ \t]{2,}/g,' ');
  return {answer,sources:publicSources(records),spec:null,locale,research:result,evidenceKey:result.fingerprint};
 }
 module.exports={researchReply,completeSummary};
