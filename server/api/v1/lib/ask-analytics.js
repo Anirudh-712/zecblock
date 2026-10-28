@@ -9,6 +9,7 @@ const { coreCatalogue, coreViews } = require('./ask-core-catalogue');
 const { queryEvidence } = require('./ask-query-evidence');
 const {compileResearchSQL,researchEvidence}=require('./ask-research-sql');
 const { askError } = require('./ask-errors');
+const { sqlQuotaError } = require('./ask-sql-quota');
 
 // Separate connection and credentials. Never import the explorer's read router:
 // it can fall back to primary, which is forbidden for this service.
@@ -45,7 +46,11 @@ function checkCoreGuard(row){if(!row || !['dedicated','identity','restricted','d
 
 const ADMIT_QUERY = `
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
-if redis.call('ZCARD', KEYS[1]) >= 2 or tonumber(redis.call('GET', KEYS[2]) or '0') >= tonumber(ARGV[4]) then return 0 end
+if tonumber(redis.call('GET', KEYS[2]) or '0') >= tonumber(ARGV[4]) then return -2 end
+if redis.call('ZCARD', KEYS[1]) >= 2 then
+ local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+ return {-1, math.max(1, math.min(45, math.ceil((tonumber(first[2]) - tonumber(ARGV[1])) / 1000)))}
+end
 redis.call('ZADD', KEYS[1], ARGV[2], ARGV[3]); redis.call('EXPIRE', KEYS[1], 60)
 redis.call('INCR', KEYS[2]); redis.call('EXPIRE', KEYS[2], 172800)
 return 1`;
@@ -118,7 +123,7 @@ function createAnalytics(env, dependencies = {}) {
       if(research && (env.ASK_RESEARCH_ENABLED!=='true'||config.profile!=='logical_public_core'))throw askError('source');
       const compiled = research ? await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'}) : compilePlan(input, now, config.profile); // Validate before quota or pool access.
       if (!redis?.isReady) throw askError('unavailable');
-      if (active >= 2) { const error = askError('quota'); error.quota = true; throw error; }
+      if (active >= 2) throw sqlQuotaError('ask-sql-busy', 1);
       active++;
       const deadline = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(background?35000:10000)]);
       const lease = randomUUID(); let admitted = false; let client; let released = false;
@@ -139,7 +144,11 @@ function createAnalytics(env, dependencies = {}) {
         const accepted = await bounded(redis.eval(ADMIT_QUERY, { keys: ['ask:{mainnet}:analytics:active', `ask:{mainnet}:analytics:queries:${new Date(now).toISOString().slice(0,10)}`], arguments: [String(now), String(now + (background?45000:30000)), lease, String(config.daily)] }), deadline);
         admitted = Number(accepted) === 1;
         deadline.throwIfAborted();
-        if (!admitted) { const error = askError('quota'); error.quota = true; throw error; }
+        if (!admitted) {
+          if (Number(accepted) === -2) throw sqlQuotaError('ask-sql-global-day', Math.max(1, Math.ceil((86400000 - now % 86400000) / 1000)));
+          if (Array.isArray(accepted) && Number(accepted[0]) === -1) throw sqlQuotaError('ask-sql-busy', Math.max(1, Math.min(45, Number(accepted[1]) || 1)));
+          const error = askError('quota'); error.quota = true; throw error;
+        }
         client = await bounded(pool.connect().then(connection => { if (deadline.aborted) { connection.release(true); throw deadline.reason; } return connection; }), deadline);
         deadline.throwIfAborted();
         await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');

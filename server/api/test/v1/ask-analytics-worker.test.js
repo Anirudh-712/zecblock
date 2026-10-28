@@ -40,11 +40,13 @@ test('actual Redis enforces shared query leases and daily limits atomically', as
   const redis=createClient({socket:{path:socket}});redis.on('error',()=>{});await redis.connect();
   t.after(async()=>{await redis.quit();child.kill();await once(child,'exit');await rm(dir,{recursive:true,force:true});});
   const keys=['ask:{mainnet}:analytics:active','ask:{mainnet}:analytics:queries:fixture'];
-  const reserve=async(id,now=1000)=>Number(await redis.eval(ADMIT_QUERY,{keys,arguments:[String(now),String(now+30000),id,'3']}));
-  const results=await Promise.all(Array.from({length:15},(_,i)=>reserve(String(i))));assert.equal(results.filter(Boolean).length,2);
+  const reserve=async(id,now=1000)=>redis.eval(ADMIT_QUERY,{keys,arguments:[String(now),String(now+30000),id,'3']});
+  const results=await Promise.all(Array.from({length:15},(_,i)=>reserve(String(i))));assert.equal(results.filter(value=>value===1).length,2);
+  for(const denied of results.filter(value=>value!==1))assert.deepEqual(denied,[-1,30]);
   assert.equal(await redis.get(keys[1]),'2');
-  await redis.zRem(keys[0],results.findIndex(Boolean).toString());assert.equal(await reserve('next'),1);assert.equal(await reserve('daily-denied',40000),0);
+  await redis.zRem(keys[0],results.findIndex(value=>value===1).toString());assert.equal(await reserve('next'),1);assert.equal(await reserve('daily-denied',40000),-2);
   assert.equal(await redis.get(keys[1]),'3');
+  assert.equal(await redis.zCard(keys[0]),0);
 });
 
 test('relational worker/client preserve exact raw cells and missing-value evidence across the authenticated boundary',async t=>{

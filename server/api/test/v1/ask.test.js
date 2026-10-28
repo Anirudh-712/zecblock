@@ -8,6 +8,7 @@ const { analysisSchema, requestSchema, starters, resolveShortcut } = require('..
 const sample = starters[0].spec;
 const { explainRequestSchema, loadExplanationEvidence, renderExplanation } = require('../../v1/lib/ask-explanation');
 const createV1Router = require('../../v1');
+const { ADMIT, ADMIT_WORK, RESERVE } = require('../../v1/lib/ask-budget');
 
 test('Ask rejects oversized JSON before interpretation in standalone and already-parsed hosts', async t => {
   for (const parentParses of [false, true]) {
@@ -112,7 +113,7 @@ test('testnet and Crosslink cannot expose Ask', async t => {
 test('shared quota denial or Redis failure cannot reach the paid provider', async t => {
   let calls = 0;
   for (const failure of ['quota', 'redis']) {
-    const api = await serve(t, 'mainnet', env, { redis: { isReady: true, eval: async () => { if (failure === 'redis') throw new Error('redis down'); return 0; } }, fetch: async () => { calls++; } });
+    const api = await serve(t, 'mainnet', env, { redis: { isReady: true, eval: async script => { assert.equal(script, ADMIT); if (failure === 'redis') throw new Error('redis down'); return -1; } }, fetch: async () => { calls++; } });
     const result = await api.post({ question: 'show my supported dataset', context: null });
     assert.equal(result.status, failure === 'quota' ? 429 : 503);
   }
@@ -120,14 +121,14 @@ test('shared quota denial or Redis failure cannot reach the paid provider', asyn
 });
 
 test('paid requests reserve a shared daily slot, release concurrency and retain the consumed reservation', async t => {
-  let removed = false; let reserved = false;
+  let removed = false; let reserved = false; const admissions = { request: 0, ai: 0 };
   const api = await serve(t, 'mainnet', env, {
-    redis: { isReady: true, eval: async (script, options) => { if (!script.includes('ZCARD')) return 1; assert.ok(script.includes('ZCARD')); assert.ok(script.includes('INCR')); assert.equal(options.arguments[2], '5'); reserved = true; return 1; }, zRem: async () => { removed = true; } },
+    redis: { isReady: true, eval: async (script, options) => { if (script === ADMIT) { admissions.request++; assert.equal(options.keys.length, 4); return 1; } if (script === ADMIT_WORK) { assert.match(options.keys[0], /:work:ai:/); admissions.ai++; return 1; } assert.equal(script, RESERVE); assert.equal(options.arguments[2], '5'); reserved = true; return 1; }, zRem: async () => { removed = true; } },
     fetch: async () => { assert.equal(reserved, true); return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ spec: sample }) } }] }); },
   });
   const result = await api.post({ question: 'interpret this question', context: null });
   assert.equal(result.status, 200); assert.deepEqual((await result.json()).data.spec, sample);
-  assert.equal(removed, true);
+  assert.equal(removed, true); assert.deepEqual(admissions, { request: 1, ai: 1 });
 });
 
 test('explanations use server-fetched evidence with fingerprints tied to dates, pool and observations', async () => {
@@ -151,7 +152,7 @@ test('explanations use server-fetched evidence with fingerprints tied to dates, 
 test('a changed evidence snapshot cannot trigger a provider explanation for an old chart', async t => {
   let calls = 0;
   const api = await serve(t, 'mainnet', env, {
-    redis: { isReady: true, eval: async () => 1, zRem: async () => {}, get: async () => null, set: async () => {} },
+    redis: { isReady: true, eval: async script => { assert.equal(script, ADMIT); return 1; }, zRem: async () => {}, get: async () => null, set: async () => {} },
     internalClient: { dispatch: async () => ({ ok: true, body: { points: [{ date: '2026-08-01', orchardZat: '100000000', hasPoolBreakdown: true }] } }) },
     fetch: async () => { calls++; },
   });
@@ -164,8 +165,9 @@ test('an explanation response contains only validated narrative for the exact ch
   const internalClient = { dispatch: async () => ({ ok: true, body: { points: [{ date: '2026-08-01', orchardZat: '100000000', hasPoolBreakdown: true }] } }) };
   const spec = { ...sample, pool: 'orchard' };
   const evidence = await loadExplanationEvidence(spec, internalClient, new AbortController().signal);
+  const admissions = { request: 0, ai: 0, paid: 0 };
   const api = await serve(t, 'mainnet', env, {
-    redis: { isReady: true, eval: async () => 1, zRem: async () => {}, get: async () => null, set: async () => {} }, internalClient,
+    redis: { isReady: true, eval: async (script,options) => { if (script === ADMIT) admissions.request++; else if (script === ADMIT_WORK) { assert.match(options.keys[0], /:work:ai:/); admissions.ai++; } else { assert.equal(script, RESERVE); admissions.paid++; } return 1; }, zRem: async () => {}, get: async () => null, set: async () => {} }, internalClient,
     fetch: async (url, init) => {
       const body = JSON.parse(init.body); assert.equal(body.response_format.json_schema.name, 'explain_analysis');
       assert.equal(JSON.parse(body.messages[1].content).facts.orchard_value, '1.00 ZEC');
@@ -175,14 +177,15 @@ test('an explanation response contains only validated narrative for the exact ch
   const response = await fetch(`${api.url}/explain`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spec, evidenceKey: evidence.evidenceKey, challenge: 'test-token' }) });
   assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'private, no-store');
   const body = await response.json(); assert.equal(body.data.explanation.summary, 'The observed Orchard balance was 1.00 ZEC.'); assert.equal(body.data.evidenceKey, evidence.evidenceKey);
+  assert.deepEqual(admissions, { request: 1, ai: 1, paid: 1 });
 });
 
 
 test('connection admission reports its actual minute/day reset without reaching provider or relaxing limits', async t => {
   const now = Date.parse('2026-10-06T23:42:32Z'); t.mock.method(Date, 'now', () => now);
   let providerCalls=0;
-  for (const [denial,code,seconds] of [[-2,'ask-quota-day','1048'],[-1,'ask-quota-minute','28']]) {
-    const api=await serve(t,'mainnet',env,{redis:{isReady:true,eval:async script=>{assert.match(script,/return -2/);assert.match(script,/return -1/);return denial;}},fetch:async()=>{providerCalls++;}});
+  for (const [denial,code,seconds] of [[-2,'ask-request-day','1048'],[-1,'ask-request-minute','28']]) {
+    const api=await serve(t,'mainnet',env,{redis:{isReady:true,eval:async script=>{assert.equal(script,ADMIT);return denial;}},fetch:async()=>{providerCalls++;}});
     const response=await api.post({question:'Rank the latest blocks',context:null});
     assert.equal(response.status,429);assert.equal(response.headers.get('retry-after'),seconds);assert.equal((await response.json()).code,code);
   }

@@ -8,7 +8,7 @@ const express=require('express');
 const {HOST,stagingConfig,fingerprint,peerAllowed,tlsOptions,createStagingServer}=require('../../ask-staging-api');
 const {createStagingSource}=require('../../v1/lib/ask-staging-source');
 const {createInternalClient}=require('../../v1/lib/internal-client');
-const {budgetConfig,admit,ADMIT,reserve,RESERVE,maximumCost}=require('../../v1/lib/ask-budget');
+const {budgetConfig,admit,ADMIT,ADMIT_WORK,reserve,RESERVE,maximumCost}=require('../../v1/lib/ask-budget');
 const {createAskRouter,providerConfig}=require('../../v1/routes/ask');
 
 const stageEnv={ASK_STAGING_ENABLED:'true',ASK_STAGING_CLIENT_FINGERPRINT256:'a'.repeat(64)};
@@ -123,19 +123,19 @@ test('real mTLS enforces chain+leaf pin+IP identity before HTTP; trusted request
 });
 
 test('authenticated HTTPS can submit without CAPTCHA; capability is explicit and unauthenticated spoofing stays closed',async t=>{
- const certs=certificates(t);let submitted=0,admitted=0;
+ const certs=certificates(t);let submitted=0,admitted=0,sqlWork=0;
  const env={...paidEnv,ASK_ANALYTICS_ENABLED:'true',ASK_ANALYTICS_STORE:'logical_public_core',ASK_RESEARCH_ENABLED:'true',ASK_RESEARCH_EXTENDED:'true',ASK_RESEARCH_JOBS_ENABLED:'true'};
  const ticket={id:'c101ff56-a7df-4fa7-85db-cbe3220681ee',token:'a'.repeat(64)};
  const analytics={jobsEnabled:true,submit:async()=>{submitted++;return ticket;},close:async()=>{}};
- const {url}=await serve(t,certs,{env,routerFactory:(config,dependencies)=>createAskRouter(config,{...dependencies,redis:{isReady:true,eval:async script=>{assert.equal(script,ADMIT);admitted++;return 1;}},analytics,fetch:()=>assert.fail('No provider calls in staging fixture'),challengeFetch:()=>assert.fail('No CAPTCHA in authenticated fixture')})});
+ const {url}=await serve(t,certs,{env,routerFactory:(config,dependencies)=>createAskRouter(config,{...dependencies,redis:{isReady:true,eval:async(script,options)=>{if(script===ADMIT)admitted++;else{assert.equal(script,ADMIT_WORK);assert.match(options.keys[0],/:work:sql:/);sqlWork++;}return 1;}},analytics,fetch:()=>assert.fail('No provider calls in staging fixture'),challengeFetch:()=>assert.fail('No CAPTCHA in authenticated fixture')})});
  const capability=(await request(url+'/v1/ask',certs)).body;assert.equal(capability.data.authenticatedStaging,true);assert.equal(capability.data.siteKey,null);assert.equal(capability.meta.network,'mainnet');
  const query={version:3,sql:'SELECT height FROM blocks LIMIT 1',limit:1};
- const result=await request(url+'/v1/ask/research/jobs',certs,{method:'POST',body:query});assert.equal(result.status,200);assert.deepEqual(result.body.data.job,ticket);assert.equal(admitted,1);assert.equal(submitted,1);
+ const result=await request(url+'/v1/ask/research/jobs',certs,{method:'POST',body:query});assert.equal(result.status,200);assert.deepEqual(result.body.data.job,ticket);assert.equal(admitted,1);assert.equal(submitted,1);assert.equal(sqlWork,1);
  assert.equal((await request(url+'/v1/ask/research/jobs',certs,{method:'POST',body:{...query,authenticatedStaging:true}})).status,400);assert.equal(submitted,1);
  // Explicit stage option without server-authenticated req.v1 must fail even on
  // an in-process router; production configuration remains unchanged.
  const app=express();app.use(express.json());app.use((req,res,next)=>{req.v1={network:'mainnet',requestId:'fixture',abortSignal:new AbortController().signal};next();});
- const router=createAskRouter({...env,...stageEnv},{authenticatedStaging:true,redis:{isReady:true,eval:async()=>1},analytics,fetch:()=>assert.fail('must not dispatch')});app.use('/v1/ask',router);
+ const router=createAskRouter({...env,...stageEnv},{authenticatedStaging:true,redis:{isReady:true,eval:async()=>assert.fail('unauthenticated staging must not reach admission')},analytics,fetch:()=>assert.fail('must not dispatch')});app.use('/v1/ask',router);
  const server=app.listen(0,'127.0.0.1');await once(server,'listening');t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await router.stop();});
  const response=await fetch('http://127.0.0.1:'+server.address().port+'/v1/ask/research/jobs',{method:'POST',headers:{'Content-Type':'application/json','x-authenticated-staging':'true'},body:JSON.stringify(query)});assert.equal(response.status,403);assert.equal(submitted,1);
  assert.ok(providerConfig({...paidEnv,...stageEnv},{authenticatedStaging:true}));assert.equal(providerConfig({...paidEnv,...stageEnv}),null);

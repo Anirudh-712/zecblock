@@ -29,7 +29,7 @@ export async function waitResearch(ticket:ResearchJobTicket,signal:AbortSignal,o
    const status=jobStatusSchema.parse(await request<ResearchJobStatus>('jobs/status',ticket,AbortSignal.any([signal,AbortSignal.timeout(7000)])));onStatus(status);
    if(status.state==='succeeded')return researchResultSchema.parse(status.result);
    if(status.state==='cancelled')throw new DOMException('Research cancelled','AbortError');
-   if(status.state==='failed')throw new ApiError('Research stopped',status.error==='timeout'?504:status.error==='resource'?422:503,'upstream-error',undefined,undefined,'ask-'+status.error);
+   if(status.state==='failed')throw new ApiError('Research stopped',status.quota?429:status.error==='timeout'?504:status.error==='resource'?422:503,'upstream-error',undefined,status.quota?String(status.quota.retryAfter):undefined,status.quota?.code||'ask-'+status.error);
    await new Promise<void>((resolve,reject)=>{const cancel=()=>{clearTimeout(timer);reject(signal.reason);};const timer=setTimeout(()=>{signal.removeEventListener('abort',cancel);resolve();},2000);signal.addEventListener('abort',cancel,{once:true});if(signal.aborted)cancel();});
   }
  }finally{signal.removeEventListener('abort',abort);}

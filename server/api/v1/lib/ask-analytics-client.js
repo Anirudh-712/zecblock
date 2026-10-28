@@ -7,6 +7,19 @@ const {compileResearchSQL}=require('./ask-research-sql');
 const {researchResultSchema}=require('../../../../lib/ask/research-contract');
 const {jobTicketSchema,jobStatusSchema}=require('../../../../lib/ask/research-job-contract');
 const { askError } = require('./ask-errors');
+const { sqlQuotaSchema } = require('../../../../lib/ask/quota-contract');
+const { sqlQuotaError } = require('./ask-sql-quota');
+
+async function workerQuotaError(response) {
+  // Even authenticated private failures are bounded and reduced to fixed codes.
+  const reader=response.body?.getReader();const chunks=[];let bytes=0;
+  try {
+    if(reader)while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>1024)break;chunks.push(Buffer.from(value));}
+    if(bytes<=1024){const data=JSON.parse(Buffer.concat(chunks).toString('utf8'));const quota=sqlQuotaSchema.safeParse(data.quota);if(quota.success)return sqlQuotaError(quota.data.code,quota.data.retryAfter);}
+  }catch{/* Unknown/legacy failure remains generic; no raw body escapes. */}
+  finally{await reader?.cancel();}
+  return Object.assign(askError('quota'),{quota:true});
+}
 
 function createAnalyticsClient(env, fetchImpl) {
   if (env.ASK_ANALYTICS_ENABLED !== 'true' || !env.ASK_ANALYTICS_SERVICE_KEY || env.ASK_ANALYTICS_SERVICE_KEY.length < 32) return null;
@@ -21,7 +34,7 @@ function createAnalyticsClient(env, fetchImpl) {
     if(env.ASK_RESEARCH_JOBS_ENABLED!=='true'||env.ASK_RESEARCH_ENABLED!=='true'||env.ASK_ANALYTICS_STORE!=='logical_public_core')throw askError('source');
     const body=operation==='submit'?(await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request:jobTicketSchema.parse(input);
     const response=await fetchImpl(new URL('/jobs/'+operation,url),{method:'POST',redirect:'error',signal:AbortSignal.any([...(signal?[signal]:[]),AbortSignal.timeout(5000)]),headers:{'Content-Type':'application/json',Authorization:`Bearer ${env.ASK_ANALYTICS_SERVICE_KEY}`},body:JSON.stringify(body)});
-    if(!response.ok){await response.body?.cancel();throw askError(response.status===404?'job':response.status===429?'quota':response.status===422?'resource':'source');}
+    if(!response.ok){if(response.status===429)throw await workerQuotaError(response);await response.body?.cancel();throw askError(response.status===404?'job':response.status===422?'resource':'source');}
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>270000)throw askError('source');chunks.push(Buffer.from(value));}}finally{await reader.cancel();}
     const value=JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -45,12 +58,12 @@ function createAnalyticsClient(env, fetchImpl) {
         signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(12000)]),
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.ASK_ANALYTICS_SERVICE_KEY}` }, body: JSON.stringify(research?compiled.request:compiled.plan) });
       if (!response.ok) {
+        if (response.status === 429) throw await workerQuotaError(response);
         await response.body?.cancel();
         if(research&&response.status===400)throw askError('query');
         if(response.status===425)throw askError('dataset');
         if(response.status===422)throw askError('resource');
         if(response.status===504)throw askError('timeout');
-        if (response.status === 429) { const error = askError('quota'); error.quota = true; throw error; }
         throw askError('source');
       }
       const reader = response.body.getReader(); const chunks = []; let bytes = 0;

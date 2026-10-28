@@ -135,6 +135,15 @@ test('Ask quota problem JSON preserves the status, code and retry time through t
   assert.deepEqual(await response.json(), problem);
 });
 
+test('monthly quota retry windows survive the bridge while invalid or unbounded values are discarded', async () => {
+  for (const [value,expected] of [['2678400','2678400'],['100000','100000'],['0',null],['2678401',null],['-1',null],['Infinity',null],['999999999',null]]) {
+    const problem={code:'ask-ai-budget-month',detail:'Monthly AI allowance reached.'};
+    const f=fixture({status:429,body:JSON.stringify(problem),headers:{'content-type':'application/problem+json','retry-after':value}});
+    const response=await createStagingProxy(enabled,f.transport)(incoming());
+    assert.equal(response.status,429);assert.equal(response.headers.get('retry-after'),expected);assert.deepEqual(await response.json(),problem);
+  }
+});
+
 test('TLS failures, redirects, non-JSON and oversized upstream replies fail safely without following a location', async () => {
   for (const options of [
     { error: 'ERR_TLS_CERT_ALTNAME_INVALID' }, { error: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' },

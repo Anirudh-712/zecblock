@@ -12,13 +12,36 @@ const failures = {
   provider: { code: 'ask-provider', status: 503, type: 'upstream-error', detail: 'The AI provider is temporarily unavailable. Starter charts remain available.' },
   answer: { code: 'ask-answer', status: 503, type: 'upstream-error', detail: 'Ask could not validate the answer. Try a more specific question or open the source chart.' },
   timeout: { code: 'ask-timeout', status: 504, type: 'upstream-timeout', detail: 'The request took too long. Review the query bounds and filters on each joined table, then run it again. The requested period has not been changed.' },
-  quota: { code: 'ask-quota', status: 429, type: 'rate-limited', detail: 'Ask has reached its allowance. Please try later; starter charts remain available.' },
+  quota: { code: 'ask-quota', status: 429, type: 'rate-limited', detail: 'Ask has reached an allowance. Please try later; your draft and current results are kept.' },
   unavailable: { code: 'ask-unavailable', status: 503, type: 'upstream-error', detail: 'Ask is temporarily unavailable. Starter charts remain available.' },
 };
+const aiAlternatives = ' You can still run SQL directly or use starter charts, subject to their own limits.';
+const keptSQL = ' Your query and current results are kept.';
+const keptRequest = ' Your draft and current results are kept.';
+const quotaDetails = Object.freeze({
+  'ask-request-minute': 'Your connection has reached its per-minute request limit. This limit applies to Ask and SQL.' + keptRequest,
+  'ask-request-day': 'Your connection has reached its daily request limit. This limit applies to Ask and SQL.' + keptRequest,
+  'ask-request-global-hour': 'Ask and SQL have reached the site-wide hourly request limit.' + keptRequest,
+  'ask-request-global-day': 'Ask and SQL have reached the site-wide daily request limit.' + keptRequest,
+  'ask-ai-minute': 'Your connection has reached its per-minute AI request limit.' + aiAlternatives,
+  'ask-ai-day': 'Your connection has reached its daily AI request limit.' + aiAlternatives,
+  'ask-sql-minute': 'Your connection has reached its per-minute SQL query limit.' + keptSQL,
+  'ask-sql-day': 'Your connection has reached its daily SQL query limit.' + keptSQL,
+  'ask-ai-calls-day': 'AI has reached its site-wide daily call limit.' + aiAlternatives,
+  'ask-ai-budget-day': 'AI has reached its site-wide daily usage allowance.' + aiAlternatives,
+  'ask-ai-budget-month': 'AI has reached its site-wide monthly usage allowance.' + aiAlternatives,
+  'ask-ai-busy': 'AI is handling the maximum number of simultaneous requests. Try again shortly.' + aiAlternatives,
+  'ask-sql-global-day': 'SQL has reached its site-wide daily query allowance.' + keptSQL,
+  'ask-sql-busy': 'SQL is handling the maximum number of simultaneous queries. Try again shortly.' + keptSQL,
+  'ask-sql-queue': 'The SQL queue is full. Try again shortly.' + keptSQL,
+});
 function askError(kind) { const error = new Error('Ask operation failed'); error.askKind = kind; return error; }
 function classifyFailure(error) {
-  if (error?.quota && ['day','minute'].includes(error.askLimit) && Number.isInteger(error.retryAfter) && error.retryAfter > 0 && error.retryAfter <= 86400) {
-    return {...failures.quota, code:'ask-quota-'+error.askLimit, retryAfter:error.retryAfter, detail:error.askLimit === 'day' ? 'The daily connection allowance is exhausted. Ask and SQL share this allowance; it resets at midnight UTC.' : 'The per-minute connection allowance is exhausted. Ask and SQL share this allowance.'};
+  if (error?.quota === true && typeof error.quotaCode === 'string' && Object.hasOwn(quotaDetails,error.quotaCode) && Number.isInteger(error.retryAfter) && error.retryAfter > 0 && error.retryAfter <= 2678400) {
+    return {...failures.quota, code:error.quotaCode, retryAfter:error.retryAfter, detail:quotaDetails[error.quotaCode]};
+  }
+  if (error?.quota === true && error.quotaCode === undefined && ['day','minute'].includes(error.askLimit) && Number.isInteger(error.retryAfter) && error.retryAfter > 0 && error.retryAfter <= 86400) {
+    return {...failures.quota, code:'ask-quota-'+error.askLimit, retryAfter:error.retryAfter, detail:error.askLimit === 'day' ? 'The previous shared daily allowance for your connection has been reached. Ask and SQL share this legacy allowance; it resets at midnight UTC.' : 'The previous shared per-minute allowance for your connection has been reached. Ask and SQL share this legacy allowance.'};
   }
   const kind = error?.quota ? 'quota' : ['TimeoutError', 'AbortError'].includes(error?.name) ? 'timeout' : Object.hasOwn(failures, error?.askKind) ? error.askKind : 'unavailable';
   return failures[kind];

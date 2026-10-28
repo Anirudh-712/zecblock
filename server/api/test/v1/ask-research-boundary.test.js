@@ -5,19 +5,19 @@ const {createAskRouter}=require('../../v1/routes/ask');
 const {createWorker}=require('../../ask-analytics-worker');
 const {createAnalyticsClient}=require('../../v1/lib/ask-analytics-client');
 const {compileResearchSQL,researchEvidence}=require('../../v1/lib/ask-research-sql');
-const {ADMIT,RESERVE}=require('../../v1/lib/ask-budget');
+const {ADMIT,ADMIT_WORK,RESERVE}=require('../../v1/lib/ask-budget');
 const settings={ASK_RESEARCH_ENABLED:'true',ASK_ANALYTICS_STORE:'logical_public_core',ASK_ENABLED:'false',ASK_DAILY_BUDGET_USD:'1',ASK_MONTHLY_BUDGET_USD:'10',ASK_MAX_INPUT_USD_PER_MILLION:'0.2',ASK_MAX_OUTPUT_USD_PER_MILLION:'0.75',ASK_ABUSE_SECRET:'x'.repeat(32),ASK_TURNSTILE_SECRET:'fixture-secret',ASK_TURNSTILE_HOSTNAME:'example.test',ASK_TURNSTILE_SITE_KEY:'fixture-site'};
 const query={version:3,sql:'SELECT height,fees FROM blocks ORDER BY height DESC LIMIT 5',limit:5};
 async function server(t,app){const s=app.listen(0,'127.0.0.1');await once(s,'listening');t.after(()=>{s.closeAllConnections();s.close();});return `http://127.0.0.1:${s.address().port}`;}
 const post=(url,body,headers={})=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
 async function evidence(input){const c=await compileResearchSQL(input);return {result:researchEvidence(c,[['9007199254740993',null]],[{name:'height',dataTypeID:20},{name:'fees',dataTypeID:1700}],{indexed_through:'2026-10-06T00:00:00Z'},'2026-10-06T00:00:01Z')};}
-test('manual SQL enforces verification and shared admission without a provider or paid reservation',async t=>{
- let count=0,paid=0,admitted=0;const redis={isReady:true,eval:async script=>{if(script===RESERVE){paid++;throw Error('must not charge');}assert.equal(script,ADMIT);admitted++;return 1;}};
+test('manual SQL enforces verification and separate request/SQL admission without a provider reservation',async t=>{
+ let count=0,paid=0,admitted=0,sqlWork=0;const redis={isReady:true,eval:async(script,options)=>{if(script===RESERVE){paid++;throw Error('must not charge');}if(script===ADMIT)admitted++;else{assert.equal(script,ADMIT_WORK);assert.match(options.keys[0],/:work:sql:/);sqlWork++;}return 1;}};
  const app=express();app.use(express.json());app.use((req,res,next)=>{req.v1={network:'mainnet',requestId:'fixture',abortSignal:new AbortController().signal};next();});const router=createAskRouter(settings,{redis,analytics:{execute:async input=>{count++;return evidence(input);}},challengeFetch:async()=>Response.json({success:true,action:'ask',hostname:'example.test'}),fetch:async()=>{throw Error('must not call AI');}});t.after(()=>router.stop());app.use('/ask',router);const url=await server(t,app);
  assert.equal((await (await fetch(url+'/ask')).json()).data.researchEnabled,true);
- const response=await post(url+'/ask/research/query',{...query,challenge:'fixture'});assert.equal(response.status,200);assert.match(response.headers.get('cache-control'),/no-store/);const body=await response.json();assert.equal(body.data.result.rows[0][0],'9007199254740993');assert.equal(body.data.mode,'research');assert.equal(paid,0);assert.equal(count,1);assert.equal(admitted,1);
+ const response=await post(url+'/ask/research/query',{...query,challenge:'fixture'});assert.equal(response.status,200);assert.match(response.headers.get('cache-control'),/no-store/);const body=await response.json();assert.equal(body.data.result.rows[0][0],'9007199254740993');assert.equal(body.data.mode,'research');assert.equal(paid,0);assert.equal(count,1);assert.equal(admitted,1);assert.equal(sqlWork,1);
  for(const sql of ['DELETE FROM blocks',"SELECT pg_read_file('/etc/passwd') FROM blocks",'SELECT * FROM pg_subscription'])assert.equal((await post(url+'/ask/research/query',{...query,sql,challenge:'fixture'})).status,400);
- assert.equal(count,1);assert.equal(admitted,1);
+ assert.equal(count,1);assert.equal(admitted,1);assert.equal(sqlWork,1);
  assert.equal((await post(url+'/ask/research/query',query)).status,400);assert.equal((await post(url+'/ask/research/plan',{question:'Latest blocks',challenge:'fixture'})).status,503);assert.equal(count,1);
  redis.isReady=false;assert.equal((await post(url+'/ask/research/query',{...query,challenge:'fixture'})).status,503);assert.equal(count,1);
 });
@@ -33,19 +33,19 @@ test('worker/client validate research fingerprint, reject writes before execute 
 
 
 test('natural language executes only a validated draft, with one challenge and one paid reservation',async t=>{
- let paid=0,verified=0,admitted=0,calls=0,executed=0;
+ let paid=0,verified=0,admitted=0,calls=0,executed=0;const work={ai:0,sql:0};
  let sql='SELECT height,fees FROM blocks ORDER BY height DESC LIMIT 5';
- const redis={isReady:true,eval:async script=>{if(script===RESERVE)paid++;else{assert.equal(script,ADMIT);admitted++;}return 1;},zRem:async()=>{}};
+ const redis={isReady:true,eval:async(script,options)=>{if(script===RESERVE)paid++;else if(script===ADMIT)admitted++;else{assert.equal(script,ADMIT_WORK);const kind=/:work:(ai|sql):/.exec(options.keys[0])?.[1];assert.ok(kind);work[kind]++;}return 1;},zRem:async()=>{}};
  const app=express();app.use(express.json());app.use((req,res,next)=>{req.v1={network:'mainnet',requestId:'fixture',abortSignal:new AbortController().signal};next();});
  const router=createAskRouter({...settings,ASK_ENABLED:'true',ASK_PROVIDER:'openai',ASK_MODEL:'fixture-model',ASK_API_KEY:'fixture-provider-key',ASK_DAILY_CALL_LIMIT:'10'},
  {redis,analytics:{execute:async input=>{executed++;return evidence(input);}},challengeFetch:async()=>{verified++;return Response.json({success:true,action:'ask',hostname:'example.test'});},fetch:async(url,options)=>{calls++;assert.equal(url,'https://api.openai.com/v1/chat/completions');const body=JSON.parse(options.body);assert.equal(body.store,false);assert.doesNotMatch(JSON.stringify(body),/fixture-provider-key|fixture-secret|fixture-challenge/);return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({sql})}}]});}});
  t.after(()=>router.stop());app.use('/ask',router);const url=await server(t,app);
  const submit=execute=>post(url+'/ask/research/plan',{question:'Show latest blocks',challenge:'fixture-challenge',execute});
- let response=await submit(true);assert.equal(response.status,200);let body=await response.json();assert.equal(body.data.result.rows[0][0],'9007199254740993');assert.equal(body.data.query.sql,body.data.result.query.sql);assert.equal(executed,1);assert.equal(verified,1);assert.equal(admitted,1);assert.equal(paid,1);assert.equal(calls,1);
+ let response=await submit(true);assert.equal(response.status,200);let body=await response.json();assert.equal(body.data.result.rows[0][0],'9007199254740993');assert.equal(body.data.query.sql,body.data.result.query.sql);assert.equal(executed,1);assert.equal(verified,1);assert.equal(admitted,1);assert.equal(paid,1);assert.equal(calls,1);assert.deepEqual(work,{ai:1,sql:1});
  response=await submit(false);assert.equal(response.status,200);body=await response.json();assert.equal(body.data.result,undefined);assert.equal(executed,1);
  sql='DELETE FROM blocks';response=await submit(true);assert.equal(response.status,503);assert.equal(executed,1);assert.doesNotMatch(await response.text(),/DELETE/);
  sql=null;response=await submit(true);assert.equal(response.status,200);assert.equal((await response.json()).data.query,null);assert.equal(executed,1);
- assert.equal((await submit('yes')).status,400);assert.equal(verified,4);assert.equal(paid,4);
+ assert.equal((await submit('yes')).status,400);assert.equal(verified,4);assert.equal(paid,4);assert.equal(admitted,4);assert.deepEqual(work,{ai:4,sql:1});
 });
 
 test('research SQL reports fixed timeout/validation categories without leaking PostgreSQL diagnostics',async()=>{

@@ -10,6 +10,7 @@ const {createResearchJobs}=require('./v1/lib/ask-research-jobs');
 const {jobTicketSchema}=require('../../lib/ask/research-job-contract');
 const {compileResearchSQL}=require('./v1/lib/ask-research-sql');
 const {createMemoryPressure}=require('./v1/lib/ask-memory-pressure');
+const {sqlQuotaDetails}=require('./v1/lib/ask-sql-quota');
 
 function createWorker(env, { analytics, redis, memoryPressure=createMemoryPressure(env) } = {}) {
   if (!env.ASK_ANALYTICS_SERVICE_KEY || env.ASK_ANALYTICS_SERVICE_KEY.length < 32 || !analytics || !redis) throw new Error('Analytics worker not configured');
@@ -28,7 +29,7 @@ function createWorker(env, { analytics, redis, memoryPressure=createMemoryPressu
     if(!jobs)return res.status(503).json({error:'unavailable'});
     try{if(operation==='submit')await memoryPressure.assertAvailable();const input=operation==='submit'?(await compileResearchSQL(req.body,{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request:jobTicketSchema.parse(req.body);
       res.json(await jobs[operation](input));
-    }catch(error){res.status(error?.askKind==='job'?404:error?.askKind==='quota'?429:error?.askKind==='resource'?422:error?.askKind?503:400).json({error:error?.askKind==='job'?'expired':error?.askKind==='quota'?'allowance':error?.askKind==='resource'?'resource':error?.askKind?'unavailable':'invalid-request'});}
+    }catch(error){const quota=sqlQuotaDetails(error);if(quota)res.set('Retry-After',String(quota.retryAfter));res.status(error?.askKind==='job'?404:error?.askKind==='quota'?429:error?.askKind==='resource'?422:error?.askKind?503:400).json({error:error?.askKind==='job'?'expired':error?.askKind==='quota'?'allowance':error?.askKind==='resource'?'resource':error?.askKind?'unavailable':'invalid-request',...(quota?{quota}:{})});}
   });
   app.post('/query', express.json({ limit:'12kb' }), async (req, res) => {
     try { if(req.body?.version===3){if(env.ASK_RESEARCH_ENABLED!=='true'||env.ASK_ANALYTICS_STORE!=='logical_public_core')throw Error('Research is disabled');await compileResearchSQL(req.body,{extended:env.ASK_RESEARCH_EXTENDED==='true'});}else compilePlan(req.body,undefined,env.ASK_ANALYTICS_STORE); } catch { return res.status(400).json({error:'invalid-plan'}); }
@@ -40,7 +41,8 @@ function createWorker(env, { analytics, redis, memoryPressure=createMemoryPressu
       if (!controller.signal.aborted && req.body.version===3)return res.json({research:evidence.result});
       if (!controller.signal.aborted) res.json({ rows: evidence.result.plan.version === 2 ? evidence.result.rows.map(row => Object.fromEntries(Object.entries(row).flatMap(([key,cell]) => [[key,cell.value], ...(/^m[0-3]$/.test(key) ? [['u'+key.slice(1),String(cell.missing)]] : [])]))) : evidence.result.rows.map(row => ({bucket:row.date,value:row.value,observed_days:row.observedDays,observed_through:row.observedThrough})), consistency:env.ASK_ANALYTICS_STORE==='logical_public_core'?'verified-canonical-core':null, observedDays:evidence.result.coverage.observedDays, indexedThrough:evidence.result.coverage.indexedThrough, retrievedAt:evidence.result.retrievedAt });
     } catch (error) {
-      if (!controller.signal.aborted) res.status(error?.askKind==='dataset'?425:error?.quota?429:error?.code==='57014'?504:error?.askKind==='resource'||error?.code==='53400'?422:['42601','42703','42883','42804','22012','22003','42P01'].includes(error?.code)?400:503).json({error:error?.askKind==='dataset'?'dataset-warming':error?.quota?'allowance':error?.code==='57014'?'timeout':error?.askKind==='resource'||error?.code==='53400'?'resource':['42601','42703','42883','42804','22012','22003','42P01'].includes(error?.code)?'invalid-query':'unavailable'});
+      const quota=sqlQuotaDetails(error);if(quota)res.set('Retry-After',String(quota.retryAfter));
+      if (!controller.signal.aborted) res.status(error?.askKind==='dataset'?425:error?.quota?429:error?.code==='57014'?504:error?.askKind==='resource'||error?.code==='53400'?422:['42601','42703','42883','42804','22012','22003','42P01'].includes(error?.code)?400:503).json({error:error?.askKind==='dataset'?'dataset-warming':error?.quota?'allowance':error?.code==='57014'?'timeout':error?.askKind==='resource'||error?.code==='53400'?'resource':['42601','42703','42883','42804','22012','22003','42P01'].includes(error?.code)?'invalid-query':'unavailable',...(quota?{quota}:{})});
     } finally { res.off('close', abort); }
   });
   app.use((req,res) => res.status(404).json({error:'not-found'}));

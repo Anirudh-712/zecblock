@@ -54,7 +54,9 @@ export function AskWorkspace() {
   const [inputMode, setInputMode] = useState<'ask' | 'sql'>('ask');
   const [phase, setPhase] = useState<'thinking' | 'submitting' | 'explaining'>('thinking');
   const [notice, setNotice] = useState('');
-  const feedback = useAskFeedback();
+  const feedback = useAskFeedback(inputMode);
+  const aiBlocked = feedback.blockedFor('ask');
+  const sqlBlocked = feedback.blockedFor('sql');
   const [busy, setBusy] = useState(false);
   const [jobStatus,setJobStatus]=useState<ResearchJobStatus|null>(null);
   const [capability, setCapability] = useState<Capability>({ mode: 'guided', provider: null });
@@ -153,8 +155,8 @@ export function AskWorkspace() {
     const detected = capability.researchEnabled ? sqlDraft(trimmed) : null;
     if (detected) { selectSQL(detected); return; }
     const next = resolveShortcut(trimmed, context);
-    if (!trimmed || trimmed.length > 1000 || feedback.blocked && !next || busy || request.current || !capabilityReady && !next || capability.mode === 'ai' && !verified && !next) return;
-    setInputMode('ask'); setQuestion(''); setBusy(true); setPhase('thinking'); setNotice(''); feedback.clear(); setChatError('');
+    if (!trimmed || trimmed.length > 1000 || feedback.requestBlocked || busy || request.current || !capabilityReady && !next || capability.mode === 'ai' && !verified && !next) return;
+    setInputMode('ask'); setQuestion(''); setBusy(true); setPhase('thinking'); setNotice(''); feedback.clear('ask'); setChatError('');
     const controller = new AbortController();
     request.current = controller;
     const timeout = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), 300000);
@@ -169,7 +171,7 @@ export function AskWorkspace() {
     } : item));
     let completedResearch: ResearchResult | undefined;
     try {
-      if (!next || capability.mode === 'ai' && verified && !feedback.blocked) {
+      if (!next || capability.mode === 'ai' && verified && !aiBlocked) {
         let reply = await askChat(trimmed, session.page || 'ask', context, 'auto', session.messages.filter(message => !message.sql && (!message.state || message.state === 'complete')).map(message => message.question), token, controller.signal, context ? undefined : session.block, context ? undefined : session.transaction, !context && analytics?.plan.version === 2 ? analytics.plan : undefined, !context && capability.researchEnabled ? research?.query : undefined);
         if(reply.job){
           const ticket=jobTicketSchema.parse(reply.job);
@@ -200,7 +202,7 @@ export function AskWorkspace() {
         setQuestion(trimmed);
         setSessions(all => all.map(item => item.id === activeId ? { ...item, messages: item.messages.map(message => message.id === id ? { ...message, state: controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'cancelled' as const : 'failed' as const, answer: message.research ? controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'Your query results are ready. The explanation was stopped; your question is back in the input.' : 'Your query results are ready, but the explanation did not finish. Your question is back in the input.' : controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'Stopped. Your question has been restored to the input.' : 'This request did not complete. Your question has been restored to the input; see the error below.' } : message) } : item));
         if (!controller.signal.aborted || controller.signal.reason?.name === 'TimeoutError') {
-          feedback.report(controller.signal.aborted ? controller.signal.reason : cause);
+          feedback.report(controller.signal.aborted ? controller.signal.reason : cause,'ask');
           if (next && !completedResearch) updateSpec(next, true);
         } else setNotice('Stopped. Your draft is still here.');
       }
@@ -214,14 +216,14 @@ export function AskWorkspace() {
     if(busy||tools.importing)return;
     tools.open(doc, shared);const id=++serial.current;
     setSessions(all=>[{id,title:doc.title,spec:null,messages:[{id,question:doc.title,sql:doc.query.sql,answer:shared?'Opened a shared query draft. Review the SQL, then choose Run SQL. No query has run.':doc.result?'Opened your saved analysis. These are saved results; run its SQL to refresh them.':'Opened your saved query. Choose Run SQL to refresh its results.',research:doc.result||undefined}]},...all].slice(0,12));
-    setActiveId(id);setQuestion('');setSQLInput(doc.result ? '' : doc.query.sql);setSQLLimit(doc.query.limit);setInputMode('sql');setNotice(shared ? 'Shared query loaded. Review it before running.' : doc.result ? 'Saved results loaded. Choose Edit query to run them again.' : 'Saved query loaded. Run SQL to refresh its results.');feedback.clear();setChatError('');
+    setActiveId(id);setQuestion('');setSQLInput(doc.result ? '' : doc.query.sql);setSQLLimit(doc.query.limit);setInputMode('sql');setNotice(shared ? 'Shared query loaded. Review it before running.' : doc.result ? 'Saved results loaded. Choose Edit query to run them again.' : 'Saved query loaded. Run SQL to refresh its results.');feedback.clear('sql');setChatError('');
   }
   async function runSQL() {
-    if(busy||request.current||tools.importing||feedback.blocked||!sqlInput.trim()||!capabilityReady)return;
+    if(busy||request.current||tools.importing||sqlBlocked||!sqlInput.trim()||!capabilityReady)return;
     if(!verified){setChatError('Verification is still loading. Retry verification before running SQL.');return;}
     const query={version:3 as const,sql:sqlInput,limit:sqlLimit};
     const id=++serial.current, title=tools.title;
-    setSQLInput('');setBusy(true);setPhase('submitting');setNotice('');feedback.clear();setChatError('');
+    setSQLInput('');setBusy(true);setPhase('submitting');setNotice('');feedback.clear('sql');setChatError('');
     setSessions(all=>all.map(item=>item.id===activeId?{...item,title:item.messages.length?item.title:title,messages:[...item.messages,{id,question:'SQL query',sql:query.sql,answer:'',state:'pending' as const}].slice(-30)}:item));
     const controller=new AbortController();request.current=controller;
     try{
@@ -234,7 +236,7 @@ export function AskWorkspace() {
       if(request.current!==controller)return;
       setSQLInput(query.sql);setSQLLimit(query.limit);
       setSessions(all=>all.map(item=>item.id===activeId?{...item,messages:item.messages.map(message=>message.id===id?{...message,state:controller.signal.aborted?'cancelled' as const:'failed' as const,answer:controller.signal.aborted?'Stopped. Your SQL has been restored to the input.':'This query did not complete. Your SQL has been restored to the input; see the error below.'}:message)}:item));
-      if(!controller.signal.aborted)feedback.report(error);else setNotice('Stopped. Your SQL is still here.');
+      if(!controller.signal.aborted)feedback.report(error,'sql');else setNotice('Stopped. Your SQL is still here.');
     }finally{if(request.current===controller){setBusy(false);setToken('');setChallengeReset(value=>value+1);request.current=null;setJobStatus(null);}}
   }
   function editQuery(message: Message) {
@@ -247,14 +249,12 @@ export function AskWorkspace() {
     if (busy) return;
     if (sql.length > 8192) { setChatError('SQL can contain up to 8,192 characters. Shorten the query before pasting it.'); return; }
     setSQLInput(sql); setInputMode('sql'); setChatError('');
-    if (!feedback.blocked) feedback.clear();
     setNotice('SQL detected. Review it, then choose Run SQL. No AI request was sent.');
     requestAnimationFrame(() => input.current?.focus());
   }
   function changeMode(mode: 'ask' | 'sql') {
     if (busy) return;
     setInputMode(mode); setChatError(''); setNotice('');
-    if (!feedback.blocked) feedback.clear();
     requestAnimationFrame(() => input.current?.focus());
   }
   function resultActions(message: Message) {
@@ -266,7 +266,7 @@ export function AskWorkspace() {
   }
   const researchEditor=capability.researchEnabled?<ResearchEditor extended={capability.researchExtended===true} tools={tools} busy={busy} onOpen={openSaved}/>:null;
   const sqlMode = inputMode === 'sql';
-  const canSend = sqlMode ? capabilityReady && verified && !!sqlInput.trim() && !tools.importing && !feedback.blocked : !!question.trim() && ((!feedback.blocked && capabilityReady && (capability.mode !== 'ai' || verified)) || !!resolveShortcut(question, spec));
+  const canSend = sqlMode ? capabilityReady && verified && !!sqlInput.trim() && !tools.importing && !sqlBlocked : !!question.trim() && !feedback.requestBlocked && ((capabilityReady && (capability.mode !== 'ai' || verified)) || !!resolveShortcut(question, spec));
   const submit = () => sqlMode ? void runSQL() : void ask(question);
   const statusTitle = jobStatus?.state === 'queued' ? 'Waiting to start…' : jobStatus?.state === 'running' ? 'Running your query…' : phase === 'explaining' ? 'Explaining the results…' : phase === 'submitting' ? 'Checking your query…' : 'Thinking…';
   const statusDetail = jobStatus?.state === 'queued' ? 'Your query is waiting to start. You can stop it at any time.' : jobStatus?.state === 'running' ? 'Reading the public analytics data. Your previous results stay available.' : phase === 'explaining' ? 'The query is complete. Preparing an explanation from its results.' : phase === 'submitting' ? 'Checking the SQL before running it. No AI is used.' : 'Interpreting your question and checking public sources.';
@@ -285,7 +285,7 @@ export function AskWorkspace() {
         : <button type="submit" className={sqlMode ? styles.runSQL : styles.submit} disabled={!canSend} aria-label={sqlMode ? 'Run SQL' : 'Send question'}>{sqlMode ? 'Run SQL' : '↑'}</button>}
     </div>
   </form><p id="ask-input-hint" className={styles.inputHint}>{sqlMode ? 'Direct SQL · no AI · Ctrl / ⌘ + Enter to run' : !capabilityReady ? 'Connecting to Ask…' : capability.mode === 'ai' ? 'Ask AI · Enter to send · Shift + Enter for a new line' : 'Guides & public data · Enter to send'}</p>
-    <div ref={composerStatus}>{busy && !hasMessages ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : feedback.failure ? <AskFailureFeedback failure={feedback.failure} blocked={feedback.blocked} onRetry={submit}/> : connectionFailed ? <AskFeedback error title="Could not connect to Ask" detail="Your draft is still here. Check your connection and try again." onRetry={() => {setConnectionFailed(false);reconnect.current();}} retryLabel="Reconnect"/> : chatError ? <AskFeedback error title="Check your request" detail={chatError}/> : notice ? <AskFeedback title={notice}/> : null}</div>
+    <div ref={composerStatus}>{busy && !hasMessages ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : feedback.failure ? <AskFailureFeedback failure={feedback.failure} blocked={feedback.failureBlocked} onRetry={submit}/> : connectionFailed ? <AskFeedback error title="Could not connect to Ask" detail="Your draft is still here. Check your connection and try again." onRetry={() => {setConnectionFailed(false);reconnect.current();}} retryLabel="Reconnect"/> : chatError ? <AskFeedback error title="Check your request" detail={chatError}/> : notice ? <AskFeedback title={notice}/> : null}</div>
     {authenticatedStaging ? null : <AskChallenge siteKey={capability.siteKey} onToken={setToken} reset={challengeReset}/>}
   </div>;
 
@@ -330,7 +330,7 @@ export function AskWorkspace() {
                 const previous = message.viewSpec || message.spec!;
                 const validated = analysisSchema.parse(next.period !== previous.period || next.pool !== previous.pool || next.metric !== previous.metric ? {...next, start:null, end:null} : next);
                 setSessions(all => all.map(item => item.id === activeId ? {...item, spec:validated, messages:item.messages.map(turn => turn.id === message.id ? {...turn, viewSpec:validated} : turn)} : item));
-              }} onExplain={() => void ask('Explain this view', message.viewSpec || message.spec!)} canExplain={capability.mode === 'ai' && verified && !feedback.blocked} busy={busy}/> : null}
+              }} onExplain={() => void ask('Explain this view', message.viewSpec || message.spec!)} canExplain={capability.mode === 'ai' && verified && !aiBlocked} busy={busy}/> : null}
               {message.research || message.analytics || message.blocks || message.transactions || message.transfers ? <div className={styles.replyResults} role="group" aria-label="Query results">{message.research && message.id === latestRecords?.id ? null : <div className={styles.resultActions}>{resultActions(message)}</div>}{renderRecords(message)}</div> : message.sql && message.state !== 'pending' ? <button className={styles.followup} disabled={busy} onClick={()=>editQuery(message)}>Edit query</button> : null}
               <AskSources sources={message.sources || []} dataContext={message.dataContext} />
               </div></article>

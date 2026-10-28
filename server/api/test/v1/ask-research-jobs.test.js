@@ -195,12 +195,12 @@ test('server-owned background profile changes time only; SQL cannot request a bu
 });
 
 test('public job lifecycle verifies once, rate-limits polling and reserves at most one paid explanation',async t=>{
- const redis=await fixture(t),express=require('express'),{createAskRouter}=require('../../v1/routes/ask'),{RESERVE,ADMIT}=require('../../v1/lib/ask-budget');
- let executions=0,paid=0,admissions=0,verification=0,modelCalls=0;
+ const redis=await fixture(t),express=require('express'),{createAskRouter}=require('../../v1/routes/ask'),{RESERVE,ADMIT,ADMIT_WORK}=require('../../v1/lib/ask-budget');
+ let executions=0,paid=0,admissions=0,verification=0,modelCalls=0;const work={ai:0,sql:0};
  const privateApp=createWorker(env,{redis,analytics:{execute:async input=>{executions++;return evidence(input);}}});t.after(()=>privateApp.locals.jobs.stop());
  const worker=privateApp.listen(0,'127.0.0.1');await once(worker,'listening');t.after(()=>{worker.closeAllConnections();worker.close();});
  const analytics=createAnalyticsClient({...env,ASK_ANALYTICS_SERVICE_URL:`http://127.0.0.1:${worker.address().port}/`});
- const counted={get isReady(){return redis.isReady;},eval:(script,options)=>{if(script===RESERVE)paid++;if(script===ADMIT)admissions++;return redis.eval(script,options);},zRem:(...a)=>redis.zRem(...a),get:(...a)=>redis.get(...a),set:(...a)=>redis.set(...a)};
+ const counted={get isReady(){return redis.isReady;},eval:(script,options)=>{if(script===RESERVE)paid++;else if(script===ADMIT)admissions++;else{assert.equal(script,ADMIT_WORK);const kind=/:work:(ai|sql):/.exec(options.keys[0])?.[1];assert.ok(kind);work[kind]++;}return redis.eval(script,options);},zRem:(...a)=>redis.zRem(...a),get:(...a)=>redis.get(...a),set:(...a)=>redis.set(...a)};
  const settings={...env,ASK_ENABLED:'true',ASK_PROVIDER:'openai',ASK_MODEL:'fixture-model',ASK_API_KEY:'fixture-provider-key',ASK_DAILY_CALL_LIMIT:'20',ASK_DAILY_BUDGET_USD:'1',ASK_MONTHLY_BUDGET_USD:'10',ASK_MAX_INPUT_USD_PER_MILLION:'0.2',ASK_MAX_OUTPUT_USD_PER_MILLION:'0.75',ASK_ABUSE_SECRET:'x'.repeat(32),ASK_TURNSTILE_SECRET:'fixture-secret',ASK_TURNSTILE_HOSTNAME:'example.test',ASK_TURNSTILE_SITE_KEY:'fixture-site'};
  const router=createAskRouter(settings,{redis:counted,analytics,challengeFetch:async()=>{verification++;return Response.json({success:true,action:'ask',hostname:'example.test'});},fetch:async(url,options)=>{
   modelCalls++;const body=JSON.parse(options.body);assert.equal(body.store,false);assert.doesNotMatch(JSON.stringify(body),/fixture-provider-key|fixture-challenge|fixture-private-worker-key/);
@@ -213,9 +213,9 @@ test('public job lifecycle verifies once, rate-limits polling and reserves at mo
  assert.equal((await (await fetch(url)).json()).data.jobsEnabled,true);
  assert.equal((await post('/research/jobs',{...query,execution:'background',challenge:'fixture-challenge'})).status,400);assert.equal(admissions,0);
  const submitted=await post('/research/jobs',{...query,challenge:'fixture-challenge'});assert.equal(submitted.status,200);assert.match(submitted.headers.get('x-robots-tag'),/noindex/);assert.match(submitted.headers.get('cache-control'),/no-store/);
- const ticket=(await submitted.json()).data.job;assert.equal(paid,0);assert.equal(admissions,1);assert.equal(verification,1);
+ const ticket=(await submitted.json()).data.job;assert.equal(paid,0);assert.equal(admissions,1);assert.equal(verification,1);assert.deepEqual(work,{ai:0,sql:1});
  for(let i=0;i<12;i++)assert.equal((await post('/research/jobs/status',ticket)).status,200);
- assert.equal(paid,0);assert.equal(admissions,1);
+ assert.equal(paid,0);assert.equal(admissions,1);assert.deepEqual(work,{ai:0,sql:1});
  const guessed={...ticket,token:'0'.repeat(64)};
  for(const op of ['status','cancel'])assert.equal((await post('/research/jobs/'+op,guessed)).status,404);
  assert.equal((await post('/research/jobs/explain',{...guessed,question:'Explain'})).status,404);assert.equal(modelCalls,0);
@@ -223,11 +223,11 @@ test('public job lifecycle verifies once, rate-limits polling and reserves at mo
  await privateApp.locals.jobs.tick();assert.equal(executions,1);
  const body={...ticket,question:'Explain the leading recent block',locale:'fr'};
  const replies=await Promise.all(Array.from({length:3},()=>post('/research/jobs/explain',body)));
- assert.equal(replies.filter(r=>r.status===200).length,1);assert.equal(paid,1);assert.equal(modelCalls,1);
+ assert.equal(replies.filter(r=>r.status===200).length,1);assert.equal(paid,1);assert.equal(modelCalls,1);assert.deepEqual(work,{ai:1,sql:1});
  const success=await replies.find(r=>r.status===200).json();assert.equal(success.data.locale,'fr');assert.equal(success.data.research.rows[0][0],'9007199254740993');assert.match(success.data.answer,/9,007,199,254,740,993/);
- assert.equal((await post('/research/jobs/explain',body)).status,200);assert.equal(modelCalls,1);assert.equal(admissions,1);
+ assert.equal((await post('/research/jobs/explain',body)).status,200);assert.equal(modelCalls,1);assert.equal(admissions,1);assert.deepEqual(work,{ai:1,sql:1});
  const response=await post('/chat',{question:'Rank recent blocks by fees',page:'ask',context:null,locale:'auto',history:[],challenge:'fixture-challenge'});assert.equal(response.status,200);
- const draft=(await response.json()).data;assert.ok(draft.job);assert.equal(draft.research,undefined);assert.equal(draft.locale,'fr');assert.equal(executions,1);assert.equal(modelCalls,2);assert.equal(paid,2);assert.equal(admissions,2);
+ const draft=(await response.json()).data;assert.ok(draft.job);assert.equal(draft.research,undefined);assert.equal(draft.locale,'fr');assert.equal(executions,1);assert.equal(modelCalls,2);assert.equal(paid,2);assert.equal(admissions,2);assert.deepEqual(work,{ai:2,sql:2});
  assert.equal((await post('/research/jobs/cancel',draft.job)).status,200);await privateApp.locals.jobs.tick();assert.equal(executions,1);
 });
 test('cached SQL still checks current admission and consumes query allowance; stale authority cannot return cached evidence',async()=>{
@@ -248,15 +248,38 @@ test('cached SQL still checks current admission and consumes query allowance; st
  ready=true;checkpoint.tip_hash='b'.repeat(64);await service.execute(query,{redis});assert.equal(rawQueries,2);assert.equal(admissions,4);await service.close();
 });
 
-test('real Redis admission retains 5/minute and 20/day caps and reports the exhausted window without incrementing denied requests',async t=>{
- const redis=await fixture(t),{ADMIT}=require('../../v1/lib/ask-budget');
- const keys=['ask:{fixture}:minute','ask:{fixture}:day'];
- for(let i=0;i<5;i++)assert.equal(Number(await redis.eval(ADMIT,{keys,arguments:[]})),1);
- assert.equal(Number(await redis.eval(ADMIT,{keys,arguments:[]})),-1);
+test('real Redis work admission retains 5/minute and 20/day without incrementing denied or historical counters',async t=>{
+ const redis=await fixture(t),{ADMIT_WORK}=require('../../v1/lib/ask-budget');
+ const keys=['ask:{fixture}:work:ai:minute','ask:{fixture}:work:ai:day','ask:{fixture}:legacy:minute','ask:{fixture}:legacy:day'];
+ await redis.set(keys[2],'0');await redis.set(keys[3],'0');
+ for(let i=0;i<5;i++)assert.equal(Number(await redis.eval(ADMIT_WORK,{keys,arguments:[]})),1);
+ assert.equal(Number(await redis.eval(ADMIT_WORK,{keys,arguments:[]})),-1);
  assert.equal(await redis.get(keys[0]),'5');assert.equal(await redis.get(keys[1]),'5');
  await redis.set(keys[1],'20');
- assert.equal(Number(await redis.eval(ADMIT,{keys,arguments:[]})),-2);
+ assert.equal(Number(await redis.eval(ADMIT_WORK,{keys,arguments:[]})),-2);
  assert.equal(await redis.get(keys[0]),'5');assert.equal(await redis.get(keys[1]),'20');
+ assert.deepEqual(await redis.mGet(keys.slice(2)),['0','0']);
+});
+
+test('real worker queue preserves safe SQL quota details through Redis and authenticated job status',async t=>{
+ const redis=await fixture(t),{sqlQuotaError}=require('../../v1/lib/ask-sql-quota');let executions=0;
+ const privateApp=createWorker(env,{redis,analytics:{execute:async(_input,{execution})=>{assert.equal(execution,'background');executions++;throw sqlQuotaError('ask-sql-global-day',3600);}}});
+ t.after(()=>privateApp.locals.jobs.stop());
+ const server=privateApp.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close();});
+ const client=createAnalyticsClient({...env,ASK_ANALYTICS_SERVICE_URL:`http://127.0.0.1:${server.address().port}/`});t.after(()=>client.close());
+ const ticket=await client.submit(query);assert.equal((await client.status(ticket)).state,'queued');
+ await privateApp.locals.jobs.tick();
+ const status=await client.status(ticket);
+ assert.equal(status.state,'failed');assert.equal(status.error,'quota');assert.equal(status.result,null);assert.equal(executions,1);
+ assert.equal(status.quota.code,'ask-sql-global-day');assert.ok(status.quota.retryAfter>0&&status.quota.retryAfter<=3600);
+ assert.equal(JSON.parse(await redis.hGet(PREFIX+ticket.id,'quota')).code,'ask-sql-global-day');
+ assert.doesNotMatch(JSON.stringify(status),/fixture-private-worker-key|SELECT|Bearer/);
+ // A replayed read and cancelling the terminal job retain its failure; no SQL
+ // retry or fresh quota charge is created by either lifecycle operation.
+ assert.equal((await client.status(ticket)).state,'failed');assert.equal((await client.cancel(ticket)).state,'failed');assert.equal(executions,1);
+ for(let i=0;i<6;i++)await client.submit(query);
+ await assert.rejects(client.submit(query),error=>error.quota===true&&error.quotaCode==='ask-sql-queue'&&error.retryAfter===5);
+ assert.equal(executions,1);
 });
 
 test('six-request readiness burst uses the private HTTP queue with retained results bounded',async t=>{
