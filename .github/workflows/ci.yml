@@ -251,3 +251,5 @@ jobs:
         run: |
           find . -name '*.sh' -not -path '*/node_modules/*' -not -path './.netlify/*' -not -path './.next/*' \
             -print0 | xargs -0 -r shellcheck --severity=warning
+      - name: Verify indexer heartbeat and alert regressions
+        run: node --test server/tests/ops-heartbeat.test.js
