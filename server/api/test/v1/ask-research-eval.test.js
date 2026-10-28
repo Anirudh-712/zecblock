@@ -34,7 +34,7 @@ test('runtime identity and actual provider counters fail closed',()=>{
  for(const patch of [{runId:'11111111-0000-4000-8000-000000000003'},{revision:'abcdef123'},{sourceDigest:'d'.repeat(64)},{providerAttemptLimit:11},{providerAttempts:1}])assert.throws(()=>attestRuntime(attestation(patch),profile,12,attestRuntime(attestation({providerAttempts:2}),profile,12)));
 });
 test('fixed cases cover dates, percentages, denominations, clarification and private facts',()=>{
- assert.equal(cases.length,5);assert.match(cases[0].question,/2025/);assert.match(cases[0].question,/unclassified/);assert.match(cases[1].question,/preceding thirty/);assert.match(fee.question,/ZEC/);
+ assert.equal(selectedCases().length,5);assert.ok(cases.length>=5);assert.match(cases[0].question,/2025/);assert.match(cases[0].question,/unclassified/);assert.match(cases[1].question,/preceding thirty/);assert.match(fee.question,/ZEC/);
  for(const ids of [['visitor question'],['fee_units','fee_units'],Array(7).fill('fee_units')])assert.throws(()=>selectedCases(ids));
  for(const args of [['--max-provider-calls=13'],['--max-provider-calls=0'],['--rounds=3'],['--profile=other']])assert.throws(()=>options(args));
  for(const url of ['https://127.0.0.1:3007/v1/ask','http://localhost:3007/v1/ask','http://primary:3007/v1/ask','http://x:secret@127.0.0.1:3007/v1/ask','http://127.0.0.1:3007/v1/ask?key=x'])assert.throws(()=>options([],{ASK_EVAL_API_URL:url}));
@@ -42,6 +42,12 @@ test('fixed cases cover dates, percentages, denominations, clarification and pri
 test('offline entrypoint compiles all reference and same-snapshot verification queries without network',async()=>{
  const emitted=[];const summary=await run([],{}, {request:async()=>assert.fail('no network in validation mode'),emit:r=>emitted.push(r)});
  assert.equal(summary.mode,'validation-only');assert.equal(summary.referenceQueries,3);assert.equal(summary.providerAttempts,0);assert.equal(emitted.length,1);
+});
+test('all-case validation cannot accidentally become a paid or unbounded live run',async()=>{
+ assert.equal(options(['--all']).cases.length,cases.length);
+ for(const args of [['--all','--allow-paid','--profile=luna-candidate'],['--allow-paid','--profile=luna-candidate','--all'],['--all','fee_units']])assert.throws(()=>options(args));
+ const emitted=[];const summary=await run(['--all'],{}, {request:async()=>assert.fail('all-case validation must not call a provider or API'),emit:record=>emitted.push(record)});
+ assert.equal(summary.cases,cases.length);assert.equal(summary.providerAttempts,0);assert.equal(summary.mode,'validation-only');assert.equal(emitted.length,1);
 });
 test('verification is one admitted SELECT and supports model aliases and reordered columns',async()=>{
  const reordered=result([['0.003937370','2026-09-01 00:00:00+00','0','120']], 'SELECT fees::numeric/100000000 AS whatever,date AS datum,missing_fees AS x,transactions AS y FROM activity_daily', ['whatever','datum','x','y']);
@@ -125,6 +131,12 @@ test('actual attempts and receipt failures remain visible, with no quota retry',
 test('live cases are paced without simulated identities or admission retries',async()=>{
  let attempts=0;const pauses=[],headers=[];const summary=await run(['--allow-paid','--profile=luna-candidate','ambiguous_growth','private_ownership'],{}, {worker:{jobsEnabled:true},pause:async ms=>pauses.push(ms),emit:()=>{},request:async(url,init)=>{headers.push(init.headers);if(url.pathname==='/__ask_eval/runtime')return response(attestation({providerAttempts:attempts}));assert.equal(url.pathname,'/v1/ask/chat');attempts++;const question=JSON.parse(init.body).question;return response({data:{mode:'ai',answer:question.startsWith('What')?'Which transaction metric and baseline window should I compare?':'Private shielded ownership is unavailable from public data.'}});}});
  assert.equal(summary.accepted,true);assert.equal(summary.providerAttempts,2);assert.deepEqual(pauses,[31000]);assert.ok(headers.every(value=>!Object.keys(value).some(key=>/sim|forwarded/i.test(key))));
+});
+test('long-job polling stays below the lifecycle request allowance',async()=>{
+ const fixture=liveFixture(),request=fixture.request,pauses=[];let polls=0;
+ fixture.request=async(url,init)=>url.pathname.endsWith('/jobs/status')&&polls++<2?response({data:{...state(null),state:'running',finishedAt:null,result:null}}):request(url,init);
+ const summary=await run(liveArgs,{}, {...fixture,pause:async ms=>pauses.push(ms)});
+ assert.equal(summary.accepted,true);assert.deepEqual(pauses,[1000,1000]);assert.equal(summary.providerAttempts,3);
 });
 
 test('quota stops remaining fixed cases and worker failure categories remain safe and specific',async()=>{
@@ -277,4 +289,20 @@ test('CLI surfaces anonymous narrative manual-review diagnostics without re-quer
  assert.equal(summary.accepted,false);assert.equal(summary.failed,1);assert.equal(fixture.paths.filter(path=>path.endsWith('/chat')).length,1);
  assert.deepEqual(fixture.emitted[0].diagnostics,{stage:'narrative-manual-review',reason:'fee-claim-unresolved'});
  const report=JSON.stringify(fixture.emitted);for(const text of [answer,feeRows[0][3],feeResult.query.sql,'USD','ZEC'])assert.equal(report.includes(text),false);
+});
+
+test('CLI separates fixed API failure stages without retaining problem details',async()=>{
+ for(const code of ['ask-answer','ask-provider','ask-source','ask-resource']){
+  const fixture=liveFixture(),request=fixture.request;
+  fixture.request=async(url,init)=>url.pathname.endsWith('/chat')?{ok:false,status:503,json:async()=>({code,detail:'private operator trace must never be emitted',sql:feeResult.query.sql})}:request(url,init);
+  const summary=await run(liveArgs,{},fixture);
+  assert.equal(summary.accepted,false);assert.deepEqual(fixture.emitted[0].checks,['api-'+code.slice(4)]);
+  assert.deepEqual(fixture.emitted[0].diagnostics,{stage:'api',status:503,code});
+  assert.equal(JSON.stringify(fixture.emitted).includes('private operator trace'),false);assert.equal(JSON.stringify(fixture.emitted).includes(feeResult.query.sql),false);
+ }
+ const fixture=liveFixture(),request=fixture.request;
+ fixture.request=async(url,init)=>url.pathname.endsWith('/chat')?{ok:false,status:503,json:async()=>({code:'ask-provider-private-secret',detail:'private detail'})}:request(url,init);
+ await run(liveArgs,{},fixture);
+ assert.deepEqual(fixture.emitted[0].diagnostics,{stage:'api',status:503});assert.equal(JSON.stringify(fixture.emitted).includes('private detail'),false);
+ assert.equal(JSON.stringify(fixture.emitted).includes('provider-private-secret'),false);
 });

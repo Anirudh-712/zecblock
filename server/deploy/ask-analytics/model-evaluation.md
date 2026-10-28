@@ -10,6 +10,75 @@ selects `gpt-6-sol` with `reasoning_effort=none`. These are not Codex app model
 settings. Sol is a compatibility-based candidate, not verified SQL quality. The prior owner-authorized Luna probe is historical evidence,
 not approval to silently change the current `ASK_MODEL`.
 
+## Expanded research catalogue — October 28, 2026
+
+The catalogue now has **40 operator-authored cases**: 33 research cases and
+seven clarification/unavailable cases. Five research cases are explicitly
+synthetic, offline-only fixtures. They verify null/zero distinctions, a zero
+baseline, an exact count above JavaScript's safe-integer range, boolean unknowns
+and empty results; they are not chain observations or live model successes.
+The remaining cases cover all nine admitted datasets, grouped/multi-key/scalar
+results, bounded joins, rolling windows, pool stocks, public flows, swaps,
+address incidences, units and unavailable information.
+
+These cases are tests, **not a list of questions users are allowed to ask**.
+The production query compiler does not import this catalogue. Supported
+handwritten and model-generated SQL remains open-ended under the existing
+read-only, syntax, admission and resource controls.
+
+Validate every reference and its composed verification query without any
+network or provider call:
+
+```sh
+node server/api/scripts/evaluate-ask-research.js --all
+```
+
+`--all` is validation-only and is rejected together with `--allow-paid` or
+individual case IDs. The default live selection remains the original five IDs;
+explicit live batches still have at most six cases and twelve actual outbound
+provider attempts. Synthetic fixture IDs are rejected for live selection.
+Existing IP/call/spend/worker ledgers are shared and must not be reset, bypassed
+or expanded to finish the catalogue. A partial live run is not a full-catalogue
+accuracy result.
+
+The annual case now explicitly requests the **largest absolute** month-to-month
+change, including decreases. Its reference already used that interpretation;
+the wording clarification means earlier runs are not an unchanged-prompt model
+comparison. The other original IDs and default selection are retained.
+
+The generalized verifier preserves exact decimal strings, signs, nulls and
+typed boolean wire values. It supports declared scalar/multiset, composite-key
+and ordered result contracts instead of assuming every table has a unique date
+column. The ordinary same-snapshot wrapper still has its own bounded SQL,
+width and row allowances. `verification-unavailable` is an evaluation limitation,
+not evidence that a user's otherwise supported complex query is forbidden.
+Initial-result drift is unverified, not a model-correctness pass.
+
+Reports separate `result`, `narrative` and `expectedOutcome` dimensions. Each is
+`passed`, `failed`, `not-applicable` or `not-checked`. API failure diagnostics
+contain only fixed checked codes/status, and unclear prose retains an explicit
+manual-review reason. Numeric presence alone cannot establish the correct
+subject, denominator, direction or ranking. These bounded English canaries do
+not prove arbitrary prose semantics or certify additional result columns.
+The source digest now also binds the catalogue, grader, CLI and extrema helper.
+
+Native SQL/transport acceptance uses a disposable PostgreSQL 16 cluster with
+no TCP listener, private Unix socket, owner-only base tables, published views
+and an independent read-only reader:
+
+```sh
+ASK_EVAL_TEST_POSTGRES=1 ASK_LOGICAL_PG_BIN=/usr/lib/postgresql/16/bin \
+  node --test --test-timeout=45000 server/api/test/v1/ask-research-eval-postgres.test.js
+```
+
+Run it as a non-root OS user. It executes all 33 reference/comparison paths
+against small synthetic seeds and checks five independent exact oracles;
+this does not establish real historical coverage. Cleanup stops the private
+cluster even after startup failure. CI runs this opt-in fixture separately and
+pins its backend runner to Ubuntu 24.04, whose published image includes
+[PostgreSQL 16](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md).
+No provider credentials or serving database are required by that fixture.
+
 ## Prerequisites
 
 - Use a reviewed exact application commit and Node 22 with the API dependencies.
@@ -100,9 +169,10 @@ Use `--profile=mini-observed` for the comparison or `--profile=sol-candidate`
 for the stronger compatible candidate. `gpt-6-sol` supports Chat Completions,
 strict Structured Outputs and reasoning `none`; `gpt-6.1-sol` does not support
 `none` and is not this profile. The existing 1,500-token SQL output allowance
-stays unchanged and still requires truncation/correctness testing. Optional fixed IDs are
+stays unchanged and still requires truncation/correctness testing. Default fixed IDs are
 `annual_2025`, `shielded_baseline`, `fee_units`, `ambiguous_growth` and
-`private_ownership`. There are at most six selected cases and twelve **actual**
+`private_ownership`; additional eligible IDs are in the operator catalogue.
+There are at most six selected cases per live run and twelve **actual**
 provider attempts; no new retry is introduced. The client pauses thirty-one seconds between live cases to preserve existing
 per-IP admission, without simulated identities or quota resets. The API retains
 its existing single SQL repair. Research cases need room for selection, possible repair and
@@ -111,9 +181,10 @@ A subset's acceptance applies only to that selected subset.
 
 The research verifier re-executes candidate and reviewed reference SQL in one
 admitted SELECT, so both use the same database snapshot. It rejects changed
-initial tables, truncation, incomplete dates and missing measures. It compares
-exact-decimal date-keyed measure vectors independently of column aliases/order;
-averages/percentages use two decimal places and the fee uses eight. It checks
+initial tables, truncation, incomplete result coverage and missing measures. It
+compares exact-decimal measures using each case's declared scalar, multiset,
+composite-key or ordered contract independently of column aliases;
+averages/percentages use two decimal places and ZEC uses eight. It checks
 annual counts/share/partial rolling windows, a preceding-observation percentage
 baseline, and ZEC/missing-fee semantics. Clarification and private-fact cases must
 avoid a data query and provide a useful clarification or explicit unavailability.

@@ -22,7 +22,9 @@ test('SQL explanations attach a percent unit without changing the exact result',
  let calls=0;
  const reply=await researchReply(result,{question:'Explain the shielded percentage on the selected day.',history:[]},async(input,task)=>{
   calls++;assert.match(task.instruction,/SQL cell facts contain their displayed value/);
+  assert.match(task.instruction,/largestMagnitude/);
   assert.deepEqual(input.evidence.rows,result.rows);
+  assert.deepEqual(input.evidence.extrema.find(column=>column.column==='c2').maximum,{facts:['row_a_c'],additionalTies:false});
   return {summary:'On {{row_a_a}}, shielded transactions were {{row_a_b}}, or {{row_a_c}}% of all transactions.',observations:[],limitation:'',sources:['transactions']};
  },'en',answerTaskFor);
  assert.equal(calls,1);assert.match(reply.answer,/25% of all transactions/);assert.deepEqual(reply.research,result);

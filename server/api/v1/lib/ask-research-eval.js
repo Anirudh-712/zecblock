@@ -17,8 +17,17 @@ function dateKey(value){
  const parsed=match?new Date(match[1]+'T00:00:00Z'):null;
  return parsed&&Number.isFinite(parsed.valueOf())&&parsed.toISOString().slice(0,10)===match[1]?match[1]:null;
 }
-function normalized(value,role){return role==='month'?dateKey(/^20\d{2}-\d{2}$/.test(value)?value+'-01':value):role==='date'?dateKey(value):decimal(value,role==='percent'||role==='average'?2:role==='zec'?8:undefined);}
-function equivalent(left,right,role){const a=normalized(left,role),b=normalized(right,role);return a!==undefined&&b!==undefined&&a===b&&(!['date','month'].includes(role)||a!==null);}
+const numericRoles=new Set(['count','height','number','numeric','average','percent','zec','zatoshi','usd']);
+function normalized(value,role){
+ if(value===null)return null;
+ if(typeof value!=='string')return undefined;
+ if(role==='text')return value;
+ if(role==='boolean')return value==='true'||value==='false'?value:undefined;
+ if(role==='month'||role==='date')return dateKey(role==='month'&&/^20\d{2}-\d{2}$/.test(value)?value+'-01':value)||undefined;
+ if(!numericRoles.has(role))return undefined;
+ const result=decimal(value,role==='percent'||role==='average'?2:role==='zec'?8:undefined);
+ return result!==undefined&&(role==='height'&&!/^\d+:0$/.test(result)||role==='count'&&!/^-?\d+:0$/.test(result))?undefined:result;
+}
 async function comparisonQuery(item,candidate){
  if(item.kind!=='research')throw Error('Research case required');
  const draft=researchResultSchema.parse(candidate),width=Math.max(draft.columns.length,item.roles.length);
@@ -37,7 +46,7 @@ function splitComparison(item,candidate,raw){
  if(candidate.truncated||verification.truncated)throw verificationFailure('truncated',counts);
  if(verification.columns.length!==1+Math.max(item.roles.length,candidate.columns.length))throw verificationFailure('verification-width',counts);
  const reference=[],observed=[];
- for(const row of verification.rows){if(row[0]==='reference')reference.push(row.slice(1,1+item.roles.length));else if(row[0]==='candidate')observed.push(row.slice(1,1+candidate.columns.length));else throw verificationFailure('verification-tag',counts);}
+ for(const row of verification.rows){const size=row[0]==='reference'?item.roles.length:row[0]==='candidate'?candidate.columns.length:null;if(size===null)throw verificationFailure('verification-tag',counts);if(row.slice(1+size).some(value=>value!==null))throw verificationFailure('verification-padding',counts);(row[0]==='reference'?reference:observed).push(row.slice(1,1+size));}
  counts.referenceRows=reference.length;counts.candidateRows=observed.length;
  if(reference.length<item.minRows||reference.length>item.maxRows)throw verificationFailure('reference-coverage',counts);
  if(observed.length!==reference.length)throw verificationFailure('candidate-coverage',counts);
@@ -52,24 +61,40 @@ function splitComparison(item,candidate,raw){
  }
  return {reference,observed};
 }
-function matchRoles(item,reference,observed){
- const options=item.roles.map((role,roleIndex)=>{
-  const matches=[];
-  for(let column=0;column<observed[0].length;column++){
-   // Match date-keyed vectors; result row and column order may differ.
-   if(roleIndex===0){if(observed.map(row=>normalized(row[column],role)).sort().join(',')===reference.map(row=>normalized(row[0],role)).sort().join(',')&&observed.every(row=>normalized(row[column],role)))matches.push(column);continue;}
-   matches.push(column);
+function matchRoles(item,reference,observed,columns=null){
+ const roles=item.roles,width=columns?.length??observed[0]?.length??roles?.length;
+ if(!Array.isArray(roles)||!roles.length||roles.length>23||!Array.isArray(reference)||!Array.isArray(observed)||reference.length!==observed.length||width<roles.length||reference.some(row=>row.length!==roles.length)||observed.some(row=>row.length!==width))return null;
+ const keyColumns=item.resultCheck?.keyColumns??(['date','month'].includes(roles[0])?[0]:[]),ordered=item.resultCheck?.ordered===true;
+ if(!Array.isArray(keyColumns)||new Set(keyColumns).size!==keyColumns.length||keyColumns.some(i=>!Number.isInteger(i)||i<0||i>=roles.length))return null;
+ const expected=reference.map(row=>row.map((value,i)=>normalized(value,roles[i])));
+ if(expected.some(row=>row.includes(undefined)))return null;
+ if(!item.resultCheck&&keyColumns.some(i=>expected.some(row=>row[i]===null)))return null;
+ const signature=rows=>JSON.stringify((ordered?rows.map(JSON.stringify):rows.map(JSON.stringify).sort()));
+ if(keyColumns.length&&new Set(expected.map(row=>JSON.stringify(keyColumns.map(i=>row[i])))).size!==reference.length)return null;
+ const compatible=(role,column)=>!item.resultCheck||!columns||(['text','date','month'].includes(role)?column.type==='text':role==='boolean'?column.type==='boolean':column.type==='number');
+ const values=roles.map((role)=>Array.from({length:width},(_,column)=>compatible(role,columns?.[column])?observed.map(row=>{
+  const raw=row[column],value=role==='boolean'&&columns?.[column]?.type==='boolean'?(raw==='t'?'true':raw==='f'?'false':raw):raw;
+  return normalized(value,role);
+ }):null));
+ const options=roles.map((_,i)=>Array.from({length:width},(_,column)=>column).filter(column=>values[i][column]&&!values[i][column].includes(undefined)&&signature(expected.map(row=>[row[i]]))===signature(values[i][column].map(value=>[value]))));
+ if(options.some(list=>!list.length))return null;
+ // Explicit keys may contain several columns (date/pool/direction). Otherwise
+ // compare complete row multisets, retaining duplicate rows and null values.
+ const order=roles.map((_,i)=>i).sort((a,b)=>Number(keyColumns.includes(b))-Number(keyColumns.includes(a))||options[a].length-options[b].length||a-b),mapping=[],used=new Set(),selected=[];
+ let attempts=0;
+ function assign(depth){
+  if(++attempts>20000)throw verificationFailure('role-mapping-limit');
+  if(depth===order.length)return true;
+  const role=order[depth];selected.push(role);
+  for(const column of options[role]){
+   if(used.has(column))continue;
+   mapping[role]=column;
+   if(signature(expected.map(row=>selected.map(i=>row[i])))!==signature(observed.map((_,row)=>selected.map(i=>values[i][mapping[i]][row]))))continue;
+   used.add(column);if(assign(depth+1))return true;used.delete(column);
   }
-  return matches;
- });
- for(const dateColumn of options[0]){
-  const byDate=new Map(observed.map(row=>[normalized(row[dateColumn],item.roles[0]),row]));
-  if(byDate.size!==reference.length||new Set(reference.map(row=>normalized(row[0],item.roles[0]))).size!==reference.length)continue;
-  const candidates=options.map((columns,i)=>i===0?[dateColumn]:columns.filter(column=>reference.every(row=>equivalent(row[i],byDate.get(normalized(row[0],item.roles[0]))?.[column],item.roles[i]))));
-  const mapping=[];function assign(i){if(i===candidates.length)return true;for(const column of candidates[i])if(!mapping.includes(column)){mapping[i]=column;if(assign(i+1))return true;mapping.length=i;}return false;}
-  if(assign(0))return mapping;
+  selected.pop();delete mapping[role];return false;
  }
- return null;
+ return assign(0)?mapping:null;
 }
 function mentionsValue(answer,value){
  if(value===null)return /\b(?:unavailable|missing|unknown)\b/i.test(answer);
@@ -129,34 +154,204 @@ function privateRefusal(answer){
  }
  return review(clauses.some(claim=>unavailable.test(claim)&&!/\b(?:not|never)\s+(?:unavailable|unknown)\b/i.test(claim)&&/\b(?:owners?|ownership|wallets?|shielded|private)\b/i.test(claim)),'ownership-refusal-unresolved');
 }
+function baselineFinding(answer,reference){
+ if(!reference.length)return review(false,'baseline-claim-unresolved');
+ const leader=[...reference].sort((a,b)=>compareDecimal(b[3],a[3])||a[0].localeCompare(b[0]))[0],subject=['shielded activity','shielded transactions','shielded transaction count','shielded count'];
+ const expected=decimal(leader[3]);let passed=false;
+ for(const claim of scopedClaims(answer).filter(text=>mentionsDate(text,leader[0])&&hasPhrase(text,subject))){
+  if(/\b(?:below|less|lower|not|never|isn't|wasn't|didn't|doesn't|cannot|can't|share|transparent)\b/i.test(claim))return review(false,'baseline-claim-unresolved');
+  const measured=withoutKeys(claim,leader,[0],['date']);
+  if(/\b(?:above|higher|more)\b/i.test(measured)&&/\b(?:baseline|preceding|prior|average)\b/i.test(measured)&&nearestNumbers(measured,subject).some(number=>decimal(number.value)===expected&&/^\s*(?:%|percent\b)/i.test(number.after)&&phraseSpans(measured,subject).some(span=>span.end<=number.start&&!/[,;]|\b(?:other|transparent|fees?|balances?|volume)\b/i.test(measured.slice(span.end,number.start)))))passed=true;
+ }
+ return review(passed,'baseline-claim-unresolved');
+}
+const escape=value=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+function aliases(value){return (Array.isArray(value)?value:[value]).filter(text=>typeof text==='string'&&text.trim().length>0);}
+function phrasePattern(value){return escape(value.trim()).replace(/\s+/g,'\\s+');}
+function phraseSpans(text,values){return aliases(values).flatMap(value=>[...text.matchAll(new RegExp('(?<![\\p{L}\\p{N}])'+phrasePattern(value)+'(?![\\p{L}\\p{N}])','giu'))].map(match=>({start:match.index,end:match.index+match[0].length})));}
+function hasPhrase(text,values){return phraseSpans(text,values).length>0;}
+function scopedClaims(answer,protect=[]){
+ return claimClauses(answer).flatMap(claim=>{
+  const spans=phraseSpans(claim,protect),parts=[];let start=0;
+  for(const match of claim.matchAll(/\band\b/gi))if(!spans.some(span=>match.index>=span.start&&match.index<span.end)){parts.push(claim.slice(start,match.index).trim());start=match.index+match[0].length;}
+  parts.push(claim.slice(start).trim());return parts.filter(Boolean);
+ });
+}
+function keyMention(claim,value,role){
+ if(value===null)return false;
+ if(role==='date')return mentionsDate(claim,value);
+ if(role==='month')return mentionsMonth(claim,value);
+ if(role==='boolean')return hasPhrase(claim,value);
+ return numericRoles.has(role)?mentionsValue(claim,value):hasPhrase(claim,value);
+}
+function competingKey(claim,row,reference,keys,roles){
+ return keys.some(i=>reference.some(other=>normalized(other[i],roles[i])!==normalized(row[i],roles[i])&&other[i]!==null&&(numericRoles.has(roles[i])?numbers(claim).some(number=>normalized(number.value,roles[i])===normalized(other[i],roles[i])&&/\b(?:block|height|rank|position|group|bucket)\s*#?\s*$/i.test(number.before)):keyMention(claim,other[i],roles[i]))));
+}
+function withoutKeys(claim,row,keys,roles){
+ let text=claim;
+ for(const i of keys){
+  const value=row[i],role=roles[i];
+  if(value===null)continue;
+  if(role==='date'||role==='month'){
+   const day=dateKey(role==='month'&&/^20\d{2}-\d{2}$/.test(value)?value+'-01':value);if(!day)continue;
+   const [year,month,date]=day.split('-'),name=['January','February','March','April','May','June','July','August','September','October','November','December'][Number(month)-1],word='(?:'+name+'|'+name.slice(0,3)+')';
+   const pattern=role==='month'?`${day}(?:[ T][^ ]+)?|${day.slice(0,7)}|${word}\\s*,?\\s*${year}|${Number(date)}\\s+${word}\\s*,?\\s*${year}`:`${day}|${Number(date)}\\s+${word}\\s*,?\\s*${year}|${word}\\s+${Number(date)}\\s*,?\\s*${year}`;
+   text=text.replace(new RegExp('\\b(?:'+pattern+')\\b','gi'),'DATE');
+  }
+ }
+ return text;
+}
+function unitPattern(unit){
+ const key=String(unit||'').toLowerCase();
+ if(key==='zec')return 'ZEC';if(key==='usd')return '(?:USD|US dollars?|dollars?)';if(/^(?:zatoshi|zatoshis|zat|zats)$/.test(key))return '(?:zatoshis?|zats?)';
+ if(key==='%'||key==='percent')return '(?:%|percent(?:age)?(?!\\s+points?))';
+ if(/percentage points?/.test(key))return 'percentage points?';
+ if(key==='address'||key==='addresses')return 'address(?:es)?';
+ return escape(key.replace(/s$/,'')).replace(/transaction$/,'transaction')+'s?';
+}
+function attachedUnit(number,unit){
+ if(!unit)return true;
+ const pattern=unitPattern(unit),suffix=new RegExp('^\\s*'+pattern+'(?![\\p{L}\\p{N}_])','iu'),prefix=new RegExp('(?:^|\\s)'+pattern+'\\s*$','iu');
+ return suffix.test(number.after)||prefix.test(number.before)||String(unit).toLowerCase()==='usd'&&/\$\s*$/.test(number.before);
+}
+function nearestNumbers(claim,subject){
+ const found=numbers(claim).map(number=>({...number,start:number.before.length,end:number.before.length+number.value.length})),selected=[];
+ for(const span of phraseSpans(claim,subject)){
+  const after=found.find(number=>number.start>=span.end),before=found.filter(number=>number.end<=span.start).at(-1);
+  if(after&&after.start-span.end<=100)selected.push(after);
+  else if(before&&span.start-before.end<=40)selected.push(before);
+ }
+ return selected;
+}
+const negatedClaim=/\b(?:not|never|isn't|wasn't|aren't|weren't|didn't|doesn't|cannot|can't)\b/i;
+const unavailableClaim=/\b(?:unavailable|unknown|not available|not (?:revealed|identified|known)|(?:cannot|can't|does not|do not|doesn't|don't)\s+(?:answer|tell|identify|reveal|determine|know|verify|show|establish|access|provide|predict|be (?:identified|determined|revealed|known)))\b/i;
+function denominatorClaim(claim,number,denominator){
+ if(!denominator)return true;
+ const after=number.after.replace(new RegExp('^\\s*'+unitPattern('%'),'i'),'').trim(),relation=/^(?:of|out of|relative to|against)\s+(?:the\s+)?(.+)$/i.exec(after);
+ if(relation)return aliases(denominator).some(value=>new RegExp('^'+phrasePattern(value)+'(?![\\p{L}\\p{N}])','iu').test(relation[1]));
+ return aliases(denominator).some(value=>new RegExp('\\b(?:of|out of|relative to|against)\\s+(?:the\\s+)?'+phrasePattern(value)+'(?![\\p{L}\\p{N}])','iu').test(number.before));
+}
+function valueClaim(claim,value,role,check){
+ if(!hasPhrase(claim,check.subject))return false;
+ if(value===null)return unavailableClaim.test(claim)&&!/\b(?:not|never)\s+(?:unavailable|unknown)\b/i.test(claim)&&!nearestNumbers(claim,check.subject).length;
+ if(negatedClaim.test(claim)||unavailableClaim.test(claim))return false;
+ if(role==='text'||role==='boolean')return phraseSpans(claim,check.subject).some(span=>new RegExp('^\\s*(?:is|was|are|were|equals?|reads?|:|=)\\s+(?:the\\s+)?'+phrasePattern(value)+'(?![\\p{L}\\p{N}])','iu').test(claim.slice(span.end)));
+ if(check.unit&&numbers(claim).some(number=>attachedUnit(number,check.unit)&&normalized(number.value,role)!==normalized(value,role)))return false;
+ const expectedUnit=String(check.unit||'').toLowerCase();
+ if(['zec','usd','zatoshi','zatoshis','zat','zats','%','percent'].includes(expectedUnit)&&numbers(claim).some(number=>['ZEC','USD','zatoshi','%'].some(unit=>attachedUnit(number,unit)&&!attachedUnit(number,check.unit))))return false;
+ return nearestNumbers(claim,check.subject).some(number=>normalized(number.value,role)===normalized(value,role)&&attachedUnit(number,check.unit)&&denominatorClaim(claim,number,check.denominator));
+}
+// Reviewed English canary contracts. Unrecognized associations require manual
+// review; lexical checks do not prove arbitrary prose or SQL semantics.
+function genericFinding(item,answer,reference){
+ const check=item.answerCheck;
+ if(!check||!['value','leader','change','unavailable','empty'].includes(check.type))return review(false,'finding-contract-unresolved');
+ if(check.type==='empty'||!reference.length&&item.minRows===0){
+  const noRows=/\bno\s+(?:matching\s+|returned\s+|qualifying\s+)?(?:rows|records|results|blocks|transactions|observations)\b/i.test(answer)&&/\b(?:return(?:ed)?|match(?:ing)?|query|filter)\b/i.test(answer);
+  const falseZero=/\b(?:means|proves|establishes|there (?:was|is))\s+(?:zero|no)\s+activity\b/i.test(answer)||numbers(answer).length>0;
+  return review(reference.length===0&&noRows&&!falseZero,'empty-claim-unresolved');
+ }
+ if(!reference.length)return review(false,'finding-reference-empty');
+ if(!aliases(check.subject).length)return review(false,'finding-contract-unresolved');
+ const keys=check.keyColumns??(['leader','change'].includes(check.type)?item.resultCheck?.keyColumns||[]:[]),protect=[...aliases(check.subject),...aliases(check.denominator),...reference.flatMap(row=>keys.map(i=>row[i]).filter(value=>typeof value==='string'))],claims=scopedClaims(answer,protect);
+ let rows,passed=false;
+ if(check.type==='leader'){
+  if(!['max','min'].includes(check.direction)||!numericRoles.has(item.roles[check.valueColumn])||reference.some(row=>decimal(row[check.valueColumn])===undefined))return review(false,'leader-reference-unresolved');
+  const available=reference.filter(row=>row[check.valueColumn]!==null);
+  if(!available.length)return review(claims.some(claim=>valueClaim(claim,null,item.roles[check.valueColumn],check)),'leader-unavailable-unresolved');
+  const sorted=[...available].sort((a,b)=>compareDecimal(a[check.valueColumn],b[check.valueColumn])*(check.direction==='max'?-1:1));
+  rows=sorted.filter(row=>compareDecimal(row[check.valueColumn],sorted[0][check.valueColumn])===0);
+ }else rows=reference[check.row??0]?[reference[check.row??0]]:[];
+ for(const row of rows)for(const original of claims){
+  if(!keys.every(i=>keyMention(original,row[i],item.roles[i])))continue;
+  if(['leader','change'].includes(check.type)&&competingKey(original,row,reference,keys,item.roles))return review(false,check.type+'-key-association-unresolved');
+  const claim=withoutKeys(original,row,keys,item.roles);
+  if(check.type==='leader'){
+   if(rows.length>1&&/\b(?:alone|unique(?:ly)?|sole|only)\b/i.test(claim))return review(false,'leader-tie-conflict');
+   const maximum=/\b(?:highest|largest|leading|top|most|maximum)\b/i.test(claim),minimum=/\b(?:lowest|smallest|least|minimum)\b/i.test(claim);
+   if(check.direction==='max'&&minimum||check.direction==='min'&&maximum)return review(false,'leader-direction-conflict');
+   if(!(check.direction==='max'?maximum:minimum))continue;
+  }
+  if(check.type==='change'){
+   if(!hasPhrase(claim,check.subject)||negatedClaim.test(claim))continue;
+   const base=row[check.baseColumn],value=row[check.valueColumn],delta=row[check.deltaColumn];
+   if([base,value,delta].some(v=>v===null||decimal(v)===undefined))continue;
+   const direction=compareDecimal(value,base),positive=/\b(?:rose|increased?|grew|growth|up|jumped|climbed)\b/i.test(claim),negative=/\b(?:fell|decreased?|declined?|down|dropped)\b/i.test(claim),unchanged=/\b(?:unchanged|no change|same)\b/i.test(claim);
+   if(direction>0&&negative||direction<0&&positive||direction===0&&(positive||negative)||direction!==0&&unchanged)return review(false,'change-direction-conflict');
+   const endpoints=/\bfrom\s+([+-]?[\d,.]+)\s*(?:ZEC|USD|transactions?)?\s+to\s+([+-]?[\d,.]+)/i.exec(claim);
+   const endpointMatch=endpoints&&decimal(endpoints[1].replaceAll(',',''))===decimal(base)&&decimal(endpoints[2].replaceAll(',',''))===decimal(value);
+   if(endpoints&&!endpointMatch)return review(false,'change-endpoint-conflict');
+   const statedChanges=numbers(claim).filter(number=>!/^(?:\s*%|\s*percent\b)/i.test(number.after)&&(/^[+-]/.test(number.value)||/\b(?:by|delta|change)\s*(?:(?:of|is|was)\s*)?$/i.test(number.before)));
+   if(statedChanges.some(number=>decimal(number.value.replace(/^[+-]/,''))!==decimal(delta.replace(/^[+-]/,''))||/^[+-]/.test(number.value)&&compareDecimal(number.value,'0')!==direction))return review(false,'change-delta-conflict');
+   const change=numbers(claim).some(number=>decimal(number.value.replace(/^[+-]/,''))===decimal(delta.replace(/^[+-]/,''))&&attachedUnit(number,check.unit)&&(/^[+-]/.test(number.value)||/\b(?:by|delta|change)\s*(?:(?:of|is|was)\s*)?$/i.test(number.before))&&(!/^[+-]/.test(number.value)||compareDecimal(number.value,'0')===direction));
+   const statedDirection=direction>0?positive:direction<0?negative:unchanged;
+   if(!(endpointMatch||change&&statedDirection))continue;
+   if(check.percentColumn!==undefined){
+    const percent=row[check.percentColumn];
+    if(percent===null){if(!unavailableClaim.test(claim))continue;}
+    else if(!numbers(claim).some(number=>normalized(number.value,'percent')===normalized(percent,'percent')&&attachedUnit(number,'%')&&denominatorClaim(claim,number,check.denominator)))continue;
+   }
+   passed=true;continue;
+  }
+  const column=check.type==='leader'?check.valueColumn:check.column;
+  if(!Number.isInteger(column)||column<0||column>=item.roles.length)return review(false,'finding-contract-unresolved');
+  if(check.type==='unavailable'&&row[column]!==null)return review(false,'unavailable-reference-conflict');
+  if(valueClaim(claim,row[column],item.roles[column],check))passed=true;
+  else if(hasPhrase(claim,check.subject)&&(nearestNumbers(claim,check.subject).length||negatedClaim.test(claim)||unavailableClaim.test(claim)||['text','boolean'].includes(item.roles[column])&&/\b(?:is|was|are|were|equals?|reads?)\b/i.test(claim)))return review(false,check.type+'-claim-conflict');
+ }
+ return review(passed,check.type+'-claim-unresolved');
+}
+function expectedOutcomeReview(item,answer){
+ const check=item.answerCheck;
+ if(item.kind==='clarify'){
+  const groups=check?.type==='clarify'?check.requiredGroups:[['measure','metric','transaction','fee','volume'],['baseline','comparison','compare','window']];
+  return review(Array.isArray(groups)&&groups.length>0&&/\?|\b(?:which|choose|tell me)\b/i.test(answer)&&groups.every(group=>aliases(group).some(word=>new RegExp('\\b'+phrasePattern(word)+'s?\\b','i').test(answer))),'clarification-unresolved');
+ }
+ if(check?.type!=='refusal')return privateRefusal(answer);
+ const ownership=privateRefusal(answer);if(ownership.reason==='ownership-assertion-conflict')return ownership;
+ const claims=scopedClaims(answer,aliases(check.subject));
+ if(check.reason==='write-operation-forbidden'){
+  const denied=/\b(?:cannot|can't|will not|won't|do not|does not)\b[^.!?;]*\b(?:write|delete|modify|update|drop|remove|execute)\b/i;
+  if(claims.some(claim=>/\b(?:deleted|removed|updated|modified|dropped|wrote)\b/i.test(claim)&&!denied.test(claim)||/\b(?:can|will)\s+(?:delete|write|modify|update|drop|remove)\b/i.test(claim)))return review(false,'refusal-assertion-conflict');
+  return review(claims.some(claim=>denied.test(claim)||/\bread[ -]only\b/i.test(claim)),'refusal-unresolved');
+ }
+ const relevant=claims.filter(claim=>hasPhrase(claim,check.subject));
+ if(relevant.some(claim=>!unavailableClaim.test(claim)&&(/\b(?:is|are|was|were|owns?|controls?|belongs?)\b/i.test(claim)||numbers(claim).length)))return review(false,'refusal-assertion-conflict');
+ return review(relevant.some(claim=>unavailableClaim.test(claim)&&!/\b(?:not|never)\s+(?:unavailable|unknown)\b/i.test(claim)),'refusal-unresolved');
+}
 function findingReview(item,answer,reference){
  if(receipt.test(answer.trim())||answer.length<20||answer.includes('{{'))return {passed:false};
+ if(item.answerCheck)return genericFinding(item,answer,reference);
  if(item.finding==='fee')return feeFinding(answer,reference[0][3]);
- if(item.finding==='baseline'){const leader=[...reference].sort((a,b)=>compareDecimal(b[3],a[3])||a[0].localeCompare(b[0]))[0];return {passed:mentionsDate(answer,leader[0])&&/\b(?:above|baseline|preceding|average)\b/i.test(answer)&&mentionsValue(answer,leader[3])&&/%|percent/i.test(answer)};}
+ if(item.finding==='baseline')return baselineFinding(answer,reference);
  if(item.finding==='annual_change')return annualFinding(answer,reference);
  return {passed:false};
 }
 function usefulFinding(item,answer,reference){return findingReview(item,answer,reference).passed;}
 function gradeReply(item,reply,verification=null){
- const answer=typeof reply?.answer==='string'?reply.answer:'',checks=[];
+ const answer=typeof reply?.answer==='string'?reply.answer:'',checks=[],dimensions={result:item.kind==='research'?'not-checked':'not-applicable',narrative:'not-checked',expectedOutcome:item.kind==='research'?'not-applicable':'not-checked'};
  if(reply?.mode!=='ai')checks.push('ai-path-required');
  if(item.kind!=='research'){
-  if(reply?.job||reply?.research||reply?.analytics||reply?.transfers||reply?.blocks||reply?.transactions||reply?.spec)checks.push('unexpected-data-query');
-  if(item.kind==='clarify'&&(!/\?|\b(?:which|choose|tell me)\b/i.test(answer)||!/\b(?:measure|metric|transaction|fee|volume)\w*\b/i.test(answer)||!/\b(?:baseline|compar|window)\w*\b/i.test(answer)))checks.push('clarification-not-useful');
-  const refusal=item.kind==='unavailable'?privateRefusal(answer):null;
-  if(refusal&&!refusal.passed){checks.push('private-facts-not-refused','narrative-manual-review');return {passed:false,checks,diagnostics:{stage:'narrative-manual-review',reason:refusal.reason}};}
-  return {passed:!checks.length,checks};
+  const unexpected=!!(reply?.job||reply?.research||reply?.analytics||reply?.transfers||reply?.blocks||reply?.transactions||reply?.spec);
+  if(unexpected)checks.push('unexpected-data-query');
+  const outcome=expectedOutcomeReview(item,answer);dimensions.narrative=outcome.passed?'passed':'failed';dimensions.expectedOutcome=!unexpected&&outcome.passed?'passed':'failed';
+  if(item.kind==='clarify'&&!outcome.passed)checks.push('clarification-not-useful');
+  if(item.kind==='unavailable'&&!outcome.passed){checks.push('private-facts-not-refused','narrative-manual-review');return {passed:false,checks,dimensions,diagnostics:{stage:'narrative-manual-review',reason:outcome.reason}};}
+  return {passed:!checks.length,checks,dimensions};
  }
  let reference,diagnostics,candidate;
  const parsed=researchResultSchema.safeParse(reply?.research);
  if(!parsed.success){checks.push('result-not-verified');diagnostics={stage:'candidate-shape'};}
  else{
   candidate=parsed.data;
-  try{const pair=splitComparison(item,candidate,verification);reference=pair.reference;if(!matchRoles(item,pair.reference,pair.observed))checks.push('measures-or-window-mismatch');}
-  catch(error){checks.push('result-not-verified');diagnostics=error.verificationDiagnostic||{stage:'verification-shape'};}
+  try{
+   const pair=splitComparison(item,candidate,verification);reference=pair.reference;
+   if(!matchRoles(item,pair.reference,candidate.rows,candidate.columns)){checks.push('measures-or-window-mismatch');dimensions.result='failed';}
+   else dimensions.result='passed';
+  }catch(error){checks.push('result-not-verified');diagnostics=error.verificationDiagnostic||{stage:'verification-shape'};}
  }
- if(receipt.test(answer.trim()))checks.push('receipt-fallback');
- if(reference){const finding=findingReview(item,answer,reference);if(!finding.passed){checks.push('requested-finding-missing');if(finding.reason){checks.push('narrative-manual-review');diagnostics??={stage:'narrative-manual-review',reason:finding.reason};}}}
- return {passed:!checks.length,checks,...(diagnostics?{diagnostics}:{})};
+ if(receipt.test(answer.trim())){checks.push('receipt-fallback');dimensions.narrative='failed';}
+ if(reference){const finding=findingReview(item,answer,reference);dimensions.narrative=finding.passed?'passed':'failed';if(!finding.passed){checks.push('requested-finding-missing');if(finding.reason){checks.push('narrative-manual-review');diagnostics??={stage:'narrative-manual-review',reason:finding.reason};}}}
+ return {passed:!checks.length,checks,dimensions,...(diagnostics?{diagnostics}:{})};
 }
 module.exports={decimal,dateKey,comparisonQuery,splitComparison,matchRoles,usefulFinding,gradeReply};
