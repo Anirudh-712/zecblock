@@ -74,7 +74,8 @@ sparkline. Visuals by type:
   or 365-day transaction count as the headline. A compact headline and one
   color-labeled pair of exact totals replace the repeated hero, comparison
   sentence and legend. The chart labels rolling-window endpoint dates; the
-  footer separately labels the latest measurement window in UTC.
+  footer separately labels the latest measurement window in UTC. Pool name,
+  total and `txs` share one baseline in each equally sized comparison column.
 - Weekly activity: a top-ten rank strip when ranked ≤10, otherwise number only.
 - Cross-chain daily: into/out-of-ZEC bars. Reorg: a fork diagram.
 - Weekly network briefing: three concise rows for non-coinbase transactions,

@@ -267,21 +267,35 @@ function drawComparison(ctx, v, card) {
   }
   const colors = [C.ironwood, C.orchard];
   wrappedText(ctx, card.title || card.line, PAD, 159, { width: W - 2 * PAD, size: 44, min: 36, lines: 1 });
-  const description = v.periodDays ? `Rolling ${v.periodDays}-day transactions · coinbase excluded` : v.label;
+  const description = v.periodDays ? `Rolling ${v.periodDays}-day totals · coinbase excluded` : v.label;
   fit(ctx, description, 'normal', 22, 20, W - 2 * PAD);
   ctx.fillStyle = C.muted; ctx.fillText(description, PAD, 197);
 
-  // Each endpoint appears once, directly under its pool label. These totals
-  // replace the separate hero, comparison sentence and repeated legend.
+  // Names, totals and units share one baseline. Both columns use the same
+  // number size, including when a long measured total needs a smaller font.
+  ctx.font = 'normal 22px Geist';
+  const labelWidths = series.map(s => ctx.measureText(s.label).width);
+  const unitWidth = ctx.measureText('txs').width;
+  const totals = series.map(s => fmt(s.values.at(-1)));
+  let numberSize = 44;
+  for (; numberSize >= 26; numberSize -= 2) {
+    ctx.font = `500 ${numberSize}px Geist`;
+    if (totals.every((total, i) => labelWidths[i] + 22 + ctx.measureText(total).width + 10 + unitWidth <= 500)) break;
+  }
+  if (numberSize < 26) throw new Error('Comparison total exceeds safe bounds');
   series.forEach((s, i) => {
-    const lx = PAD + i * 540;
-    ctx.font = 'normal 19px GeistMono'; ctx.fillStyle = colors[i];
-    ctx.fillText(s.label, lx, 242);
-    fit(ctx, fmt(s.values.at(-1)), '500', 46, 36, 480);
-    ctx.fillText(fmt(s.values.at(-1)), lx, 294);
+    const lx = PAD + i * 540, baseline = 278;
+    ctx.font = 'normal 22px Geist'; ctx.fillStyle = colors[i];
+    ctx.fillText(s.label, lx, baseline);
+    const valueX = lx + labelWidths[i] + 22;
+    ctx.font = `500 ${numberSize}px Geist`;
+    ctx.fillText(totals[i], valueX, baseline);
+    const unitX = valueX + ctx.measureText(totals[i]).width + 10;
+    ctx.font = 'normal 22px Geist'; ctx.fillStyle = C.muted;
+    ctx.fillText('txs', unitX, baseline);
   });
 
-  const x = 195, y = 338, w = W - PAD - x, h = 182;
+  const x = 195, y = 324, w = W - PAD - x, h = 196;
   const peak = series.reduce((n, s) => s.values.reduce((m, value) => Math.max(m, value), n), 1);
   const step = 10 ** Math.floor(Math.log10(peak)) / 2;
   const max = Math.ceil(peak * 1.1 / step) * step;
