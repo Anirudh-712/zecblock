@@ -23,9 +23,18 @@ function poolFixture(comparison = false) {
   const days = Array.from({ length: count }, (_, i) => {
     const date = addDays(start, i), latest = date === target;
     const recent = date >= addDays(target, -6);
+    const sinceLaunch = (Date.parse(date) - Date.parse(launch)) / 86400000;
+    const daysLeft = (Date.parse(target) - Date.parse(date)) / 86400000;
+    // Illustrative DAILY counts, not interpolated rolling totals. The last
+    // eight days prove equality first, then the final strict 51,500/49,000 lead.
+    const finish = [5500, 6000, 6500, 7000, 7500, 8000, 8500, 8000];
+    const ironwoodExample = daysLeft <= 7 ? finish[7 - daysLeft]
+      : Math.max(0, Math.round(1000 + 54 * sinceLaunch + 140 * Math.sin(sinceLaunch / 5)));
+    const orchardExample = daysLeft <= 7 ? 7000
+      : Math.round(7000 + Math.max(0, 80 - sinceLaunch) * 23 + 130 * Math.sin(sinceLaunch / 6));
     return { date, complete: true, totalTransactions: 20000,
-      orchard: comparison ? 7000 : 12000,
-      ironwood: date < launch ? 0 : comparison ? latest ? 15500 : recent ? 6000 : 1000
+      orchard: comparison ? orchardExample : 12000,
+      ironwood: date < launch ? 0 : comparison ? ironwoodExample
         : latest ? 12500 : recent ? 9900 : 1000 };
   });
   const source = { historyStart: start, days, capturedAt: '2026-10-26T08:00:00Z',

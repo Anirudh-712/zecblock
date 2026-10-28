@@ -37,8 +37,8 @@ const fmt = (n, d = 0) => n.toLocaleString('en-US', { maximumFractionDigits: d }
 const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
   && Number.isFinite(Date.parse(`${value}T00:00:00Z`))
   && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
-const dateLabel = value => new Date(`${value}T00:00:00Z`)
-  .toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
+const dateLabel = (value, short = false) => new Date(`${value}T00:00:00Z`)
+  .toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', ...(short ? {} : { year: 'numeric' }) });
 
 // Shrinks a line to fit, down to a floor; past that the card is refused and
 // the post falls back to text rather than clipping wording.
@@ -194,9 +194,9 @@ function seriesModel(story) {
   return { ...v, values, unit, label, start, end, min, max };
 }
 
-function plotAxes(ctx, { x, y, w, h, min = 0, max, unit, start, end }) {
+function plotAxes(ctx, { x, y, w, h, min = 0, max, unit, start, end, compactDates = false, tickValues }) {
   const py = value => y + h - (value - min) / (max - min) * h;
-  const ticks = [...new Set([min, 0, max])];
+  const ticks = tickValues || [...new Set([min, 0, max])];
   ctx.font = 'normal 18px GeistMono';
   for (const value of ticks) {
     ctx.strokeStyle = value === 0 ? C.faint : C.border; ctx.lineWidth = value === 0 ? 1.5 : 1;
@@ -207,8 +207,9 @@ function plotAxes(ctx, { x, y, w, h, min = 0, max, unit, start, end }) {
     ctx.fillText(label, x - 14 - ctx.measureText(label).width, py(value) + 6);
   }
   ctx.font = 'normal 18px GeistMono'; ctx.fillStyle = C.muted;
-  const first = start && start === end ? 'One complete reporting window' : start ? dateLabel(start) : 'Earlier observations';
-  const last = end ? `${dateLabel(end)} UTC` : 'Latest observation';
+  const short = compactDates && start && end && start.slice(0, 4) === end.slice(0, 4);
+  const first = start && start === end ? 'One complete reporting window' : start ? dateLabel(start, short) : 'Earlier observations';
+  const last = end ? `${dateLabel(end, short)} UTC` : 'Latest observation';
   ctx.fillText(first, x, 540);
   ctx.fillText(last, x + w - ctx.measureText(last).width, 540);
   return py;
@@ -271,36 +272,15 @@ function drawComparison(ctx, v, card) {
   fit(ctx, description, 'normal', 22, 20, W - 2 * PAD);
   ctx.fillStyle = C.muted; ctx.fillText(description, PAD, 197);
 
-  // Names, totals and units share one baseline. Both columns use the same
-  // number size, including when a long measured total needs a smaller font.
-  ctx.font = 'normal 22px Geist';
-  const labelWidths = series.map(s => ctx.measureText(s.label).width);
-  const unitWidth = ctx.measureText('txs').width;
-  const totals = series.map(s => fmt(s.values.at(-1)));
-  let numberSize = 44;
-  for (; numberSize >= 26; numberSize -= 2) {
-    ctx.font = `500 ${numberSize}px Geist`;
-    if (totals.every((total, i) => labelWidths[i] + 22 + ctx.measureText(total).width + 10 + unitWidth <= 500)) break;
-  }
-  if (numberSize < 26) throw new Error('Comparison total exceeds safe bounds');
-  series.forEach((s, i) => {
-    const lx = PAD + i * 540, baseline = 278;
-    ctx.font = 'normal 22px Geist'; ctx.fillStyle = colors[i];
-    ctx.fillText(s.label, lx, baseline);
-    const valueX = lx + labelWidths[i] + 22;
-    ctx.font = `500 ${numberSize}px Geist`;
-    ctx.fillText(totals[i], valueX, baseline);
-    const unitX = valueX + ctx.measureText(totals[i]).width + 10;
-    ctx.font = 'normal 22px Geist'; ctx.fillStyle = C.muted;
-    ctx.fillText('txs', unitX, baseline);
-  });
-
-  const x = 195, y = 324, w = W - PAD - x, h = 196;
+  // The chart carries the comparison. Its endpoint labels replace a separate
+  // metrics row and connect each measured count to the corresponding line.
+  const x = 155, y = 258, w = 665, h = 262;
   const peak = series.reduce((n, s) => s.values.reduce((m, value) => Math.max(m, value), n), 1);
-  const step = 10 ** Math.floor(Math.log10(peak)) / 2;
+  const step = Math.max(1, 10 ** Math.floor(Math.log10(peak)) / 2);
   const max = Math.ceil(peak * 1.1 / step) * step;
   const px = i => x + i / (length - 1) * w;
-  const py = plotAxes(ctx, { x, y, w, h, max, unit: v.unit, start: v.start, end: v.end });
+  const py = plotAxes(ctx, { x, y, w, h, max, unit: v.unit, start: v.start, end: v.end,
+    compactDates: true, tickValues: [0, max / 2, max] });
   ctx.font = 'normal 16px GeistMono'; ctx.fillStyle = C.muted;
   const axisLabel = 'Window end date';
   ctx.fillText(axisLabel, x + (w - ctx.measureText(axisLabel).width) / 2, 540);
@@ -318,6 +298,37 @@ function drawComparison(ctx, v, card) {
   ctx.fillRect(endX - 6, py(series[0].values.at(-1)) - 6, 12, 12);
   ctx.strokeStyle = colors[1]; ctx.lineWidth = 2;
   ctx.strokeRect(endX - 9, py(series[1].values.at(-1)) - 9, 18, 18);
+
+  const labels = series.map((s, i) => ({ s, i, pointY: py(s.values.at(-1)), top: py(s.values.at(-1)) - 24 }))
+    .sort((a, b) => a.pointY - b.pointY || a.i - b.i);
+  const minTop = y + 4, maxTop = y + h - 58, gap = 86;
+  labels[0].top = Math.max(minTop, Math.min(maxTop - gap, labels[0].top));
+  labels[1].top = Math.max(labels[0].top + gap, Math.min(maxTop, labels[1].top));
+  // Label positions may separate close values; the actual lines and endpoint
+  // markers never move. Sort by data height so near-parity leaders cannot cross.
+  const labelX = 882, labelWidth = W - PAD - labelX;
+  const totals = series.map(s => fmt(s.values.at(-1)));
+  let numberSize = 32, unitSize;
+  for (; numberSize >= 16; numberSize -= 2) {
+    unitSize = Math.max(14, Math.round(numberSize * 0.6));
+    ctx.font = `normal ${unitSize}px Geist`;
+    const unitWidth = ctx.measureText('txs').width;
+    ctx.font = `500 ${numberSize}px Geist`;
+    if (totals.every(total => ctx.measureText(total).width + 8 + unitWidth <= labelWidth)) break;
+  }
+  if (numberSize < 16) throw new Error('Comparison total exceeds safe bounds');
+  labels.forEach(({ s, i, top, pointY }) => {
+    ctx.strokeStyle = C.faint; ctx.lineWidth = 1; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(endX + 10, pointY); ctx.lineTo(endX + 25, pointY);
+    ctx.lineTo(labelX - 15, top + 32); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = 'normal 20px Geist'; ctx.fillStyle = colors[i];
+    ctx.fillText(s.label, labelX, top + 18);
+    ctx.font = `500 ${numberSize}px Geist`; ctx.fillStyle = C.text;
+    ctx.fillText(totals[i], labelX, top + 54);
+    const unitX = labelX + ctx.measureText(totals[i]).width + 8;
+    ctx.font = `normal ${unitSize}px Geist`; ctx.fillStyle = C.muted;
+    ctx.fillText('txs', unitX, top + 54);
+  });
   ctx.restore();
 }
 

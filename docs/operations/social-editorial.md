@@ -71,11 +71,13 @@ sparkline. Visuals by type:
   Hashrate charts only the samples behind the claim, at most 91 days.
 - Ironwood transaction crossovers: Ironwood gold and dashed Orchard purple
   lines on a shared zero-based axis. Each point is the same rolling 7-, 30-
-  or 365-day transaction count as the headline. A compact headline and one
-  color-labeled pair of exact totals replace the repeated hero, comparison
-  sentence and legend. The chart labels rolling-window endpoint dates; the
-  footer separately labels the latest measurement window in UTC. Pool name,
-  total and `txs` share one baseline in each equally sized comparison column.
+  or 365-day transaction count as the headline. A compact headline sits above
+  the chart; exact totals and inline `txs` units label the line endpoints in
+  a shared right gutter. Pool names retain the series colors. Close labels
+  separate vertically in data order, joined by thin neutral leaders; actual
+  points never move. The chart labels rolling-window endpoint dates; the footer
+  separately labels the latest measurement window in UTC. There is no separate
+  metrics row, hero number or legend.
 - Weekly activity: a top-ten rank strip when ranked ≤10, otherwise number only.
 - Cross-chain daily: into/out-of-ZEC bars. Reorg: a fork diagram.
 - Weekly network briefing: three concise rows for non-coinbase transactions,
@@ -363,8 +365,9 @@ and is included in the tweet when the complete copy fits within 280 characters.
 Copy follows the existing event-first voice: "Ironwood just caught up with
 Orchard's transaction count over the past year" and "Ironwood just overtook
 Orchard in weekly transaction activity." Exact counts, dates and coinbase
-exclusion remain in the body/footer. The frame, fonts, large headline number,
-Ironwood gold and source footer use the existing card renderer. Comparison
+exclusion remain in the body/footer. The frame, fonts, Ironwood gold and source
+footer use the existing card renderer. Comparison totals directly label the
+line endpoints, with `txs` beside each number. Comparison
 charts show up to 90 daily endpoints; each endpoint uses the full stated
 rolling window. For launch-day crossovers, a measured pre-launch endpoint
 keeps both lines drawable without inventing a repeated point.
