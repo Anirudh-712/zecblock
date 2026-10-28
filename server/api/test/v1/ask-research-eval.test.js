@@ -306,3 +306,10 @@ test('CLI separates fixed API failure stages without retaining problem details',
  assert.deepEqual(fixture.emitted[0].diagnostics,{stage:'api',status:503});assert.equal(JSON.stringify(fixture.emitted).includes('private detail'),false);
  assert.equal(JSON.stringify(fixture.emitted).includes('provider-private-secret'),false);
 });
+
+test('a non-coinbase share uses the same verified denominator, not a classified-only share',()=>{
+ const item=cases.find(entry=>entry.id==='classification_denominator'),rows=[['200','100','90','10','50']],candidate=result(rows),verified=comparison(rows,candidate);
+ candidate.columns[0].type='number';
+ assert.equal(gradeReply(item,reply(candidate,'Shielded transactions were 50% of all non-coinbase transactions.'),verified).passed,true);
+ for(const answer of ['Shielded transactions were 50% of all classified transactions.','Shielded transactions were 50% of transparent transactions.','Shielded transactions were 100% of all non-coinbase transactions.'])assert.equal(gradeReply(item,reply(candidate,answer),verified).passed,false,answer);
+});

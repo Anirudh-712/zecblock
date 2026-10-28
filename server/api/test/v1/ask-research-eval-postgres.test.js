@@ -110,7 +110,13 @@ test('disposable PG16 catalogue SQL and exact wire transport',{skip:process.env.
   assert.ok(Object.values(role).every(value=>value===false));
   const denied=async(sql,code)=>{await reader.query('SAVEPOINT privilege_probe');try{await assert.rejects(reader.query(sql),error=>error.code===code);}finally{await reader.query('ROLLBACK TO SAVEPOINT privilege_probe');await reader.query('RELEASE SAVEPOINT privilege_probe');}};
   await denied('SELECT * FROM fixture_private.blocks','42501');
-  await denied('INSERT INTO analytics_public.blocks_query(height) VALUES(9999999)','25006');
+  await denied('INSERT INTO analytics_public.blocks_query(height) VALUES(9999999)','42501');
+  // The reader has no INSERT privilege, so its ACL denial precedes the
+  // read-only check. Prove that separate guard with fixture-admin privileges;
+  // the reader never receives write grants, even temporarily.
+  await admin.query('BEGIN READ ONLY');
+  try{await assert.rejects(admin.query('INSERT INTO fixture_private.blocks(height) VALUES(9999999)'),error=>error.code==='25006');}
+  finally{await admin.query('ROLLBACK');}
   assert.equal((await reader.query('SELECT count(*) FROM analytics_public.blocks_query')).rows[0].count,'21');
  });
 
@@ -139,6 +145,13 @@ test('disposable PG16 catalogue SQL and exact wire transport',{skip:process.env.
  await t.test('transport check keeps false distinct from unknown NULL',()=>{
   const {candidate,verification}=results.get('fixture_boolean_unknown'),mutant={...candidate,rows:[['2026-09-01','t','f','f']]};
   assert.throws(()=>splitComparison(cases.find(item=>item.id==='fixture_boolean_unknown'),mutant,verification),error=>error.verificationDiagnostic?.stage==='snapshot-mismatch');
+ });
+ await t.test('explicit NULLS LAST selects the measured change while direct SQL preserves default null ordering',async()=>{
+  const base="WITH evaluation_seed AS(SELECT height FROM blocks WHERE height=0 LIMIT 1),change_samples AS(SELECT 'missing'::text AS label,NULL::numeric AS delta FROM evaluation_seed UNION ALL SELECT 'decrease'::text,-5::numeric FROM evaluation_seed UNION ALL SELECT 'increase'::text,2::numeric FROM evaluation_seed) SELECT label,delta FROM change_samples ORDER BY abs(delta) DESC";
+  const defaultOrder=await read(await compileResearchSQL({version:3,sql:base+' LIMIT 1',limit:1},{extended:true}));
+  const knownFirst=await read(await compileResearchSQL({version:3,sql:base+' NULLS LAST LIMIT 1',limit:1},{extended:true}));
+  assert.deepEqual(defaultOrder.rows,[['missing',null]]);
+  assert.deepEqual(knownFirst.rows,[['decrease','-5']]);
  });
  await reader.query('ROLLBACK');
 });

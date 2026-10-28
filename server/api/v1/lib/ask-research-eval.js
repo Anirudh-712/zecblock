@@ -103,13 +103,13 @@ function mentionsValue(answer,value){
 }
 function mentionsDate(answer,value){
  const day=dateKey(value);if(!day)return false;if(answer.includes(day))return true;
- const [year,month,date]=day.split('-'),name=['January','February','March','April','May','June','July','August','September','October','November','December'][Number(month)-1],monthWord=`(?:${name}|${name.slice(0,3)})`;
+ const [year,month,date]=day.split('-'),name=['January','February','March','April','May','June','July','August','September','October','November','December'][Number(month)-1],monthWord=`(?:${name}|${name.slice(0,3)}${name==='September'?'|Sept':''})`;
  return new RegExp(`\\b(?:${Number(date)}\\s+${monthWord}\\s*,?\\s*${year}|${monthWord}\\s+${Number(date)}\\s*,?\\s*${year})\\b`,'i').test(answer);
 }
 function mentionsMonth(answer,value){
  const day=dateKey(value);if(!day)return false;
  const [year,month]=day.split('-'),name=['January','February','March','April','May','June','July','August','September','October','November','December'][Number(month)-1];
- return answer.includes(day.slice(0,7))||new RegExp(`\\b(?:${name}|${name.slice(0,3)})\\s*,?\\s*${year}\\b`,'i').test(answer)||mentionsDate(answer,value);
+ return answer.includes(day.slice(0,7))||new RegExp(`\\b(?:${name}|${name.slice(0,3)}${name==='September'?'|Sept':''})\\s*,?\\s*${year}\\b`,'i').test(answer)||mentionsDate(answer,value);
 }
 function compareDecimal(left,right){const [a,sa]=decimal(left).split(':'),[b,sb]=decimal(right).split(':'),scale=Math.max(Number(sa),Number(sb)),delta=BigInt(a)*10n**BigInt(scale-Number(sa))-BigInt(b)*10n**BigInt(scale-Number(sb));return delta<0n?-1:delta>0n?1:0;}
 // These bounded English checks calibrate fixed operator cases, not arbitrary
@@ -123,6 +123,7 @@ function feeFinding(answer,value){
  const passed=value===null?claims.some(claim=>/\b(?:unavailable|missing|unknown|not available)\b/i.test(claim)&&!/\b(?:not|never)\s+(?:unavailable|missing|unknown)\b/i.test(claim)):claims.some(claim=>numbers(claim).some(number=>decimal(number.value)===decimal(value)&&(/^\s+ZEC\b/.test(number.after)||/\bZEC\s*$/.test(number.before))));
  return review(passed,'fee-claim-unresolved');
 }
+const doubleNegativeDecrease=/\b(?:fell|falls?|fallen|dropped|drops?|decreased?|declined?)\s+by\s+-\s*\d/i;
 function annualFinding(answer,reference){
  const sorted=[...reference].sort((a,b)=>a[0].localeCompare(b[0]));let largest=0n,leaders=[];
  for(let i=1;i<sorted.length;i++){if(!/^\d+$/.test(sorted[i][1])||!/^\d+$/.test(sorted[i-1][1]))return review(false,'annual-change-unresolved');const delta=BigInt(sorted[i][1])-BigInt(sorted[i-1][1]),size=delta<0n?-delta:delta;if(size>largest){largest=size;leaders=[];}if(size===largest)leaders.push({prior:sorted[i-1],next:sorted[i],delta});}
@@ -130,6 +131,7 @@ function annualFinding(answer,reference){
  let passed=false;
  for(const {prior,next,delta} of leaders){
   for(const claim of claimClauses(answer).filter(text=>mentionsMonth(text,next[0])&&/\bshielded\b/i.test(text))){
+   if(doubleNegativeDecrease.test(claim))return review(false,'annual-change-unresolved');
    if(!/\b(?:transactions?|counts?|activity)\b/i.test(claim)||/\b(?:transparent|share|percentage|percent|fees?|balance|not|never|didn't|doesn't|isn't|wasn't|cannot|can't|ZEC|USD|zatoshis?)\b|%/i.test(claim))continue;
    const counts=numbers(claim).filter(number=>!/^\s*(?:%|percent\b|ZEC\b|USD\b)/i.test(number.after));
    const changes=counts.filter(number=>decimal(number.value.replace(/^[+-]/,''))===decimal(String(largest))&&(/^[+-]/.test(number.value)||/\b(?:by|of|change|delta|rose|fell|jumped|climbed|increased|decreased|dropped|declined)\s*(?:(?:was|is)\s*)?$/i.test(number.before)));
@@ -177,15 +179,26 @@ function scopedClaims(answer,protect=[]){
   parts.push(claim.slice(start).trim());return parts.filter(Boolean);
  });
 }
-function keyMention(claim,value,role){
+function keyMention(claim,value,role,keyAliases){
  if(value===null)return false;
  if(role==='date')return mentionsDate(claim,value);
  if(role==='month')return mentionsMonth(claim,value);
  if(role==='boolean')return hasPhrase(claim,value);
- return numericRoles.has(role)?mentionsValue(claim,value):hasPhrase(claim,value);
+ return numericRoles.has(role)?mentionsValue(claim,value):hasPhrase(claim,[value,...(role==='text'&&keyAliases&&Object.hasOwn(keyAliases,value)?aliases(keyAliases[value]):[])]);
 }
-function competingKey(claim,row,reference,keys,roles){
- return keys.some(i=>reference.some(other=>normalized(other[i],roles[i])!==normalized(row[i],roles[i])&&other[i]!==null&&(numericRoles.has(roles[i])?numbers(claim).some(number=>normalized(number.value,roles[i])===normalized(other[i],roles[i])&&/\b(?:block|height|rank|position|group|bucket)\s*#?\s*$/i.test(number.before)):keyMention(claim,other[i],roles[i]))));
+function competingKey(claim,row,reference,keys,roles,keyAliases={}){
+ return keys.some(i=>reference.some(other=>normalized(other[i],roles[i])!==normalized(row[i],roles[i])&&other[i]!==null&&(numericRoles.has(roles[i])?numbers(claim).some(number=>normalized(number.value,roles[i])===normalized(other[i],roles[i])&&/\b(?:block|height|rank|position|group|bucket)\s*#?\s*$/i.test(number.before)):keyMention(claim,other[i],roles[i],keyAliases[i]))));
+}
+function leaderComparison(claim){
+ const separator=/,?\s+\b(?:compared\s+with|versus)\b\s+/i.exec(claim);
+ return separator?{primary:claim.slice(0,separator.index).trim(),comparison:claim.slice(separator.index+separator[0].length).trim()}:null;
+}
+function validLeaderComparison(tail,row,reference,keys,roles,check){
+ // Only the fixed, explicitly dated same-measure comparison shape is known.
+ // Arbitrary comparison prose still needs review rather than being discarded.
+ if(!tail||keys.length!==1||!['date','month'].includes(roles[keys[0]])||!check.unit)return false;
+ const amount='[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?',measure=amount+'\\s*'+unitPattern(check.unit),shape=new RegExp('^(?:'+measure+'\\s+on\\s+DATE|DATE\\s+(?:at\\s+)?'+measure+')\\.?$','i');
+ return reference.some(other=>keys.some(i=>normalized(other[i],roles[i])!==normalized(row[i],roles[i])&&keyMention(tail,other[i],roles[i],check.keyAliases?.[i]))&&!competingKey(tail,other,reference,keys,roles,check.keyAliases)&&shape.test(withoutKeys(tail,other,keys,roles))&&valueClaim('Comparison value was '+withoutKeys(tail,other,keys,roles),other[check.valueColumn],roles[check.valueColumn],{...check,subject:'comparison value'}));
 }
 function withoutKeys(claim,row,keys,roles){
  let text=claim;
@@ -194,7 +207,7 @@ function withoutKeys(claim,row,keys,roles){
   if(value===null)continue;
   if(role==='date'||role==='month'){
    const day=dateKey(role==='month'&&/^20\d{2}-\d{2}$/.test(value)?value+'-01':value);if(!day)continue;
-   const [year,month,date]=day.split('-'),name=['January','February','March','April','May','June','July','August','September','October','November','December'][Number(month)-1],word='(?:'+name+'|'+name.slice(0,3)+')';
+   const [year,month,date]=day.split('-'),name=['January','February','March','April','May','June','July','August','September','October','November','December'][Number(month)-1],word='(?:'+name+'|'+name.slice(0,3)+(name==='September'?'|Sept':'')+')';
    const pattern=role==='month'?`${day}(?:[ T][^ ]+)?|${day.slice(0,7)}|${word}\\s*,?\\s*${year}|${Number(date)}\\s+${word}\\s*,?\\s*${year}`:`${day}|${Number(date)}\\s+${word}\\s*,?\\s*${year}|${word}\\s+${Number(date)}\\s*,?\\s*${year}`;
    text=text.replace(new RegExp('\\b(?:'+pattern+')\\b','gi'),'DATE');
   }
@@ -231,6 +244,14 @@ function denominatorClaim(claim,number,denominator){
  if(relation)return aliases(denominator).some(value=>new RegExp('^'+phrasePattern(value)+'(?![\\p{L}\\p{N}])','iu').test(relation[1]));
  return aliases(denominator).some(value=>new RegExp('\\b(?:of|out of|relative to|against)\\s+(?:the\\s+)?'+phrasePattern(value)+'(?![\\p{L}\\p{N}])','iu').test(number.before));
 }
+function changeDenominatorClaim(claim,number,denominator){
+ if(denominator)return denominatorClaim(claim,number,denominator);
+ const after=number.after.replace(new RegExp('^\\s*'+unitPattern('%'),'i'),'').trim();
+ if(!/^(?:of|out of|relative to|against)\b/i.test(after))return true;
+ // A relative change uses its starting value even when the fixed case leaves
+ // that ordinary baseline implicit. An explicit different denominator conflicts.
+ return denominatorClaim(claim,number,['baseline','baseline value','baseline count','starting value','starting count','initial value','initial count','previous value','previous count','prior value','prior count']);
+}
 function valueClaim(claim,value,role,check){
  if(!hasPhrase(claim,check.subject))return false;
  if(value===null)return unavailableClaim.test(claim)&&!/\b(?:not|never)\s+(?:unavailable|unknown)\b/i.test(claim)&&!nearestNumbers(claim,check.subject).length;
@@ -263,33 +284,39 @@ function genericFinding(item,answer,reference){
   rows=sorted.filter(row=>compareDecimal(row[check.valueColumn],sorted[0][check.valueColumn])===0);
  }else rows=reference[check.row??0]?[reference[check.row??0]]:[];
  for(const row of rows)for(const original of claims){
-  if(!keys.every(i=>keyMention(original,row[i],item.roles[i])))continue;
-  if(['leader','change'].includes(check.type)&&competingKey(original,row,reference,keys,item.roles))return review(false,check.type+'-key-association-unresolved');
-  const claim=withoutKeys(original,row,keys,item.roles);
+  const comparison=check.type==='leader'?leaderComparison(original):null,primary=comparison?.primary??original;
+  if(!keys.every(i=>keyMention(primary,row[i],item.roles[i],check.keyAliases?.[i])))continue;
+  if(['leader','change'].includes(check.type)&&competingKey(primary,row,reference,keys,item.roles,check.keyAliases))return review(false,check.type+'-key-association-unresolved');
+  if(comparison&&!validLeaderComparison(comparison.comparison,row,reference,keys,item.roles,check))return review(false,'leader-comparison-unresolved');
+  const claim=withoutKeys(primary,row,keys,item.roles);
   if(check.type==='leader'){
    if(rows.length>1&&/\b(?:alone|unique(?:ly)?|sole|only)\b/i.test(claim))return review(false,'leader-tie-conflict');
-   const maximum=/\b(?:highest|largest|leading|top|most|maximum)\b/i.test(claim),minimum=/\b(?:lowest|smallest|least|minimum)\b/i.test(claim);
+   const maximum=/\b(?:highest|largest|leading|top|most|maximum)\b/i.test(claim)||comparison&&/\blarger\b/i.test(claim),minimum=/\b(?:lowest|smallest|least|minimum)\b/i.test(claim);
    if(check.direction==='max'&&minimum||check.direction==='min'&&maximum)return review(false,'leader-direction-conflict');
    if(!(check.direction==='max'?maximum:minimum))continue;
   }
   if(check.type==='change'){
    if(!hasPhrase(claim,check.subject)||negatedClaim.test(claim))continue;
+   if(doubleNegativeDecrease.test(claim))return review(false,'change-direction-unresolved');
    const base=row[check.baseColumn],value=row[check.valueColumn],delta=row[check.deltaColumn];
    if([base,value,delta].some(v=>v===null||decimal(v)===undefined))continue;
    const direction=compareDecimal(value,base),positive=/\b(?:rose|increased?|grew|growth|up|jumped|climbed)\b/i.test(claim),negative=/\b(?:fell|decreased?|declined?|down|dropped)\b/i.test(claim),unchanged=/\b(?:unchanged|no change|same)\b/i.test(claim);
    if(direction>0&&negative||direction<0&&positive||direction===0&&(positive||negative)||direction!==0&&unchanged)return review(false,'change-direction-conflict');
-   const endpoints=/\bfrom\s+([+-]?[\d,.]+)\s*(?:ZEC|USD|transactions?)?\s+to\s+([+-]?[\d,.]+)/i.exec(claim);
-   const endpointMatch=endpoints&&decimal(endpoints[1].replaceAll(',',''))===decimal(base)&&decimal(endpoints[2].replaceAll(',',''))===decimal(value);
+   const amount='[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?',unit='(?!(?:in|on|and|or|with|as|because|for|during|at|by)\\b)[A-Za-z%]+';
+   const endpoints=new RegExp('\\bfrom\\s+('+amount+')(?:\\s+('+unit+'))?\\s+to\\s+('+amount+')(?:\\s+('+unit+'))?','i').exec(claim);
+   if(/\bfrom\s+[+-]?\d/i.test(claim)&&!endpoints)return review(false,'change-endpoint-unresolved');
+   if(endpoints&&[endpoints[2],endpoints[4]].some(unit=>unit&&(!check.unit||!attachedUnit({before:'',after:' '+unit},check.unit))))return review(false,'change-unit-conflict');
+   const endpointMatch=endpoints&&decimal(endpoints[1].replaceAll(',',''))===decimal(base)&&decimal(endpoints[3].replaceAll(',',''))===decimal(value);
    if(endpoints&&!endpointMatch)return review(false,'change-endpoint-conflict');
    const statedChanges=numbers(claim).filter(number=>!/^(?:\s*%|\s*percent\b)/i.test(number.after)&&(/^[+-]/.test(number.value)||/\b(?:by|delta|change)\s*(?:(?:of|is|was)\s*)?$/i.test(number.before)));
    if(statedChanges.some(number=>decimal(number.value.replace(/^[+-]/,''))!==decimal(delta.replace(/^[+-]/,''))||/^[+-]/.test(number.value)&&compareDecimal(number.value,'0')!==direction))return review(false,'change-delta-conflict');
    const change=numbers(claim).some(number=>decimal(number.value.replace(/^[+-]/,''))===decimal(delta.replace(/^[+-]/,''))&&attachedUnit(number,check.unit)&&(/^[+-]/.test(number.value)||/\b(?:by|delta|change)\s*(?:(?:of|is|was)\s*)?$/i.test(number.before))&&(!/^[+-]/.test(number.value)||compareDecimal(number.value,'0')===direction));
-   const statedDirection=direction>0?positive:direction<0?negative:unchanged;
+   const statedDirection=(direction>0?positive:direction<0?negative:unchanged)||statedChanges.some(number=>/^[+-]/.test(number.value)&&compareDecimal(number.value,'0')===direction);
    if(!(endpointMatch||change&&statedDirection))continue;
    if(check.percentColumn!==undefined){
     const percent=row[check.percentColumn];
     if(percent===null){if(!unavailableClaim.test(claim))continue;}
-    else if(!numbers(claim).some(number=>normalized(number.value,'percent')===normalized(percent,'percent')&&attachedUnit(number,'%')&&denominatorClaim(claim,number,check.denominator)))continue;
+    else if(!numbers(claim).some(number=>normalized(number.value,'percent')===normalized(percent,'percent')&&attachedUnit(number,'%')&&changeDenominatorClaim(claim,number,check.denominator)))continue;
    }
    passed=true;continue;
   }

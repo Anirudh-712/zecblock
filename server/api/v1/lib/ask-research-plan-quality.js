@@ -5,6 +5,7 @@ const {parse}=require('pgsql-parser');
 const {z}=require('zod');
 const {compileResearchSQL,instructionsFor}=require('./ask-research-sql');
 const {askError}=require('./ask-errors');
+const {nullRankingDiagnostics}=require('./ask-research-null-ranking');
 const string=n=>n?.TypeCast?string(n.TypeCast.arg):n?.A_Const?.sval?.sval;
 const integer=n=>n?.A_Const?.ival?.ival;
 const column=n=>n?.ColumnRef?.fields?.map(x=>x.String?.sval);
@@ -170,7 +171,7 @@ function summaryCountHistory(s,scope){
  return start!==null&&end!==null&&start<end&&end<=today;
 }
 async function draftDiagnostics(sql,{extended=false}={}){
- const tree=await parse(sql),issues=new Set();
+ const tree=await parse(sql),issues=new Set(nullRankingDiagnostics(tree));
  // Only proven raw monetary values trigger a draft repair. Aliases mentioning
  // an asset, counts, USD, and unresolved expressions never imply zatoshis.
  for(const target of unitsFromTree(tree,issues).targets)if(/(?:^|_)zec(?:_|$)/i.test(target.name||'')&&target.unit==='zatoshi')issues.add('A column labelled ZEC must convert zatoshis in its own expression by dividing by 100000000, for example sum(fees)::numeric/100000000 AS fees_zec. Otherwise keep a zatoshi label.');

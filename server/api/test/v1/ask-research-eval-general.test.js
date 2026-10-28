@@ -194,3 +194,42 @@ test('a scalar claim rejects a second contradictory attached value while retaini
  assert.equal(grade(spec,rows,'The mean fee was 0.1 ZEC, or in fact 0.2 ZEC.').passed,false);
  assert.equal(grade(spec,rows,'The mean fee was 0.1 ZEC, with 20 known observations.').passed,true);
 });
+
+
+test('relative changes reject an explicitly different percentage denominator while preserving an implicit baseline',()=>{
+ const spec=cases.find(value=>value.id==='monthly_change_2026_summer'),rows=[['2026-07-01','90','100','10','11.11'],['2026-08-01','100','100','0','0'],['2026-09-01','100','120','20','20']];
+ for(const suffix of ['20%.','20% of the baseline.','20% of the starting count.'])assert.equal(grade(spec,rows,'In September 2026, shielded transactions increased from 100 to 120, a change of 20 transactions or '+suffix).passed,true,suffix);
+ for(const suffix of ['20% of transparent transactions.','20% of all transactions.','20% relative to the final count.'])assert.equal(grade(spec,rows,'In September 2026, shielded transactions increased from 100 to 120, a change of 20 transactions or '+suffix).passed,false,suffix);
+});
+
+test('change endpoints cannot relabel transaction counts as monetary values',()=>{
+ const spec=cases.find(value=>value.id==='monthly_change_2026_summer'),rows=[['2026-07-01','90','100','10','11.11'],['2026-08-01','100','100','0','0'],['2026-09-01','100','120','20','20']];
+ for(const endpoints of ['100 USD to 120 USD','100 ZEC to 120 ZEC','100 to 120 USD','100 bananas to 120 bananas'])assert.equal(grade(spec,rows,`In September 2026, shielded transactions increased from ${endpoints}, a change of 20 transactions or 20%.`).passed,false,endpoints);
+ for(const endpoints of ['100 to 120','100 transactions to 120 transactions'])assert.equal(grade(spec,rows,`In September 2026, shielded transactions increased from ${endpoints}, a change of 20 transactions or 20%.`).passed,true,endpoints);
+});
+
+
+test('decrease by a signed negative requires review while unsigned falls and explicit signed changes remain valid',()=>{
+ const annual=cases.find(value=>value.id==='annual_2025'),counts=[200,190,185,180,170,165,160,150,140,130,10,5],rows=counts.map((count,i)=>[`2025-${String(i+1).padStart(2,'0')}-01`,String(count),'100','50',String(count)]);
+ for(const verb of ['fell','dropped','decreased'])assert.equal(grade(annual,rows,`Shielded transactions ${verb} by -120 in November 2025.`).passed,false,verb);
+ assert.equal(grade(annual,rows,'Shielded transactions fell by 120 in November 2025.').passed,true);
+ assert.equal(grade(annual,rows,'The shielded transaction change was -120 in November 2025.').passed,true);
+ const change=item(['count','count','numeric','percent'],{type:'change',row:0,baseColumn:0,valueColumn:1,deltaColumn:2,percentColumn:3,subject:'transaction count',unit:'transactions'}),changeRows=[['10','5','-5','-50']];
+ assert.equal(grade(change,changeRows,'The transaction count decreased by -5 transactions, a -50% change.').passed,false);
+ assert.equal(grade(change,changeRows,'The transaction count fell by 5 transactions, a -50% change.').passed,true);
+ assert.equal(grade(change,changeRows,'The transaction count change was -5 transactions, or -50%.').passed,true);
+});
+
+
+test('fixed text key aliases bind shielding to shield without borrowing another direction',()=>{
+ const spec=item(['text','text','count','zec'],{type:'leader',valueColumn:2,keyColumns:[0,1],keyAliases:{1:{shield:['shield','shielding'],deshield:['deshield','deshielding']}},direction:'max',subject:'public boundary records',unit:'records'},{keyColumns:[0,1],ordered:false}),rows=[['Ironwood','shield','123','5'],['Ironwood','deshield','100','4'],['Orchard','shield','90','3']];
+ for(const word of ['shield','shielding'])assert.equal(grade(spec,rows,`Ironwood ${word} had the most public boundary records, with 123 records and 5 ZEC.`).passed,true,word);
+ for(const answer of ['Ironwood deshielding had the most public boundary records, with 123 records and 5 ZEC.','Orchard shielding had the most public boundary records, with 123 records and 5 ZEC.','Ironwood shielding lost to deshielding, which had the most public boundary records, with 123 records.'])assert.equal(grade(spec,rows,answer).passed,false,answer);
+ assert.equal(grade({...spec,answerCheck:{...spec.answerCheck,keyAliases:undefined}},rows,'Ironwood shielding had the most public boundary records, with 123 records and 5 ZEC.').passed,false);
+});
+
+test('explicit leader comparisons validate each date and value without borrowing the comparison key',()=>{
+ const spec=item(['date','zec','zec'],{type:'leader',valueColumn:2,keyColumns:[0],direction:'max',subject:["Ironwood's larger closing balance",'Ironwood balance'],unit:'ZEC'},{keyColumns:[0],ordered:false}),rows=[['2026-08-31','100','50'],['2026-09-30','90','60']];
+ for(const separator of ['compared with','versus'])for(const apostrophe of ["'",'’'])assert.equal(grade(spec,rows,`Ironwood${apostrophe}s larger closing balance was observed on 30 Sept 2026, at 60 ZEC, ${separator} 50 ZEC on 31 Aug 2026.`).passed,true,separator+apostrophe);
+ for(const answer of ["Ironwood's larger closing balance was observed on 31 Aug 2026, at 60 ZEC, compared with 50 ZEC on 30 Sept 2026.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 50 ZEC, compared with 60 ZEC on 31 Aug 2026.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with 51 ZEC on 31 Aug 2026.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with 50 USD on 31 Aug 2026.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with 50 ZEC.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with 50 ZEC on 30 Aug 2026.","Ironwood's larger closing balance was observed on 30 Sept 2026, at 60 ZEC, compared with a mean fee of 50 ZEC on 31 Aug 2026."])assert.equal(grade(spec,rows,answer).passed,false,answer);
+});

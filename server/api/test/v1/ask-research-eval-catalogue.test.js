@@ -61,7 +61,7 @@ test('fixed answer requirements bind columns, keys, quantities and denominators'
    if(check.keyColumns)for(const index of check.keyColumns)assert.ok(Number.isInteger(index)&&index>=0&&index<item.roles.length,item.id);
   }else assert.equal(item.referenceSQL,undefined,'clarification/refusal must not carry executable SQL');
  }
- assert.deepEqual(byId('classification_denominator').answerCheck.denominator,['all transactions','total transactions']);
+ assert.deepEqual(byId('classification_denominator').answerCheck.denominator,['all transactions','total transactions','all non-coinbase transactions','total non-coinbase transactions']);
  assert.ok(byId('ironwood_combined_share').answerCheck.denominator.includes('Orchard plus Ironwood'));
  assert.equal(byId('fixture_zero_baseline').answerCheck.percentColumn,4);
  assert.equal(byId('fixture_boolean_unknown').answerCheck.type,'unavailable');

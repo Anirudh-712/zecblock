@@ -44,7 +44,11 @@ accuracy result.
 The annual case now explicitly requests the **largest absolute** month-to-month
 change, including decreases. Its reference already used that interpretation;
 the wording clarification means earlier runs are not an unchanged-prompt model
-comparison. The other original IDs and default selection are retained.
+comparison. The bounded block/transaction comparison also explicitly requests
+all twenty rows before a separate leading finding, matching its existing oracle.
+Declared equivalent wording includes shield/shielding and non-coinbase
+denominators, with exact cell/unit/key checks retained. The original IDs and
+default selection are retained.
 
 The generalized verifier preserves exact decimal strings, signs, nulls and
 typed boolean wire values. It supports declared scalar/multiset, composite-key
@@ -78,6 +82,20 @@ cluster even after startup failure. CI runs this opt-in fixture separately and
 pins its backend runner to Ubuntu 24.04, whose published image includes
 [PostgreSQL 16](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md).
 No provider credentials or serving database are required by that fixture.
+
+The runtime explanation task now distinguishes bare SQL cells from chart facts
+that already carry units. A bounded exact-cell helper supplies signed minimum,
+maximum and largest-magnitude fact references for the narrative preview; ties,
+nulls and preview scope remain explicit. It does not calculate unreturned
+changes, certify metric labels or rewrite SQL. Generated-query guidance keeps
+requested table rows separate from the leading narrative finding.
+
+AI draft quality checks also diagnose a narrowly proven lag/lead-derived
+descending ranking with omitted null ordering, which otherwise puts an unknown
+boundary change first in PostgreSQL. It uses the existing single repair attempt.
+Explicit null ordering, matching known-value filters and unresolved lineage stay
+accepted. Handwritten SQL and the SQL security compiler do not take this draft
+repair path; their supported relational operations and limits remain unchanged.
 
 ## Prerequisites
 
