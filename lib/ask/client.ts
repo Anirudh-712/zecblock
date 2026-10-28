@@ -5,7 +5,8 @@ import type { AnalysisSpec } from './contract';
 const aiAlternatives = ' You can still run SQL directly or use starter charts, subject to their own limits.';
 const keptSQL = ' Your query and current results are kept.';
 const keptRequest = ' Your draft and current results are kept.';
-const quotaFailures: Record<string, { title: string; detail: string }> = Object.freeze({
+const quotaFailures: Record<string, { title: string; detail: string; maxRetrySeconds?: number }> = Object.freeze({
+  'ask-request-attempts': { title: 'Request limit reached', detail: 'Too many submission or verification attempts from your connection. This limit applies to Ask and SQL.' + keptRequest, maxRetrySeconds: 60 },
   'ask-request-minute': { title: 'Request limit reached', detail: 'Your connection has reached its per-minute request limit. This limit applies to Ask and SQL.' + keptRequest },
   'ask-request-day': { title: 'Request limit reached', detail: 'Your connection has reached its daily request limit. This limit applies to Ask and SQL.' + keptRequest },
   'ask-request-global-hour': { title: 'Request limit reached', detail: 'Ask and SQL have reached the site-wide hourly request limit.' + keptRequest },
@@ -21,6 +22,7 @@ const quotaFailures: Record<string, { title: string; detail: string }> = Object.
   'ask-sql-global-day': { title: 'SQL limit reached', detail: 'SQL has reached its site-wide daily query allowance.' + keptSQL },
   'ask-sql-busy': { title: 'SQL busy', detail: 'SQL is handling the maximum number of simultaneous queries. Try again shortly.' + keptSQL },
   'ask-sql-queue': { title: 'SQL busy', detail: 'The SQL queue is full. Try again shortly.' + keptSQL },
+  'ask-sql-status-minute': { title: 'Research updates limited', detail: 'Too many research status, cancellation or explanation requests from your connection.' + keptSQL + ' Ask can still answer other direct questions, subject to its own limits.', maxRetrySeconds: 60 },
 });
 function quotaFailure(error: ApiError) {
   return error.status === 429 && typeof error.code === 'string' && Object.hasOwn(quotaFailures, error.code) ? quotaFailures[error.code] : undefined;
@@ -76,7 +78,7 @@ export function askFailure(error: unknown, now = Date.now()): AskFailure {
   // allowances may reset up to 31 days later; generic denials promise no reset.
   const legacy = limited && ['ask-quota-day', 'ask-quota-minute'].includes(error.code || '');
   const seconds = limited && (quota || legacy) && /^\d+$/.test(error.retryAfter || '') ? Number(error.retryAfter) : 0;
-  const maxSeconds = quota ? 2678400 : 86400;
+  const maxSeconds = quota ? quota.maxRetrySeconds || 2678400 : 86400;
   const scope: AskFailureScope | undefined = limited ? quota && error.code?.startsWith('ask-ai-') ? 'ai' : quota && error.code?.startsWith('ask-sql-') ? 'sql' : 'request' : undefined;
   return { title: quota?.title || (limited ? 'Request limit reached' : error instanceof ApiError && error.code === 'ask-verification' ? 'Verification needed' : 'Request could not finish'), detail: askErrorMessage(error), retryAt: Number.isSafeInteger(seconds) && seconds > 0 && seconds <= maxSeconds ? now + seconds * 1000 : undefined, retryable: !limited && !(error instanceof ApiError && error.code === 'ask-verification'), scope };
 }

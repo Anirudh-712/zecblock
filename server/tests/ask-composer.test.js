@@ -26,6 +26,7 @@ test('legacy shared limits stay compatible without hard-coded allowances; unknow
 test('precise admission, AI, SQL, capacity and global-budget failures explain the actual bucket',()=>{
  const now=Date.parse('2026-10-06T23:50:00Z');
  const cases=[
+  ['ask-request-attempts','Request limit reached',/submission or verification attempts.*connection/],
   ['ask-request-minute','Request limit reached',/connection.*per-minute request/],
   ['ask-request-day','Request limit reached',/connection.*daily request/],
   ['ask-request-global-hour','Request limit reached',/site-wide hourly request/],
@@ -41,10 +42,12 @@ test('precise admission, AI, SQL, capacity and global-budget failures explain th
   ['ask-sql-global-day','SQL limit reached',/site-wide daily query allowance/],
   ['ask-sql-busy','SQL busy',/simultaneous queries/],
   ['ask-sql-queue','SQL busy',/SQL queue is full/],
+  ['ask-sql-status-minute','Research updates limited',/research status, cancellation or explanation requests/],
  ];
  for(const [code,title,copy] of cases){
-  const failure=client.askFailure(new ApiError('postgres://secret',429,undefined,undefined,'600',code),now);
-  assert.equal(failure.title,title);assert.match(failure.detail,copy);assert.equal(failure.retryAt,now+600000);assert.equal(failure.retryable,false);assert.equal(failure.scope,code.startsWith('ask-ai-')?'ai':code.startsWith('ask-sql-')?'sql':'request');assert.doesNotMatch(failure.detail,/secret|postgres|\$|20 requests|5 requests/);
+  const seconds=['ask-request-attempts','ask-sql-status-minute'].includes(code)?60:600;
+  const failure=client.askFailure(new ApiError('postgres://secret',429,undefined,undefined,String(seconds),code),now);
+  assert.equal(failure.title,title);assert.match(failure.detail,copy);assert.equal(failure.retryAt,now+seconds*1000);assert.equal(failure.retryable,false);assert.equal(failure.scope,code.startsWith('ask-ai-')?'ai':code.startsWith('ask-sql-')?'sql':'request');assert.doesNotMatch(failure.detail,/secret|postgres|\$|20 requests|5 requests/);
   if(code.startsWith('ask-ai-'))assert.match(failure.detail,/SQL directly or use starter charts, subject to their own limits/);
   if(code.startsWith('ask-sql-'))assert.match(failure.detail,/query and current results are kept/);
   if(code.startsWith('ask-request-'))assert.match(failure.detail,/Ask and SQL/);
@@ -53,6 +56,11 @@ test('precise admission, AI, SQL, capacity and global-budget failures explain th
  assert.equal(monthly.retryAt,now+2678400000);assert.doesNotMatch(monthly.detail,/your connection|you.*spent/i);
  for(const header of ['0','-1','1.5','1e3','Infinity','2678401','9007199254740992','Thu, 01 Jan 2027 00:00:00 GMT'])assert.equal(client.askFailure(new ApiError('raw',429,undefined,undefined,header,'ask-ai-budget-month'),now).retryAt,undefined);
  const wrongStatus=client.askFailure(new ApiError('raw',400,undefined,undefined,'600','ask-ai-day'),now);assert.equal(wrongStatus.retryAt,undefined);assert.equal(wrongStatus.title,'Request could not finish');
+ for(const code of ['ask-request-attempts','ask-sql-status-minute']){
+  assert.equal(client.askFailure(new ApiError('raw',429,undefined,undefined,'61',code),now).retryAt,undefined);
+  assert.equal(client.askFailure(new ApiError('raw',429,undefined,undefined,'1',code),now).retryAt,now+1000);
+ }
+ assert.match(client.askErrorMessage(new ApiError('raw',429,undefined,undefined,'60','ask-sql-status-minute')),/Ask can still answer other direct questions, subject to its own limits/);
 });
 test('progress, inline errors, quota resets and retries have accessible, safe markup',()=>{
  const working=renderToStaticMarkup(React.createElement(AskFeedback,{title:'Running your query…',detail:'Reading public data.',working:true}));

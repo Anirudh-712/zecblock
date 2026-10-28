@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {classifyFailure,askStage} = require('../../v1/lib/ask-errors');
 
 const cases = [
+  ['ask-request-attempts',/submission or verification attempts.*connection/],
   ['ask-request-minute',/connection.*per-minute request limit/],
   ['ask-request-day',/connection.*daily request limit/],
   ['ask-request-global-hour',/site-wide hourly request limit/],
@@ -19,6 +20,7 @@ const cases = [
   ['ask-sql-global-day',/site-wide daily query allowance/],
   ['ask-sql-busy',/simultaneous queries/],
   ['ask-sql-queue',/SQL queue is full/],
+  ['ask-sql-status-minute',/research status, cancellation or explanation requests/],
 ];
 const failure = (quotaCode,retryAfter = 60,extra = {}) => Object.assign(new Error('postgres://private-secret'),{quota:true,quotaCode,retryAfter,detail:'private-secret',queuePosition:1234,...extra});
 
@@ -36,6 +38,13 @@ test('fixed quota categories expose only their checked code, safe copy and bound
 test('monthly and daily quota retry windows are not truncated to one day', () => {
   assert.equal(classifyFailure(failure('ask-ai-budget-month',2678400)).retryAfter,2678400);
   assert.equal(classifyFailure(failure('ask-ai-budget-day',86400)).retryAfter,86400);
+});
+test('submission-attempt and research-update limits expose only a bounded sliding minute retry', () => {
+  for (const code of ['ask-request-attempts','ask-sql-status-minute']) {
+    assert.equal(classifyFailure(failure(code,1)).retryAfter,1);
+    assert.equal(classifyFailure(failure(code,60)).retryAfter,60);
+    const invalid=classifyFailure(failure(code,61));assert.equal(invalid.code,'ask-quota');assert.equal(invalid.retryAfter,undefined);
+  }
 });
 test('unknown or malformed quota metadata cannot select a category or forward raw diagnostics', () => {
   for (const quotaCode of ['ask-ai-secret','constructor','__proto__','toString','ASK-AI-DAY',null,{},['ask-ai-day']]) {

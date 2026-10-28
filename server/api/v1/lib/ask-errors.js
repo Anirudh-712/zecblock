@@ -19,6 +19,7 @@ const aiAlternatives = ' You can still run SQL directly or use starter charts, s
 const keptSQL = ' Your query and current results are kept.';
 const keptRequest = ' Your draft and current results are kept.';
 const quotaDetails = Object.freeze({
+  'ask-request-attempts': 'Too many submission or verification attempts from your connection. This limit applies to Ask and SQL.' + keptRequest,
   'ask-request-minute': 'Your connection has reached its per-minute request limit. This limit applies to Ask and SQL.' + keptRequest,
   'ask-request-day': 'Your connection has reached its daily request limit. This limit applies to Ask and SQL.' + keptRequest,
   'ask-request-global-hour': 'Ask and SQL have reached the site-wide hourly request limit.' + keptRequest,
@@ -34,10 +35,12 @@ const quotaDetails = Object.freeze({
   'ask-sql-global-day': 'SQL has reached its site-wide daily query allowance.' + keptSQL,
   'ask-sql-busy': 'SQL is handling the maximum number of simultaneous queries. Try again shortly.' + keptSQL,
   'ask-sql-queue': 'The SQL queue is full. Try again shortly.' + keptSQL,
+  'ask-sql-status-minute': 'Too many research status, cancellation or explanation requests from your connection.' + keptSQL + ' Ask can still answer other direct questions, subject to its own limits.',
 });
 function askError(kind) { const error = new Error('Ask operation failed'); error.askKind = kind; return error; }
 function classifyFailure(error) {
-  if (error?.quota === true && typeof error.quotaCode === 'string' && Object.hasOwn(quotaDetails,error.quotaCode) && Number.isInteger(error.retryAfter) && error.retryAfter > 0 && error.retryAfter <= 2678400) {
+  const maxRetryAfter = ['ask-request-attempts','ask-sql-status-minute'].includes(error?.quotaCode) ? 60 : 2678400;
+  if (error?.quota === true && typeof error.quotaCode === 'string' && Object.hasOwn(quotaDetails,error.quotaCode) && Number.isInteger(error.retryAfter) && error.retryAfter > 0 && error.retryAfter <= maxRetryAfter) {
     return {...failures.quota, code:error.quotaCode, retryAfter:error.retryAfter, detail:quotaDetails[error.quotaCode]};
   }
   if (error?.quota === true && error.quotaCode === undefined && ['day','minute'].includes(error.askLimit) && Number.isInteger(error.retryAfter) && error.retryAfter > 0 && error.retryAfter <= 86400) {
