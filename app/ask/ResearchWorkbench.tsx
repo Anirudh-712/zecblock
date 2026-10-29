@@ -190,7 +190,8 @@ export function ResearchData({ result, chart, sources, showDetails = true, saved
   </>;
 }
 
-export function ResearchPanel({ tools, result, busy, titleId, embedded = false, actions, editAction, sources, saved }: { tools: Tools; result: ResearchResult; busy: boolean; titleId?: string; embedded?: boolean; actions?: ReactNode; editAction?: ReactNode; sources?: ReactNode; saved?: boolean }) {
+// actions sit before Save/Share; trailing (e.g. Expand) sits last, after More.
+export function ResearchPanel({ tools, result, busy, titleId, embedded = false, actions, trailing, editAction, sources, saved }: { tools: Tools; result: ResearchResult; busy: boolean; titleId?: string; embedded?: boolean; actions?: ReactNode; trailing?: ReactNode; editAction?: ReactNode; sources?: ReactNode; saved?: boolean }) {
   const generatedTitleId = useId();
   const analysisTitleId = titleId || generatedTitleId;
   const lineAllowed = supportsLine(result, tools.chart.x);
@@ -238,6 +239,7 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
           {!tools.id ? <p className={styles.caption}>Save this analysis before adding it to a dashboard.</p> : null}
         </fieldset>
       </div></details>
+      {trailing ? <div className={styles.resultActions}>{trailing}</div> : null}
     </div>
     <ShareLinkField tools={tools} />
     {tools.shareURL ? <p className={styles.caption}>This link shares the SQL draft, title and chart settings. Answers, notes and result snapshots are excluded. It never runs automatically.</p> : null}

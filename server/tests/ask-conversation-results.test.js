@@ -17,7 +17,7 @@ function workspace(handoff) {
     'next/link': {default:({children, ...props}) => React.createElement('a', props, children)},
     '@/lib/ask/contract': require('../../lib/ask/contract'),
     '@/lib/ask/api-base': {getAskApiUrl:() => '/v1/ask', isAuthenticatedAskStaging:() => false}, '@/lib/api-client': {},
-    './ResearchWorkbench': {useResearchTools:() => ({library:{documents:[]}, importing:false, title:'Analysis'}), ResearchLibrary:() => null, ResearchEditor:() => null, ResearchDashboard:() => null, ResearchPanel:({result,embedded,actions,editAction,sources}) => React.createElement('div', {'data-embedded':embedded}, actions, editAction, React.createElement('table', {'data-record':'research'}, React.createElement('caption', null, result.label)), sources), ResearchData:record('research')},
+    './ResearchWorkbench': {useResearchTools:() => ({library:{documents:[]}, importing:false, title:'Analysis'}), ResearchLibrary:() => null, ResearchEditor:() => null, ResearchDashboard:() => null, ResearchPanel:({result,embedded,actions,trailing,editAction,sources}) => React.createElement('div', {'data-embedded':embedded}, actions, editAction, trailing, React.createElement('table', {'data-record':'research'}, React.createElement('caption', null, result.label)), sources), ResearchData:record('research')},
     '@/lib/ask/research-job-contract': {}, '@/lib/ask/research-client': {}, '@/lib/ask/research-contract': {},
     '@/components/ask/AskChallenge': {AskChallenge:() => null},
     '@/components/ask/AskTransactions': {AskTransactions:record('transactions')}, '@/components/ask/AskBlocks': {AskBlocks:record('blocks')}, '@/components/ask/AskTransfers': {AskTransfers:record('transfers')}, '@/components/ask/AskAnalytics': {AskAnalytics:record('analytics')}, '@/components/ask/AskSources': {AskSources:({sources}) => React.createElement('aside', {'aria-label':'Sources'}, sources.map(source => source.label).join(' '))},
@@ -152,7 +152,9 @@ test('guided charts keep filters and exports under closed secondary controls wit
   };
   const html=renderToStaticMarkup(React.createElement(loadComponent('app/ask/AskAnalysis.tsx',imports).AskAnalysis,{spec,changed:false,busy:false,canExplain:true,onChange:value=>changes.push(value),onExplain:()=>{},sources:React.createElement('a',{href:'/learn/blocks'},'Reading a block guide')}));
   assert.match(html,/<details[^>]*><summary>Customize view<\/summary>/);
-  assert.match(html,/<summary>More<\/summary>/);
+  // Chart actions are one visible row (no hidden More), Expand last; filters stay under Customize view.
+  assert.match(html,/<button>Explain this view<\/button><button>Refresh data<\/button><button>Export CSV<\/button><button aria-haspopup="dialog">Expand results ↗<\/button>/);
+  assert.doesNotMatch(html,/<summary>More<\/summary>/);
   assert.match(html,/>Refresh data<\/button>/);assert.match(html,/>Export CSV<\/button>/);
   assert.equal((html.match(/<summary>Sources &amp; details<\/summary>/g)||[]).length,1);
   assert.ok(html.indexOf('Reading a block guide')>html.indexOf('<summary>Sources &amp; details'));

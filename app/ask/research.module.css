@@ -83,8 +83,12 @@
 .shareSQL:focus-visible {outline:2px solid var(--color-gold);outline-offset:3px;}
 
 .resultActions {display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:12px;min-width:0;max-width:100%;}
-.resultActions > button:not(.button) {min-height:32px;padding:6px 0;font-size:12px;color:var(--color-text-secondary);}
-.resultActions > button:not(.button):hover {color:var(--color-text-primary);}
+/* Every toolbar action is the same bordered button; data-tone="accent" marks Explain. */
+.resultActions > button:not(.button) {min-height:32px;padding:6px 10px;border:1px solid var(--color-border);border-radius:6px;font-size:12px;color:var(--color-text-secondary);}
+.resultActions > button:not(.button):hover:not(:disabled) {background:var(--color-hover);color:var(--color-text-primary);}
+.resultActions > button[data-tone="accent"] {border-color:rgb(var(--color-gold-rgb) / 0.5);color:var(--color-gold);}
+.resultActions > button[data-tone="accent"]:hover:not(:disabled) {background:rgb(var(--color-gold-rgb) / 0.1);color:var(--color-gold);}
+.resultActions > button:disabled {opacity:.5;cursor:default;}
 .embeddedPanel {padding:0;}
 .embeddedToolbar {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:20px 0 16px;padding-top:16px;border-top:1px solid var(--color-border);min-width:0;}
 .embeddedToolbar .viewControls {margin:0;min-width:0;}
@@ -150,3 +154,6 @@
 .copyButton {display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;border:1px solid var(--color-border);border-radius:6px;color:var(--color-text-secondary);background:var(--color-surface);cursor:pointer;}
 .copyButton:hover {background:var(--color-hover);color:var(--color-text-primary);}
 .copyButton:focus-visible {outline:2px solid var(--color-gold);outline-offset:2px;}
+
+/* Trailing actions (Expand) follow More directly at the far right. */
+.resultToolbar > .moreOptions + .resultActions {margin-left:0;}

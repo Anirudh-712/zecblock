@@ -357,14 +357,14 @@ export function AskWorkspace() {
   }
   // Explain sits in the result toolbar with the other result actions.
   function explainAction(message: Message) {
-    return message.sql && message.ticket && message.research && message.state === 'complete' && capability.mode === 'ai' ? <button type="button" className={styles.explainAction} disabled={busy || aiBlocked} aria-busy={explainingId === message.id} onClick={() => void explainSQL(message)} aria-describedby={`explain-note-${message.id}`}>{explainingId === message.id ? 'Explaining…' : 'Explain results'}<span id={`explain-note-${message.id}`} className="sr-only">Writes a short summary using only numbers from these results. Uses your AI allowance.</span></button> : null;
+    return message.sql && message.ticket && message.research && message.state === 'complete' && capability.mode === 'ai' ? <button type="button" data-tone="accent" className={styles.explainAction} disabled={busy || aiBlocked} aria-busy={explainingId === message.id} onClick={() => void explainSQL(message)} aria-describedby={`explain-note-${message.id}`}>{explainingId === message.id ? 'Explaining…' : 'Explain results'}<span id={`explain-note-${message.id}`} className="sr-only">Writes a short summary using only numbers from these results. Uses your AI allowance.</span></button> : null;
   }
   function resultActions(message: Message, includeEdit = true) {
     return <>{explainAction(message)}{includeEdit ? editAction(message) : null}<button aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button></>;
   }
   function renderRecords(message: Message, expandedView = false) {
     const sources = <AskSources inline sources={message.sources || []} dataContext={message.dataContext} />;
-    if (message.research) return message.id === latestRecords?.id ? <ResearchPanel embedded={!expandedView} actions={expandedView ? undefined : resultActions(message, false)} editAction={editAction(message)} sources={sources} saved={message.savedSnapshot} tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} sources={sources} savedSnapshot={message.savedSnapshot} chart={{view:'table',x:0,y:0}}/></div>;
+    if (message.research) return message.id === latestRecords?.id ? <ResearchPanel embedded={!expandedView} actions={expandedView ? undefined : explainAction(message)} trailing={expandedView ? undefined : <button aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button>} editAction={editAction(message)} sources={sources} saved={message.savedSnapshot} tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} sources={sources} savedSnapshot={message.savedSnapshot} chart={{view:'table',x:0,y:0}}/></div>;
     return <div className="p-4 sm:p-5"><AskAnalytics result={message.analytics}/><AskBlocks result={message.blocks} expanded/><AskTransactions result={message.transactions} expanded/>{message.transfers ? <AskTransfers result={message.transfers}/> : null}</div>;
   }
   const sqlMode = inputMode === 'sql';

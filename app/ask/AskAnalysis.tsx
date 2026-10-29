@@ -82,10 +82,13 @@ export function AskAnalysis({ spec, changed, onChange, onExplain, canExplain, bu
               </div></details>
             </> : null}
   </div>;
-  const explanation = canExplain ? <button onClick={() => { dialog.current?.close(); onExplain(); }} disabled={busy || loadingData || !summary?.points.length || invalidDates} className="text-sm text-cipher-gold hover:underline disabled:opacity-40">{changed || refresh > 0 ? 'Explain updated view →' : 'Explain this view →'}</button> : null;
+  const explanation = canExplain ? <button onClick={() => { dialog.current?.close(); onExplain(); }} disabled={busy || loadingData || !summary?.points.length || invalidDates} className={styles.explainAction}>{changed || refresh > 0 ? 'Explain updated view' : 'Explain this view'}</button> : null;
+  // One action row, styled like the SQL result toolbar (no hidden "More").
   const actions = (includeExpand = false) => <div className={styles.chartActions}>
-    {includeExpand ? <button aria-haspopup="dialog" onClick={() => setExpanded(true)}>Expand results ↗</button> : null}
-    <details className={styles.moreExamples}><summary>More</summary><div className={styles.chartActionList}><button onClick={() => setRefresh(value => value + 1)} disabled={loadingData || busy}>Refresh data</button><button onClick={exportCsv} disabled={!summary?.points.length || invalidDates}>Export CSV</button>{!changed && refresh === 0 ? explanation : null}</div></details>
+    {!changed && refresh === 0 ? explanation : null}
+    <button className={styles.toolButton} onClick={() => setRefresh(value => value + 1)} disabled={loadingData || busy}>Refresh data</button>
+    <button className={styles.toolButton} onClick={exportCsv} disabled={!summary?.points.length || invalidDates}>Export CSV</button>
+    {includeExpand ? <button className={styles.toolButton} aria-haspopup="dialog" onClick={() => setExpanded(true)}>Expand results ↗</button> : null}
   </div>;
   return <article className={styles.resultCard} aria-label={`${info.title} results`} aria-busy={loadingData}>
     {actions(true)}
