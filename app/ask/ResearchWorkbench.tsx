@@ -3,9 +3,9 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import {defaultResearchChart,shortLabel,supportsLine,cellLink,dateFormatter,chartValues} from '@/lib/ask/research-display';
-import type { ResearchChart, ResearchDocument, ResearchLibrary, ResearchResult, ResearchNarrative } from '@/lib/ask/research-contract';
-import { researchDocumentSchema, researchNarrativeSchema } from '@/lib/ask/research-contract';
+import {defaultResearchChart,fitResearchChart,shortLabel,supportsLine,cellLink,dateFormatter,chartValues} from '@/lib/ask/research-display';
+import type { ResearchChart, ResearchHighlight, ResearchDocument, ResearchLibrary, ResearchResult, ResearchNarrative } from '@/lib/ask/research-contract';
+import { chartSchema, researchDocumentSchema, researchNarrativeSchema } from '@/lib/ask/research-contract';
 import { emptyLibrary, readLibrary, writeLibrary, readPortable, mergePortable, markdownReport, csvReport, MAX_BYTES } from '@/lib/ask/research-library';
 import { queryShare, dashboardShare, compactResearchLink, sharedLibrary, type ResearchShare } from '@/lib/ask/research-share';
 import styles from './research.module.css';
@@ -61,13 +61,26 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
     catch { setError('Browser storage is unavailable or contains an invalid library. Existing saves have been preserved.'); }
   }, []);
   function persist(next: ResearchLibrary) { raw.current = writeLibrary(window.localStorage, next, raw.current); libraryRef.current = next; setLibrary(next); }
-  function accept(data: ResearchResult, label: string, fresh = true, context?: ResearchNarrative) {
+  // The chart Zift chose last; a later suggestion replaces it only while the
+  // person has not changed it.
+  const autoChart = useRef<string | null>(null);
+  const chartRef = useRef(chart); chartRef.current = chart;
+  function accept(data: ResearchResult, label: string, fresh = true, context?: ResearchNarrative, suggested?: ResearchChart) {
     resultRef.current = data;
     const nextNarrative = matchingNarrative(context, data);
     narrativeRef.current = nextNarrative; setNarrative(nextNarrative);
     setResult(data); setSQL(data.query.sql); setLimit(data.query.limit); setTitle(label.slice(0, 120)); setBoardId(null); setError(''); setNotice(''); setShareURL('');
-    setChart(defaultResearchChart(data));
+    const next = suggested || defaultResearchChart(data);
+    autoChart.current = suggested ? JSON.stringify(next) : null;
+    setChart(next);
     if (fresh) { setId(null); setNotes(''); }
+  }
+  function suggest(proposal: unknown) {
+    const parsed = chartSchema.safeParse(proposal);
+    const next = parsed.success ? fitResearchChart(resultRef.current, parsed.data) : null;
+    if (!next) return;
+    if (autoChart.current !== JSON.stringify(chartRef.current)) return;
+    autoChart.current = JSON.stringify(next); setChart(next);
   }
   function annotate(context: ResearchNarrative) {
     const next = matchingNarrative(context, resultRef.current);
@@ -193,7 +206,7 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
   }
   // Opening or closing a dashboard starts with no leftover action message.
   function showDashboard(board: string | null) { setBoardId(board); setNotice(''); setError(''); setShareURL(''); }
-  return { library, ready, id, title, setTitle, notes, setNotes, sql, setSQL, limit, setLimit, result, narrative, chart, setChart, boardId, setBoardId: showDashboard, notice, error, importing, shareURL, dirty, copyLink, saveShared, accept, annotate, open, reset, document, save, importFile, exportFile, exportCSV, renameDocument, updateNotes, removeDocument, toggleDashboard, createDashboard, renameDashboard, removeFromDashboard, deleteDashboard, refreshDocument, downloadLibrary: () => download('zecblock-library.json', JSON.stringify(libraryRef.current, null, 2), 'application/json') };
+  return { library, ready, id, title, setTitle, notes, setNotes, sql, setSQL, limit, setLimit, result, narrative, chart, setChart, suggest, boardId, setBoardId: showDashboard, notice, error, importing, shareURL, dirty, copyLink, saveShared, accept, annotate, open, reset, document, save, importFile, exportFile, exportCSV, renameDocument, updateNotes, removeDocument, toggleDashboard, createDashboard, renameDashboard, removeFromDashboard, deleteDashboard, refreshDocument, downloadLibrary: () => download('zecblock-library.json', JSON.stringify(libraryRef.current, null, 2), 'application/json') };
 }
 type Tools = ReturnType<typeof useResearchTools>;
 
@@ -305,14 +318,17 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
   const isSaved = Boolean(tools.id) && !tools.dirty;
   const [newBoard, setNewBoard] = useState('');
   const saveNow = () => { const savedId = tools.save(); if (savedId) onSaved?.(savedId); };
-  const columnSelect = (axis: 'x' | 'y') => <label className={styles.inlineField}>{axis === 'x' ? 'Labels' : 'Values'}<span className={styles.selectWrap}><select className={styles.input} disabled={axis === 'y' && !numeric} value={tools.chart[axis]} onChange={event => { const index = Number(event.target.value); tools.setChart({ ...tools.chart, [axis]: index, view: axis === 'x' && tools.chart.view === 'line' && !supportsLine(result,index) ? 'bar' : tools.chart.view }); }}>{result.columns.map((column, index) => axis === 'y' && column.type !== 'number' ? null : <option key={column.key} value={index}>{column.label.replaceAll('_', ' ')}</option>)}</select></span></label>;
+  // Every toolbar change is refitted: lines and areas need an ordered axis,
+  // and a highlight or stack that no longer fits is dropped.
+  const update = (next: ResearchChart) => tools.setChart(next.view === 'table' ? next : fitResearchChart(result, next) || next);
+  const columnSelect = (axis: 'x' | 'y') => <label className={styles.inlineField}>{axis === 'x' ? 'Labels' : 'Values'}<span className={styles.selectWrap}><select className={styles.input} disabled={axis === 'y' && !numeric} value={tools.chart[axis]} onChange={event => update({ ...tools.chart, [axis]: Number(event.target.value) })}>{result.columns.map((column, index) => axis === 'y' && column.type !== 'number' ? null : <option key={column.key} value={index}>{column.label.replaceAll('_', ' ')}</option>)}</select></span></label>;
   // Values: one or up to five numeric columns, drawn together; the first stays primary.
   const measures = result.columns.map((column, index) => ({ column, index })).filter(({ column }) => column.type === 'number');
   const chosen = chartValues(result, tools.chart);
   const toggleValue = (index: number) => {
     const next = chosen.includes(index) ? chosen.filter(i => i !== index) : [...chosen, index].sort((a, b) => a - b);
     if (!next.length || next.length > 5) return;
-    tools.setChart({ ...tools.chart, y: next[0], series: next.length > 1 ? next.slice(1) : undefined });
+    update({ ...tools.chart, y: next[0], series: next.length > 1 ? next.slice(1) : undefined });
   };
   const valueLabel = (index: number) => result.columns[index].label.replaceAll('_', ' ');
   const valuePicker = measures.length > 1 ? <div className={styles.inlineField}>Values<Menu label={<span className={styles.valueText}>{chosen.map(valueLabel).join(', ') || 'Choose'}</span>} ariaLabel={`Chart values: ${chosen.map(valueLabel).join(', ')}`} align="left">
@@ -323,7 +339,7 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
   return <div className={`${styles.panelBody} ${embedded ? styles.embeddedPanel : ''}`}>
     {!embedded ? <h2 className={styles.resultTitle}>{tools.title}</h2> : null}
     <div className={`${styles.resultToolbar} ${embedded ? styles.embeddedToolbar : ''}`}>
-      <div className={styles.viewSwitch} role="group" aria-label="Result view">{([['table', 'Table', true], ['bar', 'Bar', numeric], ['line', 'Line', lineAllowed]] as const).map(([view, label, allowed]) => <button type="button" key={view} aria-pressed={tools.chart.view === view} disabled={!allowed} onClick={() => tools.setChart({ ...tools.chart, view })}>{label}</button>)}</div>
+      <div className={styles.viewSwitch} role="group" aria-label="Result view">{([['table', 'Table', true], ['bar', 'Bar', numeric], ['area', 'Area', lineAllowed], ['line', 'Line', lineAllowed]] as const).map(([view, label, allowed]) => <button type="button" key={view} aria-pressed={tools.chart.view === view} disabled={!allowed} onClick={() => update({ ...tools.chart, view })}>{label}</button>)}</div>
       <div className={styles.resultActions}>
         {actions}
         {editAction}
@@ -354,7 +370,12 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
       </div>
       {trailing ? <div className={styles.resultActions}>{trailing}</div> : null}
     </div>
-    {tools.chart.view !== 'table' ? <div className={styles.chartColumns}>{columnSelect('x')}{valuePicker}</div> : null}
+    {tools.chart.view !== 'table' ? <div className={styles.chartColumns}>{columnSelect('x')}{valuePicker}
+      <label className={styles.inlineField}>Highlight<span className={styles.selectWrap}><select className={styles.input} value={tools.chart.highlight || 'none'} onChange={event => update({ ...tools.chart, highlight: event.target.value === 'none' ? undefined : event.target.value as ResearchHighlight })}>
+        <option value="none">None</option>{lineAllowed ? <><option value="latest">Latest</option><option value="change">Change</option></> : null}<option value="peak">Peak</option><option value="low">Low</option>
+      </select></span></label>
+      {chosen.length > 1 && tools.chart.view !== 'line' ? <label className={styles.checkRow}><input type="checkbox" checked={!!tools.chart.stacked} onChange={event => update({ ...tools.chart, stacked: event.target.checked || undefined })} /><span>Stack</span></label> : null}
+    </div> : null}
     <ShareLinkField tools={tools} />
     <ResearchStatus tools={tools} except={/^(?:Added to|Removed from “|Created)/} />
     <ResearchData result={result} chart={tools.chart} sources={sources} savedSnapshot={saved === true} />

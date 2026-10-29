@@ -34,7 +34,7 @@ async function fixture(t,{mode='ai',jobsEnabled=true,expired=0,boardId=null,subm
     '@/lib/ask/api-base':{getAskApiUrl:()=>'/v1/ask',isAuthenticatedAskStaging:()=>true},
     '@/lib/api-client':{ApiError,readApiResponse:async()=>({data:{mode,provider:mode==='ai'?'OpenAI':null,researchEnabled:true,jobsEnabled,authenticatedStaging:true},meta:{network:'mainnet'}})},
     './ResearchWorkbench':{useResearchTools:()=>tools,ResearchLibrary:()=>null,ResearchDashboard:()=>'dashboard',ResearchPanel:()=>null,ResearchData:()=>null,SharedResearchDraft:()=>null},
-    '@/lib/ask/research-job-contract':{jobTicketSchema:{parse:value=>value}},'@/lib/ask/research-contract':{researchResultSchema:{parse:value=>value}},
+    '@/lib/ask/research-job-contract':{jobTicketSchema:{parse:value=>value}},'@/lib/ask/research-display': require('../../lib/ask/research-display'), '@/lib/ask/research-contract':{researchResultSchema:{parse:value=>value}},
     '@/lib/ask/research-client':{
       submitResearch:async query=>{calls.submit.push(query);const failure=submitFailures.shift();if(failure)throw failure;return ticket;},
       waitResearch:async()=>result,

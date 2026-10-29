@@ -18,7 +18,7 @@ function workspace(handoff) {
     '@/lib/ask/contract': require('../../lib/ask/contract'),
     '@/lib/ask/api-base': {getAskApiUrl:() => '/v1/ask', isAuthenticatedAskStaging:() => false}, '@/lib/api-client': {},
     './ResearchWorkbench': {useResearchTools:() => ({library:{documents:[]}, importing:false, title:'Analysis'}), ResearchLibrary:() => null, ResearchEditor:() => null, ResearchDashboard:() => null, ResearchPanel:({result,embedded,actions,trailing,editAction,sources}) => React.createElement('div', {'data-embedded':embedded}, actions, editAction, trailing, React.createElement('table', {'data-record':'research'}, React.createElement('caption', null, result.label)), sources), ResearchData:record('research')},
-    '@/lib/ask/research-job-contract': {}, '@/lib/ask/research-client': {}, '@/lib/ask/research-contract': {},
+    '@/lib/ask/research-job-contract': {}, '@/lib/ask/research-client': {}, '@/lib/ask/research-display': require('../../lib/ask/research-display'), '@/lib/ask/research-contract': {},
     '@/components/ask/AskChallenge': {AskChallenge:() => null},
     '@/components/ask/AskTransactions': {AskTransactions:record('transactions')}, '@/components/ask/AskBlocks': {AskBlocks:record('blocks')}, '@/components/ask/AskTransfers': {AskTransfers:record('transfers')}, '@/components/ask/AskAnalytics': {AskAnalytics:record('analytics')}, '@/components/ask/AskSources': {AskSources:({sources}) => React.createElement('aside', {'aria-label':'Sources'}, sources.map(source => source.label).join(' '))},
     '@/lib/ask/client': {peekAskHandoff:() => handoff}, '@/lib/ask/composer': {sqlDraft:() => null},
@@ -88,7 +88,7 @@ function panelFixture(overrides = {}, embedded = true) {
     'react/jsx-runtime': {...runtime, jsx:capture(runtime.jsx), jsxs:capture(runtime.jsxs)},
     'next/dynamic': {default:() => () => null}, 'next/link': {default:({children,...props}) => React.createElement('a',props,children)},
     '@/lib/ask/research-display': require('../../lib/ask/research-display'),
-    '@/lib/ask/research-contract': require('../../lib/ask/research-contract'),
+    '@/lib/ask/research-display': require('../../lib/ask/research-display'), '@/lib/ask/research-contract': require('../../lib/ask/research-contract'),
     '@/lib/ask/research-library': require('../../lib/ask/research-library'),
     '@/lib/ask/research-share': require('../../lib/ask/research-share'),
   };

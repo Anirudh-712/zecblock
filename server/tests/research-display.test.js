@@ -30,3 +30,33 @@ test('result cells retain exact decimals and complete safe identifiers; numeric 
  assert.match(html,/<th scope="col" data-numeric="true">public deshield zec/);assert.match(html,/<td data-numeric="true"><span title="279.99975">279.99975/);
  assert.match(html,new RegExp('href="/tx/'+'a'.repeat(64)+'"'));assert.match(html,/Unavailable/);assert.doesNotMatch(html,/<script/i);assert.match(html,/&lt;script&gt;/);
 });
+test('Ask answers open as charts: an ordered series as an area on its latest value, a short ranking as bars on its peak',()=>{
+ const {suggestResearchChart,chartHighlight}=require('../../lib/ask/research-display');
+ const daily={columns:[{key:'c0',label:'date',type:'text'},{key:'c1',label:'orchard_zec',type:'number'}],rows:[['2026-10-03','9.5'],['2026-10-02','12'],['2026-10-01','10']]};
+ assert.deepEqual(suggestResearchChart(daily),{view:'area',x:0,y:1,highlight:'latest'});
+ // Descending dates: "latest" is the newest date, not the last row.
+ assert.deepEqual(chartHighlight(daily,suggestResearchChart(daily)),{kind:'latest',row:0,value:'9.5',label:'2026-10-03'});
+ const change=chartHighlight(daily,{view:'area',x:0,y:1,highlight:'change'});
+ assert.equal(change.from.value,'10');assert.equal(change.value,'9.5');assert.equal(change.delta,-0.5);assert.equal(change.pct,-5);
+ assert.deepEqual(suggestResearchChart(result),{view:'bar',x:0,y:3,highlight:'peak'});
+ assert.deepEqual(chartHighlight(result,suggestResearchChart(result)),{kind:'peak',row:0,value:'279.99975',label:'a'.repeat(64)});
+ // SQL results keep the table; a single row or no numeric column stays a table.
+ assert.equal(defaultResearchChart(daily).view,'table');
+ assert.equal(suggestResearchChart({...daily,rows:[daily.rows[0]]}).view,'table');
+ assert.equal(suggestResearchChart({columns:[{key:'c0',label:'miner',type:'text'}],rows:[['a'],['b']]}).view,'table');
+});
+test('proposed charts are refitted to the rows: ordered axes for lines, same-axis same-unit stacks, highlights that exist',()=>{
+ const {fitResearchChart}=require('../../lib/ask/research-display');
+ const months={columns:[{key:'c0',label:'month',type:'text'},{key:'c1',label:'shielded',type:'number'},{key:'c2',label:'transparent',type:'number'},{key:'c3',label:'fees_zec',type:'number'}],rows:[['2026-08-01','100','80','0.5'],['2026-09-01','120','90','0.7'],['2026-10-01','130','70','0.6']]};
+ assert.deepEqual(fitResearchChart(months,{view:'area',x:0,y:1,series:[2],stacked:true,highlight:'change'}),{view:'area',x:0,y:1,series:[2],stacked:true,highlight:'change'});
+ // Values on different axes, or with different units, are never stacked.
+ assert.equal(fitResearchChart(months,{view:'bar',x:0,y:1,series:[3],stacked:true}).stacked,undefined);
+ assert.equal(fitResearchChart(months,{view:'bar',x:0,y:1,series:[2],stacked:true},['','records','ZEC']).stacked,undefined);
+ assert.equal(fitResearchChart(months,{view:'line',x:0,y:1,series:[2],stacked:true}).stacked,undefined);
+ // Unordered labels: lines become bars and time highlights are dropped.
+ assert.deepEqual(fitResearchChart(result,{view:'line',x:0,y:3,highlight:'latest'}),{view:'bar',x:0,y:3});
+ // Non-numeric, duplicate and label columns are removed; nothing drawable is null.
+ assert.deepEqual(fitResearchChart(months,{view:'line',x:0,y:1,series:[1,0,2,2]}),{view:'line',x:0,y:1,series:[2]});
+ assert.equal(fitResearchChart(months,{view:'bar',x:0,y:0}),null);
+ assert.equal(fitResearchChart(months,{view:'pie',x:0,y:1}),null);
+});
