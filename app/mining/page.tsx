@@ -27,6 +27,7 @@ import { zatToZec } from '@/lib/format-numbers';
 import { useUrlState } from '@/lib/use-url-state';
 import { ExportButton } from '@/components/ExportButton';
 import { zatToZecString } from '@/lib/csv';
+import { objectRowsCsv } from '@/components/charts/PanelShareControl';
 
 const SECTIONS = [
   { id: 'metrics', label: 'Network' },
@@ -394,6 +395,7 @@ function HashrateShareSection() {
     <section id="hashrate" className="scroll-mt-36 mb-12 animate-fade-in-up stagger-4">
       <ChartCard
         title="POOL_NETWORK_BLOCK_SHARE"
+        share={{ title: `Zcash mining pool block share (${period})`, fileName: `zecblock-pool-block-share-${period}`, csv: () => objectRowsCsv(chartData) }}
         height={380}
         controls={chartControls}
       >
@@ -640,6 +642,7 @@ function MinerBehaviorSection() {
 
       <ChartCard
         title="MINER_EARNED_VS_MOVED"
+        share={{ title: `Zcash miner rewards earned vs moved (${period})`, fileName: `zecblock-miner-earned-vs-moved-${period}`, csv: () => objectRowsCsv(chartData) }}
         height={320}
         controls={<PeriodSelector value={period} onChange={setPeriod} />}
       >

@@ -12,6 +12,7 @@ import { useApiQuery } from '@/hooks/useApiQuery';
 import { hashrateChartPoints, type HashrateEstimate, type HashrateStats, type HashrateWindow } from '@/lib/hashrate';
 import { ChartCard } from './ChartCard';
 import { useUrlState } from '@/lib/use-url-state';
+import { objectRowsCsv } from '@/components/charts/PanelShareControl';
 
 const PERIODS = ['30d', '90d', '1y', 'all'] as const;
 type Period = typeof PERIODS[number];
@@ -67,6 +68,7 @@ export function NetworkHashrateChart() {
   return (
     <ChartCard
       title="NETWORK_HASHRATE_TREND"
+      share={{ title: `Zcash network hashrate (${window} estimate, ${period})`, fileName: `zecblock-hashrate-${period}-${window}`, csv: () => objectRowsCsv(points) }}
       height={280}
       watermarkSize="lg"
       controls={<div className="flex flex-wrap items-center gap-2">

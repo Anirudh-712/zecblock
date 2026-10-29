@@ -11,6 +11,7 @@ import { getChartColors } from '@/lib/chart-theme';
 import { useApiQuery } from '@/hooks/useApiQuery';
 import { ChartCard } from './ChartCard';
 import { useUrlState } from '@/lib/use-url-state';
+import { objectRowsCsv } from '@/components/charts/PanelShareControl';
 
 export interface RawPoint {
   month: string;
@@ -135,7 +136,7 @@ export function ProtocolStatsChart({ initialData, initialFetchedAt }: { initialF
   }
 
   return (
-    <ChartCard title="PROTOCOL_GROWTH" height={280} watermarkSize="sm" controls={controls}>
+    <ChartCard title="PROTOCOL_GROWTH" height={280} watermarkSize="sm" controls={controls} share={{ title: `Zcash protocol growth (${period})`, fileName: `zecblock-protocol-growth-${period}`, csv: () => objectRowsCsv(data) }}>
       {current && (
         <div className="mb-3">
           <div className="flex gap-4 flex-wrap">
