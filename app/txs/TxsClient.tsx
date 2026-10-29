@@ -443,16 +443,19 @@ function TrendsChart() {
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Ignore a slower response for a period that is no longer selected.
+    let cancelled = false;
     setLoading(true);
     const base = getApiUrl();
     const days = period === 'all' ? 'all' : Number(period);
     fetch(`${base}/v1/privacy/stats?days=${days}`)
       .then(res => res.ok ? readApiData(res) : null)
       .then(json => {
-        if (json?.trends?.daily) setData(json.trends.daily);
+        if (!cancelled && json?.trends?.daily) setData(json.trends.daily);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [period]);
 
   const chartData = useMemo(

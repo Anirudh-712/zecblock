@@ -130,17 +130,21 @@ function DistributionSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Ignore a slower response for a period that is no longer selected.
+    let cancelled = false;
     setLoading(true);
     fetch(`${getApiUrl()}/v1/mining/pool-distribution?period=${period}`)
       .then(r => r.ok ? readApiData(r) : null)
       .then(res => {
+        if (cancelled) return;
         if (res?.pools) {
           setData(res.pools);
           setTotal(res.totalBlocks);
         }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [period]);
 
   // Group small shares into Other; the full ranking remains available below.
@@ -180,17 +184,20 @@ function RankingSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     fetch(`${getApiUrl()}/v1/mining/pool-ranking?period=${period}`)
       .then(r => r.ok ? readApiData(r) : null)
       .then(res => {
+        if (cancelled) return;
         if (res?.ranking) {
           setRanking(res.ranking);
           setTotal(res.totalBlocks);
         }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [period]);
 
   return (
@@ -352,17 +359,20 @@ function HashrateShareSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     fetch(`${getApiUrl()}/v1/mining/hashrate-share?period=${period}`)
       .then(r => r.ok ? readApiData(r) : null)
       .then(res => {
+        if (cancelled) return;
         if (res?.series) {
           setSeries(res.series);
           setAllPools(res.allPools || []);
         }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [period]);
 
   const poolOrder = [...allPools].sort((a, b) => {
