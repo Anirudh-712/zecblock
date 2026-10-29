@@ -12,6 +12,13 @@ function eventCounters(raw){
  for(const key of ['high','max','oom','oom_kill'])if(!Object.hasOwn(result,key))throw Error('Missing event');
  return result;
 }
+// The working set excludes inactive file cache, which the kernel reclaims on
+// demand. Counting it would hold admission closed once table scans warm the
+// cache, because reclaim keeps memory.current just under memory.high.
+function inactiveFile(raw){
+ const match=/^inactive_file (\d+)$/m.exec(raw);
+ if(!match)throw Error('Missing inactive_file');return integer(match[1]);
+}
 function psi(raw){
  const values=[];
  for(const line of raw.trim().split('\n')){
@@ -30,8 +37,8 @@ function createMemoryPressure(env,{read=readFile,now=()=>performance.now()}={}){
  async function sample(){
   if(!valid)return false;
   try{
-   const [current,high,max,events,pressure]=await Promise.all(['memory.current','memory.high','memory.max','memory.events','memory.pressure'].map(name=>read(path+'/'+name,'utf8')));
-   const used=integer(current.trim()),soft=integer(high.trim()),hard=integer(max.trim()),counters=eventCounters(events);
+   const [current,high,max,events,pressure,stat]=await Promise.all(['memory.current','memory.high','memory.max','memory.events','memory.pressure','memory.stat'].map(name=>read(path+'/'+name,'utf8')));
+   const used=Math.max(0,integer(current.trim())-inactiveFile(stat)),soft=integer(high.trim()),hard=integer(max.trim()),counters=eventCounters(events);
    if(soft<=0||hard<=soft)return false;
    if(previous&&['high','max','oom','oom_kill'].some(key=>counters[key]>previous[key]||counters[key]<previous[key]))holdUntil=now()+EVENT_HOLD_MS;
    previous=counters;

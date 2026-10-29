@@ -4,7 +4,7 @@ const {once}=require('node:events');
 const {createMemoryPressure,CGROUP,TTL_MS,EVENT_HOLD_MS}=require('../../v1/lib/ask-memory-pressure');
 const {askError}=require('../../v1/lib/ask-errors');
 function fixture(overrides={}){
- const values={'memory.current':'100','memory.high':'1000','memory.max':'2000','memory.events':'low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n','memory.pressure':'some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n',...overrides};
+ const values={'memory.current':'100','memory.high':'1000','memory.max':'2000','memory.events':'low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n','memory.pressure':'some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n','memory.stat':'anon 50\nfile 50\ninactive_file 0\nactive_file 50\n',...overrides};
  let time=0,reads=0;
  const guard=createMemoryPressure({ASK_POSTGRES_CGROUP_PATH:CGROUP},{read:async path=>{reads++;assert.ok(path.startsWith(CGROUP+'/'));return values[path.slice(CGROUP.length+1)];},now:()=>time});
  return {guard,values,advance:ms=>{time+=ms;},reads:()=>reads};
@@ -15,13 +15,20 @@ test('unset legacy guard performs no filesystem work; configured invalid paths/t
  await assert.rejects(createMemoryPressure({ASK_POSTGRES_CGROUP_PATH:CGROUP},{read:async()=>{throw Error('unreadable');}}).assertAvailable(),e=>e.askKind==='resource');
 });
 test('cgroup reads are shared, cached briefly and deny pressure before high/max; no reset or kill operations',async()=>{
- const f=fixture();await Promise.all(Array.from({length:20},()=>f.guard.assertAvailable()));assert.equal(f.reads(),5);
- f.values['memory.current']='850';await f.guard.assertAvailable();assert.equal(f.reads(),5);f.advance(TTL_MS);
+ const f=fixture();await Promise.all(Array.from({length:20},()=>f.guard.assertAvailable()));assert.equal(f.reads(),6);
+ f.values['memory.current']='850';await f.guard.assertAvailable();assert.equal(f.reads(),6);f.advance(TTL_MS);
  await assert.rejects(f.guard.assertAvailable(),e=>e.askKind==='resource');
  f.values['memory.current']='100';f.values['memory.pressure']=f.values['memory.pressure'].replace('some avg10=0.00','some avg10=5.00');f.advance(TTL_MS);await assert.rejects(f.guard.assertAvailable(),e=>e.askKind==='resource');
- for(const [file,value] of [['memory.high','max'],['memory.max','1000'],['memory.current','-1'],['memory.events','high 0'],['memory.pressure','some avg10=NaN']]){
+ for(const [file,value] of [['memory.stat','anon 1'],['memory.high','max'],['memory.max','1000'],['memory.current','-1'],['memory.events','high 0'],['memory.pressure','some avg10=NaN']]){
   const bad=fixture({[file]:value});await assert.rejects(bad.guard.assertAvailable(),e=>e.askKind==='resource');
  }
+});
+test('reclaimable inactive file cache does not count toward the admission threshold',async()=>{
+ // Warm table cache keeps memory.current near memory.high; only the working set counts.
+ const f=fixture({'memory.current':'990','memory.stat':'anon 40\nfile 950\ninactive_file 700\nactive_file 250\n'});
+ await f.guard.assertAvailable();
+ f.values['memory.stat']='anon 40\nfile 950\ninactive_file 100\nactive_file 850\n';f.advance(TTL_MS);
+ await assert.rejects(f.guard.assertAvailable(),e=>e.askKind==='resource','active memory near memory.high still refuses');
 });
 test('new pressure events and counter rewind hold admission closed before later healthy sampling',async()=>{
  for(const counter of ['high','max','oom','oom_kill']){
