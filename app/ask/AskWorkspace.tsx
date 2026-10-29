@@ -310,7 +310,7 @@ export function AskWorkspace() {
   }
   function renderRecords(message: Message, expandedView = false) {
     const sources = <AskSources inline sources={message.sources || []} dataContext={message.dataContext} />;
-    if (message.research) return message.id === latestRecords?.id ? <ResearchPanel embedded={!expandedView} actions={expandedView ? undefined : resultActions(message, false)} editAction={editAction(message)} sources={sources} saved={message.savedSnapshot} tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} sources={sources} chart={{view:'table',x:0,y:0}}/></div>;
+    if (message.research) return message.id === latestRecords?.id ? <ResearchPanel embedded={!expandedView} actions={expandedView ? undefined : resultActions(message, false)} editAction={editAction(message)} sources={sources} saved={message.savedSnapshot} tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} sources={sources} savedSnapshot={message.savedSnapshot} chart={{view:'table',x:0,y:0}}/></div>;
     return <div className="p-4 sm:p-5"><AskAnalytics result={message.analytics}/><AskBlocks result={message.blocks} expanded/><AskTransactions result={message.transactions} expanded/>{message.transfers ? <AskTransfers result={message.transfers}/> : null}</div>;
   }
   const researchEditor=capability.researchEnabled?<ResearchEditor extended={capability.researchExtended===true} tools={tools} busy={busy} onOpen={openSaved}/>:null;

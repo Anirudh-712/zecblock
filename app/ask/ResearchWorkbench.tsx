@@ -76,7 +76,7 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
     const nextNarrative = matchingNarrative(doc.narrative, doc.result);
     narrativeRef.current = nextNarrative; setNarrative(nextNarrative);
     setId(doc.id); setTitle(doc.title); setNotes(doc.notes); setSQL(doc.query.sql); setLimit(doc.query.limit); setChart(doc.chart); setResult(doc.result); setBoardId(null); setError('');
-    setShareURL(''); setNotice(shared ? 'Shared SQL is an unverified draft. Review it before running.' : 'Saved snapshot. Run the query to refresh its data.');
+    setShareURL(''); setNotice(shared ? 'Shared SQL is an unverified draft. Review it before running.' : '');
   }
   function reset() { resultRef.current = null; narrativeRef.current = null; setNarrative(null); setId(null); setResult(null); setNotes(''); setTitle('My Zcash analysis'); setSQL(initialSQL); setLimit(100); setBoardId(null); setError(''); setNotice(''); setShareURL(''); }
   function document(): ResearchDocument {
@@ -168,12 +168,14 @@ export function ResearchEditor({ tools, extended=false }: { extended?:boolean; t
 }
 export function ResearchStatus({ tools }: { tools: Tools }) { return <>{tools.error ? <p className={styles.error} role="alert">{tools.error}</p> : null}{tools.notice ? <p className={styles.caption} role="status">{tools.notice}</p> : null}</>; }
 
-export function ResearchData({ result, chart, sources, showDetails = true }: { result: ResearchResult; chart: ResearchChart; sources?: ReactNode; showDetails?: boolean }) {
+export function ResearchData({ result, chart, sources, showDetails = true, savedSnapshot = false }: { result: ResearchResult; chart: ResearchChart; sources?: ReactNode; showDetails?: boolean; savedSnapshot?: boolean }) {
   const table = <div className={styles.scroll} tabIndex={0} role="region" aria-label="Scrollable query results"><table className={styles.table}><caption className="sr-only">Query results, preserving exact decimals</caption><thead><tr>{result.columns.map(column => <th key={column.key} scope="col" data-numeric={column.type === 'number'}>{column.label.replaceAll('_', ' ')}</th>)}</tr></thead><tbody>{result.rows.map((row, index) => <tr key={index}>{row.map((cell, i) => <td key={i} data-numeric={result.columns[i].type === 'number'}>{cellLink(result.columns[i].label.toLowerCase(),cell) ? <Link href={cellLink(result.columns[i].label.toLowerCase(),cell)!} title={cell || undefined} aria-label={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : shortLabel(cell)}</Link> : <span title={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : cell && /^(?:txid|hash|miner|address)$/.test(result.columns[i].label.toLowerCase()) ? shortLabel(cell) : exactDisplay(cell,result.columns[i].type)}</span>}</td>)}</tr>)}</tbody></table>{!result.rows.length ? <p className={styles.caption}>No matching records were returned.</p> : null}</div>;
   return <>
-    <p className={styles.caption}>Indexed through {utcDate(result.indexedThrough)} · {result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}{result.truncated ? ' (limited)' : ''}</p>
+    <p className={styles.caption}>{result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}{result.truncated ? ' (limited)' : ''}</p>
     {chart.view === 'table' ? table : <><Plot result={result} chart={chart} /><details className={styles.exactTable}><summary>View data</summary>{table}</details></>}
     {showDetails ? <details className={styles.disclosure}><summary>Sources &amp; details</summary><div className={styles.provenance}>
+      {savedSnapshot ? <p>Saved snapshot. Run the query to refresh its data.</p> : null}
+      <p>Indexed through {utcDate(result.indexedThrough)}.</p>
       {sources}
       <p>{result.coverage}. This describes source admission, not a certification of your SQL calculations.</p><p>{result.units}</p>
       <p>Charts use approximate plotting numbers; the table preserves exact decimals. Rows follow query order; repeated labels are separate records. Full identifiers remain in the results and downloads.</p>
@@ -226,13 +228,13 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
     <ShareLinkField tools={tools} />
     {tools.shareURL ? <p className={styles.caption}>This link shares the SQL draft, title and chart settings. Answers, notes and result snapshots are excluded. It never runs automatically.</p> : null}
     <ResearchStatus tools={tools} />
-    <ResearchData result={result} chart={tools.chart} sources={sources} />
+    <ResearchData result={result} chart={tools.chart} sources={sources} savedSnapshot={saved === true} />
   </div>;
 }
 export function ResearchDashboard({ tools, busy, onOpen }: { tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void }) {
   const board = tools.library.dashboards.find(d => d.id === tools.boardId);
   if (!board) return null;
-  return <section aria-label="Saved dashboard"><div className={styles.toolbar}><h2 className={styles.resultTitle}>{board.title}</h2><button className={styles.button} onClick={() => tools.setBoardId(null)}>Back to analysis</button></div><p className={styles.caption}>Saved snapshots · open an analysis to refresh it</p><div className={styles.dashboard}>{board.items.map(id => { const doc = tools.library.documents.find(d => d.id === id)!; return <article key={id} className={askStyles.analysis}><div className={styles.panelBody}><button className={styles.textButton} disabled={busy} onClick={() => onOpen(doc)}>{doc.title} →</button>{doc.result ? <ResearchData result={doc.result} chart={doc.chart} /> : <p className={styles.caption}>Run this query to add its results.</p>}</div></article>; })}</div><div className={styles.actions}><button className={styles.button} onClick={() => void tools.copyLink(true)}>Copy dashboard link</button><button className={styles.button} onClick={tools.downloadLibrary}>Download all saved research</button><button className={styles.button} onClick={tools.removeDashboard}>Remove dashboard</button></div><ShareLinkField tools={tools} /><p className={styles.caption}>Dashboard links contain query drafts, titles and chart settings. Results and notes are excluded; queries never run automatically.</p><ResearchStatus tools={tools} /></section>;
+  return <section aria-label="Saved dashboard"><div className={styles.toolbar}><h2 className={styles.resultTitle}>{board.title}</h2><button className={styles.button} onClick={() => tools.setBoardId(null)}>Back to analysis</button></div><p className={styles.caption}>Saved snapshots · open an analysis to refresh it</p><div className={styles.dashboard}>{board.items.map(id => { const doc = tools.library.documents.find(d => d.id === id)!; return <article key={id} className={askStyles.analysis}><div className={styles.panelBody}><button className={styles.textButton} disabled={busy} onClick={() => onOpen(doc)}>{doc.title} →</button>{doc.result ? <ResearchData result={doc.result} chart={doc.chart} savedSnapshot /> : <p className={styles.caption}>Run this query to add its results.</p>}</div></article>; })}</div><div className={styles.actions}><button className={styles.button} onClick={() => void tools.copyLink(true)}>Copy dashboard link</button><button className={styles.button} onClick={tools.downloadLibrary}>Download all saved research</button><button className={styles.button} onClick={tools.removeDashboard}>Remove dashboard</button></div><ShareLinkField tools={tools} /><p className={styles.caption}>Dashboard links contain query drafts, titles and chart settings. Results and notes are excluded; queries never run automatically.</p><ResearchStatus tools={tools} /></section>;
 }
 
 function ShareLinkField({ tools }: { tools: Tools }) {
