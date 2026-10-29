@@ -68,9 +68,10 @@ WITH window_heights AS MATERIALIZED (
     CASE WHEN COUNT(total_fees)=COUNT(*) AND MIN(total_fees)>=0 THEN SUM(total_fees)::text END AS fees_zat,
     BOOL_AND(unknown_flow_transactions=0) AS public_flow_complete,
     SUM(shield_zat)::text AS shield_zat,SUM(deshield_zat)::text AS deshield_zat,
-    BOOL_AND(transaction_count>=1 AND indexed_transactions=transaction_count
+    -- BOOL_AND ignores NULL inputs; unknown block counts must fail the day.
+    BOOL_AND(COALESCE(transaction_count>=1 AND indexed_transactions=transaction_count
       AND coinbase_transactions=1 AND total_transactions+coinbase_transactions=indexed_transactions
-      AND unknown_pool_transactions=0) AS complete
+      AND unknown_pool_transactions=0,false)) AS complete
   FROM per_block GROUP BY 1
 )
 SELECT day::date::text AS date,d.total_transactions,d.shielded_transactions,d.fees_zat,

@@ -235,6 +235,16 @@ test('insight SQL verifies canonical coverage, exact balances, UTC windows and i
       () => assert.rejects(readInsightSource(reader,now),/Incomplete canonical insight/));
     await mutate('missing canonical transaction is not replaced by orphan','DELETE FROM transactions WHERE txid=\'shield\'',
       () => assert.rejects(readInsightSource(reader,now),/Incomplete canonical insight/));
+    await mutate('an unknown expected count cannot hide missing transactions beside a valid same-day block', `
+      UPDATE blocks SET height=1039 WHERE height=1038;
+      UPDATE transactions SET block_height=1039 WHERE block_height=1038;
+      INSERT INTO blocks(height,hash,timestamp,transaction_count,total_fees)
+        VALUES(1038,repeat('b',64),extract(epoch FROM timestamptz '2026-10-25T00:02:00Z'),1,0);
+      INSERT INTO transactions(txid,block_height,block_hash,block_time,is_coinbase)
+        SELECT 'known-count-coinbase',height,hash,timestamp,true FROM blocks WHERE height=1038;
+      UPDATE blocks SET transaction_count=NULL WHERE height=1037;
+      DELETE FROM transactions WHERE txid='shield';`,
+    () => assert.rejects(readInsightSource(reader,now),/Incomplete canonical insight/));
     await mutate('wrong block hash is rejected',"UPDATE transactions SET block_hash=repeat('e',64) WHERE txid='shield'",
       () => assert.rejects(readInsightSource(reader,now),/Incomplete canonical insight/));
     await mutate('unknown classification is unavailable',"UPDATE transactions SET has_orchard=NULL,orchard_actions=NULL WHERE txid='transparent'",

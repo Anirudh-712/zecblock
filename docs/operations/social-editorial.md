@@ -1,9 +1,9 @@
 # Automatic factual social analysis
 
-Updated 2026-10-28. This document describes the local editorial-variety follow-up
-on `new/bot-editorial-variety`, based on main `b55aa98f`. The follow-up has not
-been deployed. Earlier production releases have separate acceptance records in
-the private operations wiki. `server/bot/index.js` invokes `jobs/editorial.js`;
+Updated 2026-10-28. This document specifies the editorial selection, cards and
+source-reply delivery contract. Exact deployed revisions and acceptance records
+are maintained separately in the private operations wiki.
+`server/bot/index.js` invokes `jobs/editorial.js`;
 the old realtime and digest modules remain available as source history but are
 not scheduled. No schema migration, public route, indexation or API change.
 
@@ -340,7 +340,9 @@ inspected visually.
 
 ## Ironwood transaction milestone alerts — 2026-10-27
 
-Implemented locally; production has not been deployed or enabled by this change.
+First released on 2026-10-27; exact revision and acceptance evidence are recorded
+in the private operations wiki. Subsequent presentation refinements retain the
+events, activation and data contract below.
 
 ### Events
 
@@ -429,4 +431,5 @@ existing read-only preview. It does not initialize the feature marker or publish
 posts, and therefore intentionally previews no pool backlog before activation.
 Release through the normal source review/deployment process, then verify the
 feature activation marker and daily collector logs. Local fixtures do not prove
-production completeness or query latency. No production rollout is claimed.
+production completeness or query latency. Record deployed-source, activation
+and service acceptance separately in the private operations wiki.
