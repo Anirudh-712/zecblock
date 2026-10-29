@@ -177,7 +177,9 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
       return true;
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not save this shared research.'); return false; }
   }
-  return { library, ready, id, title, setTitle, notes, setNotes, sql, setSQL, limit, setLimit, result, narrative, chart, setChart, boardId, setBoardId, notice, error, importing, shareURL, dirty, copyLink, saveShared, accept, annotate, open, reset, document, save, importFile, exportFile, exportCSV, renameDocument, updateNotes, removeDocument, toggleDashboard, createDashboard, renameDashboard, removeFromDashboard, deleteDashboard, downloadLibrary: () => download('zecblock-library.json', JSON.stringify(libraryRef.current, null, 2), 'application/json') };
+  // Opening or closing a dashboard starts with no leftover action message.
+  function showDashboard(board: string | null) { setBoardId(board); setNotice(''); setError(''); setShareURL(''); }
+  return { library, ready, id, title, setTitle, notes, setNotes, sql, setSQL, limit, setLimit, result, narrative, chart, setChart, boardId, setBoardId: showDashboard, notice, error, importing, shareURL, dirty, copyLink, saveShared, accept, annotate, open, reset, document, save, importFile, exportFile, exportCSV, renameDocument, updateNotes, removeDocument, toggleDashboard, createDashboard, renameDashboard, removeFromDashboard, deleteDashboard, downloadLibrary: () => download('zecblock-library.json', JSON.stringify(libraryRef.current, null, 2), 'application/json') };
 }
 type Tools = ReturnType<typeof useResearchTools>;
 
@@ -252,7 +254,8 @@ export function ResearchEditor({ tools, extended=false }: { extended?:boolean; t
     </div>
   </details>;
 }
-export function ResearchStatus({ tools }: { tools: Tools }) { return <>{tools.error ? <p className={styles.error} role="alert">{tools.error}</p> : null}{tools.notice ? <p className={styles.caption} role="status">{tools.notice}</p> : null}</>; }
+// except: notices already shown where the action happened (the dashboard menu).
+export function ResearchStatus({ tools, except }: { tools: Tools; except?: RegExp }) { return <>{tools.error ? <p className={styles.error} role="alert">{tools.error}</p> : null}{tools.notice && !except?.test(tools.notice) ? <p className={styles.caption} role="status">{tools.notice}</p> : null}</>; }
 
 export function ResearchData({ result, chart, sources, showDetails = true, savedSnapshot = false }: { result: ResearchResult; chart: ResearchChart; sources?: ReactNode; showDetails?: boolean; savedSnapshot?: boolean }) {
   const dates = result.columns.map((_, i) => dateFormatter(result, i));
@@ -325,7 +328,7 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
     </div>
     {tools.chart.view !== 'table' ? <div className={styles.chartColumns}>{columnSelect('x')}{columnSelect('y')}</div> : null}
     <ShareLinkField tools={tools} />
-    <ResearchStatus tools={tools} />
+    <ResearchStatus tools={tools} except={/^(?:Added to|Removed from “|Created)/} />
     <ResearchData result={result} chart={tools.chart} sources={sources} savedSnapshot={saved === true} />
   </div>;
 }
