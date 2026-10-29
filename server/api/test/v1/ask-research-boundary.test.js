@@ -125,7 +125,7 @@ test('row counts and figures without placeholders cannot surface as misleading n
   return {finding:'There were  {{row_a_a}}  blocks with fees above the threshold you specified.'};
  },'en');
  assert.equal(reply.answer,'There were 59 blocks with fees above the threshold you specified.');
- const template='The single returned row has block_count 59.';
+ const template='The result has block count 59.';
  // Observed live: the count was reused as the threshold, and strict decoding
  // replaced unavailable figures with a stray letter or punctuation glyph.
  for(const summary of ['Among recent blocks, {{row_a_a}} had fees above {{row_a_a}} zatoshis.','There were {{row_a_a}} blocks with fees greater than ɯ.','Among the last \u{1104D} blocks, {{row_a_a}} had high fees.']){
@@ -143,7 +143,7 @@ test('prose artifacts reject period runs and unattached marks while retaining no
   const reply=await researchReply(evidence,{question:'Explain the count',history:[]},async(_,task)=>task.validator.parse({finding:summary}),'en');
   assert.deepEqual(reply.research,evidence);assert.equal(reply.evidenceKey,evidence.fingerprint);return reply.answer;
  };
- const fallback='The single returned row has total 542,746.';
+ const fallback='The result has total 542,746.';
  for(const summary of ['In ťhis analysis the count was {{row_a_a}} in \u0305 ǣ ........','The count is {{row_a_a}}....','\u0305The count is {{row_a_a}}.','The count is {{row_a_a}} in \u0305 currency.','The count is {{row_a_a}}.\n\u0305A fragment.']){
   const text=await answer(summary);assert.equal(text,fallback,summary);assert.doesNotMatch(text,/\p{M}|\.{4,}|ťhis|fragment/iu);
  }
@@ -164,8 +164,8 @@ test('a unit attached to a research value must match its column conversion',asyn
   const reply=await researchReply(result,{question:'Average fee?',history:[]},async()=>({finding:summary}),'en');
   assert.deepEqual(reply.research,result);assert.equal(reply.evidenceKey,result.fingerprint);return reply.answer;
  };
- const zatoshiFallback='The single returned row has average_fee_per_block 225,510.4 zatoshis.';
- const zecFallback='The single returned row has average_fee_zec 0.002255104 ZEC.';
+ const zatoshiFallback='The result has average fee per block 225,510.4 zatoshis.';
+ const zecFallback='The result has average fee zec 0.002255104 ZEC.';
  // Observed live: a zatoshi average was published as 225,510.4 ZEC.
  const wrongZEC=await answer(zatoshis,'The average fee per block is {{row_a_a}} ZEC.');
  assert.equal(wrongZEC,zatoshiFallback);assert.doesNotMatch(wrongZEC,/225,510\.4 ZEC|average fee per block is/i);
@@ -177,19 +177,19 @@ test('a unit attached to a research value must match its column conversion',asyn
  // Observed live: "in ZEC" echoed from the question over an unconverted
  // max(fees), and masked figures standing in for unavailable numbers.
  const largest={...base,columns:[{key:'c0',label:'largest_block_fee',type:'number'}],rows:[['1174068']]};
- assert.equal(await answer(largest,'The largest single block fee in ZEC is {{row_a_a}}.'),'The single returned row has largest_block_fee 1,174,068 zatoshis.');
+ assert.equal(await answer(largest,'The largest single block fee in ZEC is {{row_a_a}}.'),'The result has largest block fee 1,174,068 zatoshis.');
  assert.equal(await answer(largest,'The largest single block fee is {{row_a_a}} zatoshis.'),'The largest single block fee is 1,174,068 zatoshis.');
  const artifact=await answer(zec,'Over the last ******* blocks the average fee is {{row_a_a}} ZEC.');
  assert.equal(artifact,zecFallback);assert.doesNotMatch(artifact,/\*|Over the last|average fee is/);
  // ZEC as an asset name stays valid for counts and USD-denominated swaps.
  const count={...base,query:{...base.query,sql:'SELECT count(fees) AS transaction_count FROM transactions'},datasets:['transactions'],columns:[{key:'c0',label:'transaction_count',type:'number'}],rows:[['42']]};
  assert.equal(await answer(count,'There were {{row_a_a}} ZEC transactions.'),'There were 42 ZEC transactions.');
- assert.equal(await answer(count,'There were {{row_a_a}} ZEC.'),'The single returned row has transaction_count 42.');
+ assert.equal(await answer(count,'There were {{row_a_a}} ZEC.'),'The result has transaction count 42.');
  const swaps={...base,query:{...base.query,sql:'SELECT chain,sum(usd) AS usd_volume FROM swaps GROUP BY chain'},datasets:['swaps'],columns:[{key:'c0',label:'chain',type:'text'},{key:'c1',label:'usd_volume',type:'number'}],rows:[['ethereum','5000']]};
  assert.equal(await answer(swaps,'{{row_a_a}} led swaps into ZEC with {{row_a_b}} USD.'),'ethereum led swaps into ZEC with 5,000 USD.');
  // Observed live: degraded decoding produced fluent text citing no value.
  const uncited=await answer(count,'In the last ized to igrate zatoshis.');
- assert.equal(uncited,'The single returned row has transaction_count 42.');assert.doesNotMatch(uncited,/ized|igrate|zatoshis/);
+ assert.equal(uncited,'The result has transaction count 42.');assert.doesNotMatch(uncited,/ized|igrate|zatoshis/);
  assert.match(await answer({...count,rows:[]},'No transactions matched the requested window.'),/returned no matching rows/);
 });
 
@@ -208,7 +208,7 @@ test('research facts preserve exact figures and legitimate ranks, dates and repe
  const rank={...base,query:{...base.query,sql:'SELECT row_number() OVER(ORDER BY height) AS rank,transactions FROM blocks'},datasets:['blocks'],columns:[{key:'c0',label:'rank',type:'number'},{key:'c1',label:'transactions',type:'number'}],rows:[['1','542746']]};
  assert.equal(await answer(rank,'Rank {{row_a_a}} has {{row_a_b}} transactions.'),'Rank 1 has 542,746 transactions.');
  const fused=await answer(rank,'Transactions amounted to {{row_a_a}} {{row_a_b}}.');
- assert.equal(fused,'The single returned row has rank 1 and transactions 542,746.');assert.doesNotMatch(fused,/Transactions amounted to|1 542,746/);
+ assert.equal(fused,'The result has rank 1 and transactions 542,746.');assert.doesNotMatch(fused,/Transactions amounted to|1 542,746/);
  const pools={...base,query:{...base.query,sql:'SELECT pool,sum(amount) AS amount FROM flows GROUP BY pool'},datasets:['flows'],columns:[{key:'c0',label:'pool',type:'text'},{key:'c1',label:'amount',type:'number'}],rows:[['Orchard','100']]};
  assert.equal(await answer(pools,'{{row_a_a}} leads with {{row_a_b}} zatoshis. {{row_a_a}} is the leading returned pool.'),'Orchard leads with 100 zatoshis. Orchard is the leading returned pool.');
  const dated={...base,query:{...base.query,sql:'SELECT date,transactions FROM activity_daily'},datasets:['activity_daily'],columns:[{key:'c0',label:'date',type:'text'},{key:'c1',label:'transactions',type:'number'}],rows:[['2026-09-03','22283']]};
@@ -226,26 +226,26 @@ test('research monetary units follow expressions through aliases and mixed datas
   const reply=await researchReply(result,{question:'Explain the result',history:[]},async()=>({finding:summary}),'en');
   assert.deepEqual(reply.research,result);assert.equal(reply.evidenceKey,result.fingerprint);return reply.answer;
  };
- const template=label=>`The single returned row has ${label} 0.002255104.`;
+ const template=label=>`The result has ${label} 0.002255104.`;
  assert.equal(await answer(base,'The fee is {{row_a_a}} ZEC.'),'The fee is 0.002255104 ZEC.');
  const wrongZatoshis=await answer(base,'The fee is {{row_a_a}} zatoshis.');
- assert.equal(wrongZatoshis,'The single returned row has fee_2026 0.002255104 ZEC.');assert.doesNotMatch(wrongZatoshis,/zatoshis|The fee is/);
+ assert.equal(wrongZatoshis,'The result has fee 2026 0.002255104 ZEC.');assert.doesNotMatch(wrongZatoshis,/zatoshis|The fee is/);
  assert.equal(await answer(base,'The fee in ZEC is {{row_a_a}}.'),'The fee in ZEC is 0.002255104 ZEC.');
  const mixed={...base,query:{...base.query,sql:'SELECT avg(b.fees) AS fee_2026,(SELECT sum(s.usd) FROM swaps s) AS usd FROM blocks b'},datasets:['blocks','swaps'],columns:[{key:'c0',label:'fee_2026',type:'number'},{key:'c1',label:'usd',type:'number'}],rows:[['225510.4','5000']]};
  const wrongZEC=await answer(mixed,'The average block fee is {{row_a_a}} ZEC.');
- assert.equal(wrongZEC,'The single returned row has fee_2026 225,510.4 zatoshis and usd 5,000 USD.');assert.doesNotMatch(wrongZEC,/225,510\.4 ZEC|average block fee is/i);
+ assert.equal(wrongZEC,'The result has fee 2026 225,510.4 zatoshis and usd 5,000 USD.');assert.doesNotMatch(wrongZEC,/225,510\.4 ZEC|average block fee is/i);
  assert.equal(await answer(mixed,'The average block fee is {{row_a_a}} zatoshis, while tracked swaps total {{row_a_b}} USD.'),'The average block fee is 225,510.4 zatoshis, while tracked swaps total 5,000 USD.');
  const share={...base,query:{...base.query,sql:"SELECT 100*sum(amount) FILTER(WHERE pool='orchard')/nullif(sum(amount),0) AS orchard_share_percent FROM flows"},datasets:['flows'],columns:[{key:'c0',label:'orchard_share_percent',type:'number'}],rows:[['42']]};
  assert.equal(await answer(share,'The Orchard share of public ZEC flow is {{row_a_a}} percent.'),'The Orchard share of public ZEC flow is 42%.');
  // Unproven or contradicted lineage leaves the value unlabelled, whatever its alias says.
  const unknown={...base,query:{...base.query,sql:'SELECT sqrt(avg(fees)) AS fee_zec FROM blocks'},columns:[{key:'c0',label:'fee_zec',type:'number'}]};
  assert.equal(await answer(unknown,'The fee is {{row_a_a}} ZEC.'),template('fee_zec'));
- assert.equal(await answer({...unknown,query:{...unknown.query,sql:'SELECT sqrt(avg(fees))::text AS fee_zec FROM blocks'},columns:[{key:'c0',label:'fee_zec',type:'text'}]},'The fee is {{row_a_a}} ZEC.'),'The single returned row is 0.002255104.');
+ assert.equal(await answer({...unknown,query:{...unknown.query,sql:'SELECT sqrt(avg(fees))::text AS fee_zec FROM blocks'},columns:[{key:'c0',label:'fee_zec',type:'text'}]},'The fee is {{row_a_a}} ZEC.'),'The result is 0.002255104.');
  assert.equal(await answer(unknown,'The expression returned {{row_a_a}}.'),'The expression returned 0.002255104.');
  const falseConversion={...unknown,query:{...base.query,sql:'SELECT sum(fees)+sum(fees)/100000000 AS fee_zec FROM blocks'}};
  assert.equal(await answer(falseConversion,'The fee is {{row_a_a}} ZEC.'),template('fee_zec'));
  const falseAlias={...unknown,query:{...base.query,sql:'SELECT avg(fees) AS fee_zec FROM blocks'},rows:[['225510.4']]};
- assert.equal(await answer(falseAlias,'The fee is {{row_a_a}} ZEC.'),'The single returned row has fee_zec 225,510.4.');
+ assert.equal(await answer(falseAlias,'The fee is {{row_a_a}} ZEC.'),'The result has fee_zec 225,510.4.');
  const cte={...base,query:{...base.query,sql:'WITH converted AS(SELECT fees::numeric/100000000 AS fee FROM blocks) SELECT avg(c.fee) AS average_fee_2026 FROM converted c'}};
  assert.equal(await answer(cte,'The average fee is {{row_a_a}} ZEC.'),'The average fee is 0.002255104 ZEC.');
 });
@@ -259,7 +259,7 @@ test('paired pool aliases cannot relabel stored zatoshis as ZEC',async()=>{
   return {finding:'Orchard holds {{row_a_b}} ZEC.'};
  },'en');
  assert.equal(calls,1);assert.doesNotMatch(reply.answer,/ZEC/);
- assert.equal(reply.answer,'The single returned row is Sep 3, 2026, with 100,000,000 orchard_zec and 200,000,000 ironwood_zec.');
+ assert.equal(reply.answer,'The result is Sep 3, 2026, with 100,000,000 orchard_zec and 200,000,000 ironwood_zec.');
 });
 
 test('ambiguous growth discovery asks for measures and a baseline without querying data',async()=>{

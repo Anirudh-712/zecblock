@@ -12,7 +12,7 @@ const caption=summary=>async()=>({finding:summary});
 const payout=research("WITH recent AS (SELECT miner FROM blocks ORDER BY height DESC LIMIT 1000) SELECT miner,count(*) AS blocks,round(100.0*count(*)/sum(count(*)) OVER(),2) AS share_pct FROM recent GROUP BY miner ORDER BY blocks DESC",
  [['miner','text'],['blocks','number'],['share_pct','number']],
  [['t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7','285','28.50'],['t1SqwRAAdSig6dE4EBPLonAait219VmkUjP','172','17.20'],['t1PEp2GJLSdhDfCKqc2J211WKDUS1NfoQNy','145','14.50'],[null,'51','5.10']]);
-const payoutTemplate='The first of 4 returned rows is t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7, with 285 blocks and share_pct 28.5%, 1.66× the next row; the top three rows account for 60.2% of the total by share_pct. Next are t1SqwRAAdSig6dE4EBPLonAait219VmkUjP (172 blocks) and t1PEp2GJLSdhDfCKqc2J211WKDUS1NfoQNy (145 blocks).';
+const payoutTemplate='The first of 4 returned rows is t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7, with 285 blocks and share 28.5%, 1.66× the next row; the top three rows account for 60.2% of the total by share. Next are t1SqwRAAdSig6dE4EBPLonAait219VmkUjP (172 blocks) and t1PEp2GJLSdhDfCKqc2J211WKDUS1NfoQNy (145 blocks).';
 
 test('payout share regression: a failed caption falls back to a readable fact template, never a bare receipt',async()=>{
  const before=structuredClone(payout);let calls=0;
@@ -181,7 +181,7 @@ test('dates: strict UTC-midnight wires become readable; a month-labelled first-d
 test('findings reject literal numbers, calendar names, tables and invented placeholders without a second call',async()=>{
  const result=research('SELECT date,shielded_transactions FROM activity_daily ORDER BY date',[['date','text'],['shielded_transactions','number']],[['2025-09-01','17451'],['2025-10-01','53175']]);
  const template=researchTemplate(result,researchFacts(result,[],'en'));
- assert.equal(template,'Across 2 returned periods from Sep 1, 2025 to Oct 1, 2025, shielded_transactions increased from 17,451 to 53,175 (+35,724, +204.7%).');
+ assert.equal(template,'Across 2 returned periods from Sep 1, 2025 to Oct 1, 2025, shielded transactions increased from 17,451 to 53,175 (+35,724, +204.7%).');
  for(const summary of ['October had the most shielded transactions at {{max_b}}.','Shielded transactions grew by 35,724.','Date | Count\n{{row_a_a}} | {{row_a_b}}','The peak was {{row_z_b}}.','The peak was {{max_b}}','No figure is cited here.']){
   let calls=0;
   const reply=await researchReply(result,{question:'Explain'},async()=>{calls++;return {finding:summary};},'en');
@@ -192,7 +192,7 @@ test('findings reject literal numbers, calendar names, tables and invented place
 
 test('template covers single rows, unlabelled numeric results and truncation',()=>{
  const single=research('SELECT count(*) AS total FROM transactions',[['total','number']],[['542746']]);
- assert.equal(researchTemplate(single,researchFacts(single,[],'en')),'The single returned row has total 542,746.');
+ assert.equal(researchTemplate(single,researchFacts(single,[],'en')),'The result has total 542,746.');
  const heights=research('SELECT height FROM blocks',[['height','number']],[['100'],['101']],{truncated:true});
  assert.equal(researchTemplate(heights,researchFacts(heights,[],'en')),'The first of 2 returned rows (truncated at the query limit) has height 100. Across all returned rows, height ranges from 100 to 101.');
  const labels=research('SELECT pool FROM flows',[['pool','text']],[['orchard'],['sapling']]);
@@ -220,4 +220,26 @@ test('prose rounds long ZEC amounts with ≈ while plain values stay exact', asy
   const result = { query: compiled.request, columns: [{ key: 'c0', label: 'week', type: 'text' }, { key: 'c1', label: 'shielded_zec', type: 'number' }, { key: 'c2', label: 'records', type: 'number' }], rows: [['2026-08-17 00:00:00+00', '397255.85355764', '4365'], ['2026-08-24 00:00:00+00', '0.61701300000000000000', '7']], truncated: false, datasets: ['flows'], fingerprint: compiled.fingerprint, retrievedAt: '2026-10-29T00:00:00Z', indexedThrough: '2026-10-29T00:00:00Z', coverage: 'source-defined coverage', units: 'zatoshis' };
   const reply = await researchReply(result, { question: 'Which week shielded the most?' }, async () => ({ finding: 'The top week shielded {{row_a_b}} across {{row_a_c}} records; the next shielded {{row_b_b}}.' }), 'en');
   assert.equal(reply.answer.split('\n')[0], 'The top week shielded ≈397,255.85 ZEC across 4,365 records; the next shielded 0.617013 ZEC.');
+});
+
+test('earlier-versus-later comparisons read as plain from-to changes over the queried windows', async () => {
+  const { parse } = require('pgsql-parser');
+  const { windowFacts, checkedCaption } = require('../../v1/lib/ask-research-reply');
+  const labels = ['previous_orchard_share_percent','previous_orchard_transactions','previous_transactions','recent_orchard_share_percent','recent_orchard_transactions','recent_transactions','share_change_percentage_points'];
+  const sql = "SELECT 1 FROM transactions WHERE timestamp >= EXTRACT(EPOCH FROM '2026-10-15'::date)::bigint AND timestamp < EXTRACT(EPOCH FROM '2026-10-22'::date)::bigint OR timestamp >= EXTRACT(EPOCH FROM '2026-10-22'::date)::bigint AND timestamp < EXTRACT(EPOCH FROM '2026-10-29'::date)::bigint";
+  const result = { query: { version: 3, sql, limit: 100 }, columns: labels.map((label, i) => ({ key: 'c' + i, label, type: 'number' })), rows: [['1.15','526','45876','0.46','343','74339','-0.69']], truncated: false, datasets: ['transactions'], fingerprint: 'a'.repeat(64), retrievedAt: '2026-10-29T13:00:00.000Z', indexedThrough: '2026-10-29T13:00:00.000Z', coverage: 'verified canonical records', units: 'x' };
+  const evidence = researchFacts(result, [], 'en', {});
+  Object.assign(evidence.facts, windowFacts(await parse(sql), 'en').facts);
+  assert.equal(evidence.facts.row_a_g, '-0.69 percentage points');
+  assert.equal(evidence.facts.shift_d, '-0.69 percentage points');
+  assert.equal(evidence.facts.size_pct_e, '34.8%');
+  assert.deepEqual([evidence.facts.earlier_window, evidence.facts.later_window, evidence.facts.window_length], ['Oct 15 – Oct 21, 2026', 'Oct 22 – Oct 28, 2026', '7 days']);
+  assert.equal(researchTemplate(result, evidence), 'Orchard share fell from 1.15% (Oct 15 – Oct 21, 2026) to 0.46% (Oct 22 – Oct 28, 2026), down 0.69 percentage points. Over the same periods, orchard transactions fell from 526 to 343, down 34.8%.');
+  const numeric = new Set(Object.keys(evidence.facts).filter(id => /\d/.test(evidence.facts[id]) && !/–/.test(evidence.facts[id])));
+  // The natural model phrasing that previously failed the unit check now passes.
+  assert.equal(checkedCaption("Orchard's share fell by {{size_d}} between {{earlier_window}} and {{later_window}}.", evidence.facts, numeric), "Orchard's share fell by 0.69 percentage points between Oct 15 – Oct 21, 2026 and Oct 22 – Oct 28, 2026.");
+  assert.equal(checkedCaption("Orchard's share moved {{row_a_g}}.", evidence.facts, numeric), "Orchard's share moved -0.69 percentage points.");
+  assert.equal(checkedCaption("Orchard's share fell {{shift_d}} percent.", evidence.facts, numeric), null);
+  // Inclusive or open-ended date filters give no window fact rather than a guess.
+  assert.deepEqual(windowFacts(await parse("SELECT 1 FROM t WHERE d <= '2026-10-29' AND d >= '2026-10-01'"), 'en').facts, {});
 });
