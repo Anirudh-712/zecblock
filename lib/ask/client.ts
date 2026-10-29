@@ -23,7 +23,7 @@ const quotaFailures: Record<string, { title: string; detail: string; maxRetrySec
   'ask-sql-busy': { title: 'SQL busy', detail: 'SQL is handling the maximum number of simultaneous queries. Try again shortly.' + keptSQL },
   'ask-sql-queue': { title: 'SQL busy', detail: 'The SQL queue is full. Try again shortly.' + keptSQL },
   'ask-sql-visitor': { title: 'Queries in progress', detail: 'You already have two queries running or waiting. Try again when one finishes.' + keptSQL },
-  'ask-sql-status-minute': { title: 'Research updates limited', detail: 'Too many research status, cancellation or explanation requests from your connection.' + keptSQL + ' Ask can still answer other direct questions, subject to its own limits.', maxRetrySeconds: 60 },
+  'ask-sql-status-minute': { title: 'Research updates limited', detail: 'Too many research status, cancellation or explanation requests from your connection.' + keptSQL + ' Zift can still answer other direct questions, subject to its own limits.', maxRetrySeconds: 60 },
 });
 function quotaFailure(error: ApiError) {
   return error.status === 429 && typeof error.code === 'string' && Object.hasOwn(quotaFailures, error.code) ? quotaFailures[error.code] : undefined;
@@ -34,7 +34,7 @@ export function askErrorMessage(error: unknown): string {
     if (quota) return quota.detail;
     if (error.status === 429 && error.code === 'ask-quota-day') return 'The previous shared daily allowance for your connection has been reached. Ask and SQL share this legacy allowance.';
     if (error.status === 429 && error.code === 'ask-quota-minute') return 'The previous shared per-minute allowance for your connection has been reached. Ask and SQL share this legacy allowance.';
-    if (error.status === 429) return 'Ask has reached an allowance. Try again later. Your draft and current results are kept.';
+    if (error.status === 429) return 'Zift has reached an allowance. Try again later. Your draft and current results are kept.';
     if (error.code === 'ask-verification') return 'Verification expired or failed. Retry verification, then send your question again.';
     if (error.code === 'ask-resource') return 'This query exceeded its disk or result-size budget. Filter every joined table to your requested period and aggregate before joining. Your period has not been changed.';
     if (error.code === 'ask-query') return 'This SQL could not run. Check the column names and supported functions in the data catalogue.';
@@ -42,13 +42,13 @@ export function askErrorMessage(error: unknown): string {
     if (error.code === 'ask-job') return 'This research job has expired or is unavailable. Run the query again.';
     if (error.code === 'ask-dataset') return 'A dataset needed by this query is still copying or refreshing. Your draft is kept; try again after it becomes available.';
     if (error.code === 'ask-source') return 'Source data is temporarily unavailable. Try again shortly; your current analysis is still available.';
-    if (error.code === 'ask-answer') return 'Ask could not validate the answer. Try a more specific question or open the source chart.';
+    if (error.code === 'ask-answer') return 'Zift could not validate the answer. Try a more specific question or open the source chart.';
     if (error.code === 'ask-provider') return 'The AI provider is temporarily unavailable. Starter charts remain available.';
     if (error.status === 400) return 'This query or question is not supported. Check the data catalogue and SQL syntax, then try again.';
     if (error.status === 504) return 'The request took too long. Review the filters on each joined table, then run it again. Your requested period has not been changed.';
   }
   if (error instanceof Error && error.name === 'TimeoutError') return 'The request took too long. Please try again.';
-  return 'Ask is temporarily unavailable. Please try again or choose a starter chart.';
+  return 'Zift is temporarily unavailable. Please try again or choose a starter chart.';
 }
 export interface AskCapability { mode: 'guided' | 'ai'; provider: string | null; siteKey?: string | null; researchEnabled?: boolean; jobsEnabled?: boolean; researchExtended?: boolean; authenticatedStaging?: boolean }
 export async function askCapability(signal: AbortSignal): Promise<AskCapability> {

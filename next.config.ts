@@ -55,6 +55,8 @@ const nextConfig: NextConfig = {
         destination: 'https://zecblock.com/:path*',
         permanent: true,
       },
+      // Ask was renamed Zift; shared #r= research links keep their fragment.
+      { source: '/ask', destination: '/zift', permanent: true },
       {
         source: '/migration',
         destination: '/ironwood',

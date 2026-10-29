@@ -114,7 +114,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
   router.use((req, res, next) => {
     res.set('Cache-Control', 'private, no-store');res.set('X-Robots-Tag','noindex, nofollow');
     if (authenticatedStaging && req.v1?.authenticatedStaging !== true) return sendProblem(res, 'access-denied', { status: 403, detail: 'Authenticated staging access is required.' });
-    if (req.v1.network !== 'mainnet') return sendProblem(res, 'not-found', { detail: 'Ask is available on mainnet only.' });
+    if (req.v1.network !== 'mainnet') return sendProblem(res, 'not-found', { detail: 'Zift is available on mainnet only.' });
     if (Object.keys(req.query).length) return sendProblem(res, 'validation-error', { detail: 'Ask does not accept query parameters. Send questions in the POST body.' });
     next();
   });

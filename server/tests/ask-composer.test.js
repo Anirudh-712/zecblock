@@ -60,7 +60,7 @@ test('precise admission, AI, SQL, capacity and global-budget failures explain th
   assert.equal(client.askFailure(new ApiError('raw',429,undefined,undefined,'61',code),now).retryAt,undefined);
   assert.equal(client.askFailure(new ApiError('raw',429,undefined,undefined,'1',code),now).retryAt,now+1000);
  }
- assert.match(client.askErrorMessage(new ApiError('raw',429,undefined,undefined,'60','ask-sql-status-minute')),/Ask can still answer other direct questions, subject to its own limits/);
+ assert.match(client.askErrorMessage(new ApiError('raw',429,undefined,undefined,'60','ask-sql-status-minute')),/Zift can still answer other direct questions, subject to its own limits/);
 });
 test('progress, inline errors, quota resets and retries have accessible, safe markup',()=>{
  const working=renderToStaticMarkup(React.createElement(AskFeedback,{title:'Running your query…',detail:'Reading public data.',working:true}));

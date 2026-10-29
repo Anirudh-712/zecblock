@@ -4,7 +4,7 @@ const {MAX_LINK_BYTES,queryShare,dashboardShare,researchLink,readResearchLink,sh
 const doc=()=>({format:'zecblock-research',version:1,id:randomUUID(),title:'Fees · 手数料',notes:'private notes are excluded',query:{version:3,sql:"SELECT '🛡️' AS label, sum(fees) FROM blocks",limit:100},chart:{view:'table',x:0,y:0},result:null,savedAt:'2026-10-16T00:00:00Z'});
 test('share query is UTF8 portable and excludes notes, results, origin identity and saved timestamps',()=>{
  const d=doc(),share=queryShare(d),url=new URL(researchLink(share,'https://zecblock.com/path?ignored=1'));
- assert.equal(url.origin,'https://zecblock.com');assert.equal(url.pathname,'/ask');assert.equal(url.search,'');assert.deepEqual(readResearchLink(url.hash),share);
+ assert.equal(url.origin,'https://zecblock.com');assert.equal(url.pathname,'/zift');assert.equal(url.search,'');assert.deepEqual(readResearchLink(url.hash),share);
  assert.equal(JSON.stringify(share).includes(d.notes),false);assert.equal(JSON.stringify(share).includes(d.id),false);assert.equal(JSON.stringify(share).includes('savedAt'),false);
  const imported=sharedLibrary(share,randomUUID,'2026-10-16T01:00:00Z');assert.equal(imported.documents[0].result,null);assert.equal(imported.documents[0].notes,'');assert.equal(imported.documents[0].query.sql,d.query.sql);assert.notEqual(imported.documents[0].id,d.id);
 });
@@ -31,7 +31,7 @@ test('compact #r= links round-trip, stay shorter, keep legacy links and cap deco
   const sql = "SELECT date_trunc('month', to_timestamp(timestamp)) AS month, count(*) FILTER (WHERE orchard) AS orchard_txs, count(*) AS all_txs FROM transactions WHERE timestamp >= EXTRACT(EPOCH FROM current_date - 180)::bigint GROUP BY 1 ORDER BY 1";
   const share = { format: 'zecblock-research-link', version: 1, kind: 'query', title: 'Orchard transactions per month', queries: [{ title: 'Orchard transactions per month', query: { version: 3, sql, limit: 100 }, chart: { view: 'line', x: 0, y: 1 } }] };
   const compact = await compactResearchLink(share, 'https://zecblock.com'), legacy = researchLink(share, 'https://zecblock.com');
-  assert.match(compact, /^https:\/\/zecblock\.com\/ask#r=[A-Za-z0-9_-]+$/);
+  assert.match(compact, /^https:\/\/zecblock\.com\/zift#r=[A-Za-z0-9_-]+$/);
   assert.ok(compact.length < legacy.length, `${compact.length} < ${legacy.length}`);
   assert.deepEqual(await readAnyResearchLink(new URL(compact).hash), share);
   assert.deepEqual(await readAnyResearchLink(new URL(legacy).hash), share);

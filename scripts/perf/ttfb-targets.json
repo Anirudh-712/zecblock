@@ -209,8 +209,8 @@
     },
     {
       "id": "ask",
-      "routeGroup": "/ask",
-      "path": "/ask",
+      "routeGroup": "/zift",
+      "path": "/zift",
       "core": true
     },
     {

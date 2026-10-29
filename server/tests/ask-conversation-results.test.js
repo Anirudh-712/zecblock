@@ -50,7 +50,7 @@ function assistantReplies(html) {
   const replies = []; let start = null, depth = 0;
   for (const token of html.matchAll(/<\/?article\b[^>]*>/g)) {
     if (start === null) {
-      if (token[0].includes('aria-label="ZecBlock response"')) { start = token.index; depth = 1; }
+      if (token[0].includes('aria-label="Zift response"')) { start = token.index; depth = 1; }
     } else {
       depth += token[0].startsWith('</') ? -1 : 1;
       if (depth === 0) { replies.push(html.slice(start, token.index + token[0].length)); start = null; }

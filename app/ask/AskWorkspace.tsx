@@ -33,6 +33,7 @@ import { displaySQL } from '@/lib/ask/sql-display';
 import type { SQLFeedback } from '@/lib/ask/sql-feedback';
 import { SQLProblem, SQLStarters, SQLTables, editorPosition, sqlFeedbackFrom } from '@/components/ask/AskSQLTools';
 import { CopyButton } from '@/lib/ask/copy-button';
+import { ZiftMark } from '@/components/ask/ZiftMark';
 
 // CodeMirror loads only in the browser, and only once SQL mode is opened.
 const SQLEditor = dynamic(() => import('@/components/ask/SQLEditor').then(module => module.SQLEditor), { ssr: false, loading: () => <div className="min-h-[140px]" /> });
@@ -65,7 +66,7 @@ function sameNarrative(a?: ResearchNarrative, b?: ResearchNarrative) {
 }
 
 function AskMark({ small = false }: { small?: boolean }) {
-  return <span className={`inline-flex shrink-0 items-center justify-center border border-cipher-border bg-cipher-surface text-cipher-gold font-mono ${small ? 'h-7 w-7 text-sm rounded' : 'h-12 w-12 text-xl rounded-lg'}`} aria-hidden="true">&gt;_</span>;
+  return <ZiftMark boxed size={small ? 16 : 26} className={small ? 'h-7 w-7 rounded' : 'h-12 w-12 rounded-lg'} />;
 }
 
 export function AskWorkspace() {
@@ -496,8 +497,8 @@ export function AskWorkspace() {
       {busy ? <button type="button" className={styles.submit} onClick={() => request.current?.abort()} aria-label="Stop request">■</button>
         : <button type="submit" className={sqlMode ? styles.runSQL : styles.submit} disabled={!canSend} aria-label={sqlMode ? 'Run SQL' : 'Send question'}>{sqlMode ? 'Run SQL' : '↑'}</button>}
     </div>
-  </form>{sqlMode ? <SQLTables datasets={datasets} onInsert={insertSQL} /> : null}<p id="ask-input-hint" className={styles.inputHint}>{sqlMode ? 'Direct SQL · no AI · Ctrl / ⌘ + Enter to run · Ctrl + Space suggests names' : !capabilityReady ? 'Connecting to Ask…' : capability.mode === 'ai' ? 'Ask AI · Enter to send · Shift + Enter for a new line' : 'Guides & public data · Enter to send'}</p>
-    <div ref={composerStatus}>{busy && !hasMessages ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : sqlMode && sqlProblem ? <SQLProblem feedback={sqlProblem.feedback} sql={sqlProblem.sql}/> : feedback.failure ? <AskFailureFeedback failure={feedback.failure} blocked={feedback.failureBlocked} onRetry={submit}/> : connectionFailed ? <AskFeedback error title="Could not connect to Ask" detail="Your draft is still here. Check your connection and try again." onRetry={() => {setConnectionFailed(false);reconnect.current();}} retryLabel="Reconnect"/> : chatError ? <AskFeedback error title="Check your request" detail={chatError}/> : notice ? <AskFeedback title={notice}/> : null}</div>
+  </form>{sqlMode ? <SQLTables datasets={datasets} onInsert={insertSQL} /> : null}<p id="ask-input-hint" className={styles.inputHint}>{sqlMode ? 'Direct SQL · no AI · Ctrl / ⌘ + Enter to run · Ctrl + Space suggests names' : !capabilityReady ? 'Connecting to Zift…' : capability.mode === 'ai' ? 'Ask AI · Enter to send · Shift + Enter for a new line' : 'Guides & public data · Enter to send'}</p>
+    <div ref={composerStatus}>{busy && !hasMessages ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : sqlMode && sqlProblem ? <SQLProblem feedback={sqlProblem.feedback} sql={sqlProblem.sql}/> : feedback.failure ? <AskFailureFeedback failure={feedback.failure} blocked={feedback.failureBlocked} onRetry={submit}/> : connectionFailed ? <AskFeedback error title="Could not connect to Zift" detail="Your draft is still here. Check your connection and try again." onRetry={() => {setConnectionFailed(false);reconnect.current();}} retryLabel="Reconnect"/> : chatError ? <AskFeedback error title="Check your request" detail={chatError}/> : notice ? <AskFeedback title={notice}/> : null}</div>
     {authenticatedStaging ? null : <AskChallenge siteKey={capability.siteKey} onToken={setToken} reset={challengeReset}/>}
   </div>;
 
@@ -539,7 +540,7 @@ export function AskWorkspace() {
           <div className={`${styles.transcript} ${styles.threadTranscript}`} ref={transcript}>
             {session.messages.map(message => <div key={message.id} ref={message.id === session.messages.at(-1)?.id ? latestTurn : undefined} className="mb-7">
               <div className={styles.sentMessage}>{message.sql ? <><span className={styles.sqlPreview}>{message.sql.split('\n').slice(0,3).join('\n')}</span><details className={styles.sentSQL}><summary>View submitted SQL</summary><div className={styles.sentCode}><pre translate="no">{message.sql}</pre><span className={styles.sentCopy}><CopyButton text={message.sql} label="SQL" className={styles.copyButton} /></span></div></details></> : message.question}</div>
-              <article className={styles.assistantReply} aria-label="ZecBlock response"><AskMark small /><div className={styles.replyBody}><p className="text-caption font-mono text-muted mb-2">ZecBlock</p>{message.state === 'pending' ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : null}{explainingId === message.id ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : null}<p dir="auto" lang={message.locale} className="text-sm text-secondary leading-relaxed whitespace-pre-wrap">{message.answer}</p>{explainError?.id === message.id ? <AskFeedback error title="Could not explain these results" detail={explainError.text}/> : null}{message.scope ? <p className="mt-2 text-caption text-muted">{message.scope}</p> : null}
+              <article className={styles.assistantReply} aria-label="Zift response"><AskMark small /><div className={styles.replyBody}><p className="text-caption font-mono text-muted mb-2">Zift</p>{message.state === 'pending' ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : null}{explainingId === message.id ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : null}<p dir="auto" lang={message.locale} className="text-sm text-secondary leading-relaxed whitespace-pre-wrap">{message.answer}</p>{explainError?.id === message.id ? <AskFeedback error title="Could not explain these results" detail={explainError.text}/> : null}{message.scope ? <p className="mt-2 text-caption text-muted">{message.scope}</p> : null}
               {message.spec ? <AskAnalysis spec={message.viewSpec || message.spec} changed={!!message.viewSpec && analysisScopeKey(message.viewSpec) !== analysisScopeKey(message.spec)} onChange={next => {
                 const previous = message.viewSpec || message.spec!;
                 const validated = analysisSchema.parse(next.period !== previous.period || next.pool !== previous.pool || next.metric !== previous.metric ? {...next, start:null, end:null} : next);
