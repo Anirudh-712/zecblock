@@ -38,7 +38,19 @@ function zeroLiteral(n,castString=false){
  // Exact literal inspection avoids underflow such as Number('1e-999') === 0.
  return typeof text==='string'&&/^[+-]?0+(?:\.0+)?(?:e[+-]?\d+)?$/i.test(text);
 }
-function unitsFromTree(tree,issues){
+function unitsFromTree(tree,issues,{question}={}){
+ // Precision is a question-conditioned AI-draft concern. Missing questions or
+ // any explicit/ambiguous rounding request retain the ordinary SQL path; do
+ // not guess whether the requested precision applies to another result field.
+ const preserveZatoshiPrecision=typeof question==='string'&&question.trim().length>0&&!/\b(?:round(?:ed|ing)?|decimals?|digits?|precision|significant|approximat\w*|approx|rough(?:ly)?|estimat\w*|nearest|around|buckets?|bins?|bands?|histograms?)\b|\b(?:whole|integer|integral|tens|hundreds|thousands)\s+(?:of\s+)?ZEC\b/i.test(question);
+ const roundPlaces=node=>{
+  const n=numericUnwrap(node),c=n?.A_Const;
+  if(c?.ival)return c.ival.ival??0;
+  if(c?.fval&&/^[+-]?\d+(?:\.0+)?$/.test(c.fval.fval)){const value=Number(c.fval.fval);return Number.isSafeInteger(value)?value:null;}
+  const e=n?.A_Expr,op=e?.name?.[0]?.String?.sval;
+  if(e?.kind==='AEXPR_OP'&&!e.lexpr&&e.name?.length===1&&['+','-'].includes(op)){const value=roundPlaces(e.rexpr);return value===null?null:op==='-'?-value:value;}
+  return null;
+ };
  const targets=[];
  const baseColumns=name=>{
   const dataset=researchCatalogue.find(d=>d.id===canonical(name));
@@ -112,6 +124,8 @@ function unitsFromTree(tree,issues){
     if(['date_trunc','to_timestamp'].includes(name))return unit('date');
     if(['to_char','lower','upper','substring','substr','left','right','trim','btrim','ltrim','rtrim'].includes(name))return unit('text');
     const args=(f.args||[]).map(expression);
+    const places=f.args?.length===1?0:f.args?.length===2?roundPlaces(f.args[1]):null;
+    if(issues&&preserveZatoshiPrecision&&name==='round'&&args[0]?.unit==='zec'&&Number.isSafeInteger(places)&&places<8)issues.add('The question does not request rounding or approximate ZEC amounts. Preserve exact zatoshi denomination in converted ZEC values: do not silently ROUND a proven ZEC amount to fewer than 8 decimal places. Return the unrounded conversion or use at least 8 decimal places, preserving the requested source, metrics, null/missing semantics, dates, filters, grouping, ranking and limits. Counts, USD values and explicitly requested rounding retain their requested precision.');
     if(['lag','lead'].includes(name))return args.length>2?sameUnits([args[0],args[2]]):args[0]||unknown();
     if(['sum','avg','min','max','round','abs','ceil','ceiling','floor','trunc','stddev_samp','stddev_pop','first_value','last_value','nth_value'].includes(name))return args[0]||unknown();
     if(['coalesce','greatest','least'].includes(name))return sameUnits(args);
@@ -208,7 +222,7 @@ async function draftDiagnostics(sql,{extended=false,question}={}){
  const tree=await parse(sql),issues=new Set([...nullRankingDiagnostics(tree),...projectionDiagnostics(tree),...(extended?addressDistinctDiagnostics(tree):[])]);
  // Only proven raw monetary values trigger a draft repair. Aliases mentioning
  // an asset, counts, USD, and unresolved expressions never imply zatoshis.
- for(const target of unitsFromTree(tree,issues).targets)if(/(?:^|_)zec(?:_|$)/i.test(target.name||'')&&target.unit==='zatoshi')issues.add('A column labelled ZEC must convert zatoshis in its own expression by dividing by 100000000, for example sum(fees)::numeric/100000000 AS fees_zec. Otherwise keep a zatoshi label.');
+ for(const target of unitsFromTree(tree,issues,{question}).targets)if(/(?:^|_)zec(?:_|$)/i.test(target.name||'')&&target.unit==='zatoshi')issues.add('A column labelled ZEC must convert zatoshis in its own expression by dividing by 100000000, for example sum(fees)::numeric/100000000 AS fees_zec. Otherwise keep a zatoshi label.');
  function select(s,inherited=new Map(),requirements=new Map()){
   const scope=new Map(inherited);
   const requestedCounts=new Map();

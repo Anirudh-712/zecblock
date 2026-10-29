@@ -31,7 +31,14 @@ receives guidance to retain the full month using per-day correlated raw activity
 counts driven by observed activity_daily dates. The independently run reference
 returned all thirty days within the unchanged worker budget. The earlier coarse
 resource failure does not independently establish a PostgreSQL temp-spill code.
-Both diagnostics use the existing single SQL repair, not additional retries;
+The address hint also recognizes source-proven Boolean incidence predicates,
+which must be retained unchanged in both per-day subqueries; it never assumes
+these filters are redundant. Unrequested predicates should not be generated.
+A further proven-ZEC diagnostic preserves zatoshi precision when an AI draft
+silently rounds to fewer than eight decimals and the question requests no
+rounding or approximation. Explicit precision requests, unknown monetary lineage
+and handwritten ROUND expressions remain available.
+These diagnostics use the existing single SQL repair, not additional retries;
 unknown shapes and direct SQL retain their existing acceptance and limits.
 
 Strict valid UTC-midnight date facts render as readable dates; nonmidnight,
