@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import {defaultResearchChart,shortLabel,supportsLine,cellLink} from '@/lib/ask/research-display';
+import {defaultResearchChart,shortLabel,supportsLine,cellLink,dateFormatter} from '@/lib/ask/research-display';
 import type { ResearchChart, ResearchDocument, ResearchLibrary, ResearchResult, ResearchNarrative } from '@/lib/ask/research-contract';
 import { researchDocumentSchema, researchNarrativeSchema } from '@/lib/ask/research-contract';
 import { emptyLibrary, readLibrary, writeLibrary, readPortable, mergePortable, markdownReport, csvReport, MAX_BYTES } from '@/lib/ask/research-library';
@@ -36,6 +36,9 @@ function matchingNarrative(value: ResearchNarrative | undefined | null, result?:
 
 export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zcash analysis', initialNarrative?: ResearchNarrative) {
   const [library, setLibrary] = useState<ResearchLibrary>(emptyLibrary);
+  // Several edits can happen in one handler (save, then add to a dashboard);
+  // each reads the latest written library, not the render's copy.
+  const libraryRef = useRef<ResearchLibrary>(library);
   const [ready, setReady] = useState(false);
   const raw = useRef<string | null>(null);
   const [id, setId] = useState<string | null>(null);
@@ -49,16 +52,15 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
   const narrativeRef = useRef<ResearchNarrative | null>(narrative);
   const [chart, setChart] = useState<ResearchChart>(()=>defaultResearchChart(initial));
   const [boardId, setBoardId] = useState<string | null>(null);
-  const [dashboard, setDashboard] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [importing, setImporting] = useState(false);
   const [shareURL, setShareURL] = useState('');
   useEffect(() => {
-    try { const loaded = readLibrary(window.localStorage); raw.current = loaded.raw; setLibrary(loaded.library); setReady(true); }
+    try { const loaded = readLibrary(window.localStorage); raw.current = loaded.raw; libraryRef.current = loaded.library; setLibrary(loaded.library); setReady(true); }
     catch { setError('Browser storage is unavailable or contains an invalid library. Existing saves have been preserved.'); }
   }, []);
-  function persist(next: ResearchLibrary) { raw.current = writeLibrary(window.localStorage, next, raw.current); setLibrary(next); }
+  function persist(next: ResearchLibrary) { raw.current = writeLibrary(window.localStorage, next, raw.current); libraryRef.current = next; setLibrary(next); }
   function accept(data: ResearchResult, label: string, fresh = true, context?: ResearchNarrative) {
     resultRef.current = data;
     const nextNarrative = matchingNarrative(context, data);
@@ -87,14 +89,66 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
     const context = matchingNarrative(narrativeRef.current, current);
     return researchDocumentSchema.parse({ format: 'zecblock-research', version: 2, id: id || crypto.randomUUID(), title, notes, query: { version: 3, sql, limit }, chart, result: current, ...(context ? { narrative: context } : {}), savedAt: new Date().toISOString() });
   }
-  function save() {
-    try { const doc = document(); persist({ ...library, documents: [...library.documents.filter(d => d.id !== doc.id), doc] }); setId(doc.id); setNotice('Saved in this browser.'); setError(''); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not save this analysis.'); }
+  // Unsaved work: no save yet, or the title, notes, query, chart or result
+  // snapshot differ from the saved copy.
+  const savedDoc = id ? library.documents.find(d => d.id === id) : undefined;
+  const snapshotFingerprint = result && result.query.sql === sql && result.query.limit === limit ? result.fingerprint : null;
+  const dirty = !savedDoc || savedDoc.title !== title || savedDoc.notes !== notes || savedDoc.query.sql !== sql || savedDoc.query.limit !== limit || JSON.stringify(savedDoc.chart) !== JSON.stringify(chart) || (savedDoc.result?.fingerprint ?? null) !== snapshotFingerprint;
+  function save(quiet = false): string | null {
+    try { const doc = document(), lib = libraryRef.current; persist({ ...lib, documents: [...lib.documents.filter(d => d.id !== doc.id), doc] }); setId(doc.id); if (!quiet) setNotice('Saved in this browser.'); setError(''); return doc.id; }
+    catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not save this analysis.'); return null; }
+  }
+  // Dashboards hold saved analyses, so adding one saves it first.
+  function ensureSaved() { return id && !dirty ? id : save(true); }
+  function update(change: (lib: ResearchLibrary) => ResearchLibrary, message: string, failure: string) {
+    try { persist(change(libraryRef.current)); setNotice(message); setError(''); return true; }
+    catch (problem) { setError(problem instanceof Error && /tab|2 MB/.test(problem.message) ? problem.message : failure); return false; }
+  }
+  const cleanTitle = (value: string) => value.trim().slice(0, 120);
+  function renameDocument(docId: string, value: string) {
+    const next = cleanTitle(value); if (!next) return false;
+    const ok = update(lib => ({ ...lib, documents: lib.documents.map(d => d.id === docId ? { ...d, title: next } : d) }), 'Renamed.', 'Could not rename this analysis.');
+    if (ok && docId === id) setTitle(next);
+    return ok;
+  }
+  function updateNotes(docId: string, value: string) {
+    const ok = update(lib => ({ ...lib, documents: lib.documents.map(d => d.id === docId ? { ...d, notes: value.slice(0, 4000) } : d) }), 'Notes saved.', 'Could not save these notes.');
+    if (ok && docId === id) setNotes(value.slice(0, 4000));
+  }
+  function removeDocument(docId: string) {
+    const doc = libraryRef.current.documents.find(d => d.id === docId);
+    if (!doc || !window.confirm(`Remove “${doc.title}” from this browser? It is also removed from any dashboard.`)) return;
+    if (update(lib => ({ ...lib, documents: lib.documents.filter(d => d.id !== docId), dashboards: lib.dashboards.map(d => ({ ...d, items: d.items.filter(item => item !== docId) })) }), `Removed “${doc.title}”.`, 'Could not remove this saved analysis.') && docId === id) setId(null);
+  }
+  // Both return the saved analysis id, or null when nothing changed.
+  function toggleDashboard(board: string): string | null {
+    const target = libraryRef.current.dashboards.find(d => d.id === board);
+    if (!target) return null;
+    if (id && target.items.includes(id)) return update(lib => ({ ...lib, dashboards: lib.dashboards.map(d => d.id === board ? { ...d, items: d.items.filter(item => item !== id) } : d) }), `Removed from “${target.title}”.`, 'Could not update the dashboard.') ? id : null;
+    const docId = ensureSaved(); if (!docId) return null;
+    return update(lib => ({ ...lib, dashboards: lib.dashboards.map(d => d.id === board ? { ...d, items: [...new Set([...d.items, docId])] } : d) }), `Added to “${target.title}”.`, 'A dashboard holds up to 12 analyses.') ? docId : null;
+  }
+  function createDashboard(value: string): string | null {
+    const name = cleanTitle(value); if (!name) return null;
+    const docId = ensureSaved(); if (!docId) return null;
+    return update(lib => ({ ...lib, dashboards: [...lib.dashboards, { id: crypto.randomUUID(), title: name, items: [docId] }] }), `Created “${name}” with this analysis.`, 'The browser library holds up to 12 dashboards.') ? docId : null;
+  }
+  function renameDashboard(board: string, value: string) {
+    const name = cleanTitle(value); if (!name) return false;
+    return update(lib => ({ ...lib, dashboards: lib.dashboards.map(d => d.id === board ? { ...d, title: name } : d) }), 'Renamed.', 'Could not rename this dashboard.');
+  }
+  function removeFromDashboard(board: string, docId: string) {
+    update(lib => ({ ...lib, dashboards: lib.dashboards.map(d => d.id === board ? { ...d, items: d.items.filter(item => item !== docId) } : d) }), 'Removed from this dashboard. The analysis is still saved.', 'Could not update the dashboard.');
+  }
+  function deleteDashboard(board: string) {
+    const target = libraryRef.current.dashboards.find(d => d.id === board);
+    if (!target || !window.confirm(`Delete the dashboard “${target.title}”? Its saved analyses stay in your library.`)) return;
+    if (update(lib => ({ ...lib, dashboards: lib.dashboards.filter(d => d.id !== board) }), `Deleted “${target.title}”.`, 'Could not delete this dashboard.') && boardId === board) setBoardId(null);
   }
   async function importFile(file: File | undefined) {
     if (!file) return;
     setImporting(true); const previous = raw.current;
-    try { if (file.size > MAX_BYTES) throw Error('Too large'); const incoming = readPortable(await file.text()); const next = mergePortable(library, incoming, () => crypto.randomUUID()); raw.current = writeLibrary(window.localStorage, next, previous); setLibrary(next); setNotice('Imported saved analyses. Open one and run its query to refresh the data.'); setError(''); }
+    try { if (file.size > MAX_BYTES) throw Error('Too large'); const incoming = readPortable(await file.text()); const next = mergePortable(libraryRef.current, incoming, () => crypto.randomUUID()); raw.current = writeLibrary(window.localStorage, next, previous); libraryRef.current = next; setLibrary(next); setNotice('Imported saved analyses. Open one and run its query to refresh the data.'); setError(''); }
     catch { setError('Use a ZecBlock research JSON file under 2 MB. The browser library holds up to 25 analyses and 12 dashboards.'); }
     finally { setImporting(false); }
   }
@@ -117,29 +171,58 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
   function saveShared(share: ResearchShare) {
     try {
       const incoming = sharedLibrary(share, () => crypto.randomUUID(), new Date().toISOString());
-      const next = mergePortable(library, incoming, () => crypto.randomUUID()); persist(next);
+      const next = mergePortable(libraryRef.current, incoming, () => crypto.randomUUID()); persist(next);
       setNotice('Shared queries saved in this browser. Review each query before running; no SQL has run.'); setError('');
       if (share.kind === 'dashboard') setBoardId(next.dashboards.at(-1)!.id);
       return true;
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not save this shared research.'); return false; }
   }
-  function remove() {
-    if (!id || !window.confirm('Remove this saved analysis from this browser? Download a copy first if you want to keep it.')) return;
-    try { persist({ ...library, documents: library.documents.filter(d => d.id !== id), dashboards: library.dashboards.map(d => ({ ...d, items: d.items.filter(item => item !== id) })) }); setId(null); setNotice('Removed the local save. The open analysis is still available.'); }
-    catch { setError('Could not remove this local save.'); }
-  }
-  function addToDashboard() {
-    try { if (!id) throw Error('Save this analysis first.'); const existing = library.dashboards.find(d => d.title === dashboard.trim()); const board = existing ? { ...existing, items: [...new Set([...existing.items, id])] } : { id: crypto.randomUUID(), title: dashboard.trim(), items: [id] }; persist({ ...library, dashboards: [...library.dashboards.filter(d => d.id !== board.id), board] }); setNotice('Added to your dashboard.'); setError(''); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not update the dashboard.'); }
-  }
-  function removeDashboard() {
-    if (!boardId || !window.confirm('Remove this dashboard from this browser? Its saved analyses will remain.')) return;
-    try { persist({ ...library, dashboards: library.dashboards.filter(d => d.id !== boardId) }); setBoardId(null); }
-    catch { setError('Could not remove this dashboard.'); }
-  }
-  return { library, ready, id, title, setTitle, notes, setNotes, sql, setSQL, limit, setLimit, result, narrative, chart, setChart, boardId, setBoardId, dashboard, setDashboard, notice, error, importing, shareURL, copyLink, saveShared, accept, annotate, open, reset, document, save, importFile, exportFile, exportCSV, remove, addToDashboard, removeDashboard, downloadLibrary: () => download('zecblock-library.json', JSON.stringify(library, null, 2), 'application/json') };
+  return { library, ready, id, title, setTitle, notes, setNotes, sql, setSQL, limit, setLimit, result, narrative, chart, setChart, boardId, setBoardId, notice, error, importing, shareURL, dirty, copyLink, saveShared, accept, annotate, open, reset, document, save, importFile, exportFile, exportCSV, renameDocument, updateNotes, removeDocument, toggleDashboard, createDashboard, renameDashboard, removeFromDashboard, deleteDashboard, downloadLibrary: () => download('zecblock-library.json', JSON.stringify(libraryRef.current, null, 2), 'application/json') };
 }
 type Tools = ReturnType<typeof useResearchTools>;
+
+// A small dropdown anchored to its button. It closes on an outside click,
+// Escape, or when an action inside asks it to.
+function useDismiss() {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (event: Event) => {
+      const menu = ref.current;
+      if (!menu?.open) return;
+      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !menu.contains(event.target as Node)) menu.open = false;
+    };
+    document.addEventListener('pointerdown', close); document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', close); };
+  }, []);
+  return ref;
+}
+function Menu({ label, children, className = '', align = 'right', disabled = false, ariaLabel }: { label: ReactNode; children: ReactNode; className?: string; align?: 'left' | 'right'; disabled?: boolean; ariaLabel?: string }) {
+  const ref = useDismiss();
+  return <details ref={ref} className={`${styles.menu} ${className}`} data-align={align}>
+    <summary aria-label={ariaLabel} aria-disabled={disabled || undefined} onClick={event => { if (disabled) event.preventDefault(); }}>{label}</summary>
+    <div className={styles.menuBody} onClick={event => { if ((event.target as HTMLElement).closest('[data-close]')) ref.current?.removeAttribute('open'); }}>{children}</div>
+  </details>;
+}
+// Inline rename: Enter or leaving the field saves, Escape cancels.
+function RenameField({ value, label, onDone, id, autoFocus = true }: { value: string; label: string; onDone: (next: string | null) => void; id?: string; autoFocus?: boolean }) {
+  const [text, setText] = useState(value);
+  const done = useRef(false);
+  const finish = (next: string | null) => { if (done.current) return; done.current = true; onDone(next); };
+  // Outside a one-shot rename (a field kept in a menu), it stays reusable.
+  const finishOnce = autoFocus ? finish : (next: string | null) => onDone(next);
+  return <input id={id} autoFocus={autoFocus} aria-label={label} className={`${styles.input} ${styles.renameInput}`} maxLength={120} value={text} onChange={event => setText(event.target.value)} onFocus={event => event.currentTarget.select()} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); finishOnce(text); } if (event.key === 'Escape') { setText(value); finishOnce(null); } }} onBlur={() => finishOnce(text)} />;
+}
+function LibraryRow({ title, selected, disabled, kind, onOpen, onRename, onRemove }: { title: string; selected: boolean; disabled: boolean; kind: 'analysis' | 'dashboard'; onOpen: () => void; onRename: (next: string) => boolean; onRemove: () => void }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) return <div className={styles.libraryRow}><RenameField value={title} label={`Rename ${kind}`} onDone={next => { if (next !== null && next.trim() && next.trim() !== title) onRename(next); setEditing(false); }} /></div>;
+  return <div className={`${styles.libraryRow} ${selected ? styles.libraryRowSelected : ''}`}>
+    <button className={`${askStyles.session} ${selected ? askStyles.selectedSession : ''}`} disabled={disabled} onClick={onOpen} title={title} aria-current={selected ? 'true' : undefined}>{title}</button>
+    <Menu className={styles.rowMenu} label={<span aria-hidden="true">⋯</span>} ariaLabel={`Options for ${title}`} disabled={disabled}>
+      <button type="button" data-close onClick={() => setEditing(true)}>Rename</button>
+      <button type="button" data-close data-tone="danger" onClick={onRemove}>{kind === 'dashboard' ? 'Delete dashboard' : 'Remove from saved'}</button>
+    </Menu>
+  </div>;
+}
 
 // compact: inside the Ask sidebar, which supplies its own "Saved" heading.
 export function ResearchLibrary({ tools, busy, onOpen, compact = false }: { tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void; compact?: boolean }) {
@@ -147,8 +230,8 @@ export function ResearchLibrary({ tools, busy, onOpen, compact = false }: { tool
   const disabled = busy || tools.importing;
   return <div className={`${styles.libraryContent} ${compact ? styles.libraryCompact : ''}`}>
     {compact ? null : <p className={styles.eyebrow}>SAVED ANALYSES</p>}
-    {tools.library.documents.length ? tools.library.documents.map(doc => <button key={doc.id} className={`${askStyles.session} ${tools.id === doc.id ? askStyles.selectedSession : ''}`} disabled={disabled} onClick={() => onOpen(doc)} title={doc.title}>{doc.title}</button>) : <p className={styles.caption}>Save an analysis to keep exploring later.</p>}
-    {tools.library.dashboards.length ? <><p className={styles.eyebrow}>DASHBOARDS</p>{tools.library.dashboards.map(board => <button key={board.id} className={askStyles.session} disabled={disabled} onClick={() => tools.setBoardId(board.id)} title={board.title}>{board.title}</button>)}</> : null}
+    {tools.library.documents.length ? tools.library.documents.map(doc => <LibraryRow key={doc.id} kind="analysis" title={doc.title} selected={tools.id === doc.id && !tools.boardId} disabled={disabled} onOpen={() => onOpen(doc)} onRename={next => tools.renameDocument(doc.id, next)} onRemove={() => tools.removeDocument(doc.id)} />) : <p className={styles.caption}>Save an analysis to keep exploring later.</p>}
+    {tools.library.dashboards.length ? <><p className={styles.eyebrow}>DASHBOARDS</p>{tools.library.dashboards.map(board => <LibraryRow key={board.id} kind="dashboard" title={board.title} selected={tools.boardId === board.id} disabled={disabled} onOpen={() => tools.setBoardId(board.id)} onRename={next => tools.renameDashboard(board.id, next)} onRemove={() => tools.deleteDashboard(board.id)} />)}</> : null}
     <div className={styles.libraryActions}><button className={styles.textButton} disabled={!tools.ready || disabled} onClick={() => input.current?.click()} aria-label="Import research file">↑ Import</button><button className={styles.textButton} disabled={disabled || !tools.library.documents.length} onClick={tools.downloadLibrary} aria-label="Download all saved research">↓ Export all</button></div>
     {tools.error || tools.notice.startsWith('Imported') ? <ResearchStatus tools={tools} /> : null}
     <input type="file" ref={input} className="sr-only" tabIndex={-1} accept=".json,application/json" aria-label="Import research file" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; void tools.importFile(selected); }} />
@@ -172,7 +255,9 @@ export function ResearchEditor({ tools, extended=false }: { extended?:boolean; t
 export function ResearchStatus({ tools }: { tools: Tools }) { return <>{tools.error ? <p className={styles.error} role="alert">{tools.error}</p> : null}{tools.notice ? <p className={styles.caption} role="status">{tools.notice}</p> : null}</>; }
 
 export function ResearchData({ result, chart, sources, showDetails = true, savedSnapshot = false }: { result: ResearchResult; chart: ResearchChart; sources?: ReactNode; showDetails?: boolean; savedSnapshot?: boolean }) {
-  const table = <div className={styles.scroll} tabIndex={0} role="region" aria-label="Scrollable query results"><table className={styles.table}><caption className="sr-only">Query results, preserving exact decimals</caption><thead><tr>{result.columns.map(column => <th key={column.key} scope="col" data-numeric={column.type === 'number'}>{column.label.replaceAll('_', ' ')}</th>)}</tr></thead><tbody>{result.rows.map((row, index) => <tr key={index}>{row.map((cell, i) => <td key={i} data-numeric={result.columns[i].type === 'number'}>{cellLink(result.columns[i].label.toLowerCase(),cell) ? <Link href={cellLink(result.columns[i].label.toLowerCase(),cell)!} title={cell || undefined} aria-label={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : shortLabel(cell)}</Link> : <span title={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : cell && /^(?:txid|hash|miner|address)$/.test(result.columns[i].label.toLowerCase()) ? shortLabel(cell) : exactDisplay(cell,result.columns[i].type)}</span>}</td>)}</tr>)}</tbody></table>{!result.rows.length ? <p className={styles.caption}>No matching records were returned.</p> : null}</div>;
+  const dates = result.columns.map((_, i) => dateFormatter(result, i));
+  const text = (cell: string | null, i: number) => cell !== null && dates[i] ? dates[i]!(cell) : cell && /^(?:txid|hash|miner|address)$/.test(result.columns[i].label.toLowerCase()) ? shortLabel(cell) : exactDisplay(cell, result.columns[i].type);
+  const table = <div className={styles.scroll} tabIndex={0} role="region" aria-label="Scrollable query results"><table className={styles.table}><caption className="sr-only">Query results, preserving exact decimals</caption><thead><tr>{result.columns.map(column => <th key={column.key} scope="col" data-numeric={column.type === 'number'}>{column.label.replaceAll('_', ' ')}</th>)}</tr></thead><tbody>{result.rows.map((row, index) => <tr key={index}>{row.map((cell, i) => <td key={i} data-numeric={result.columns[i].type === 'number'}>{cellLink(result.columns[i].label.toLowerCase(),cell) ? <Link href={cellLink(result.columns[i].label.toLowerCase(),cell)!} title={cell || undefined} aria-label={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : shortLabel(cell)}</Link> : <span title={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : text(cell, i)}</span>}</td>)}</tr>)}</tbody></table>{!result.rows.length ? <p className={styles.caption}>No matching records were returned.</p> : null}</div>;
   return <>
     <p className={styles.caption}>{result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}{result.truncated ? ' (limited)' : ''}</p>
     {chart.view === 'table' ? table : <><Plot result={result} chart={chart} /><details className={styles.exactTable}><summary>View data</summary>{table}</details></>}
@@ -190,67 +275,84 @@ export function ResearchData({ result, chart, sources, showDetails = true, saved
   </>;
 }
 
-// actions sit before Save/Share; trailing (e.g. Expand) sits last, after More.
-export function ResearchPanel({ tools, result, busy, titleId, embedded = false, actions, trailing, editAction, sources, saved }: { tools: Tools; result: ResearchResult; busy: boolean; titleId?: string; embedded?: boolean; actions?: ReactNode; trailing?: ReactNode; editAction?: ReactNode; sources?: ReactNode; saved?: boolean }) {
+// Toolbar: view switch (with chart columns when charting) on the left; on the
+// right the caller's actions (Explain), Edit SQL, Save, Dashboard, Share, then
+// trailing (Expand). Each control does one thing.
+export function ResearchPanel({ tools, result, busy, titleId, embedded = false, actions, trailing, editAction, sources, saved, onSaved }: { tools: Tools; result: ResearchResult; busy: boolean; titleId?: string; embedded?: boolean; actions?: ReactNode; trailing?: ReactNode; editAction?: ReactNode; sources?: ReactNode; saved?: boolean; onSaved?: (id: string) => void }) {
   const generatedTitleId = useId();
   const analysisTitleId = titleId || generatedTitleId;
   const lineAllowed = supportsLine(result, tools.chart.x);
   const numeric = result.columns.some(column => column.type === 'number');
   const disabled = busy || tools.importing;
   const hasSnapshot = tools.result?.fingerprint === result.fingerprint && tools.sql === result.query?.sql && tools.limit === result.query?.limit;
-  const hasSave = saved ?? Boolean(tools.id);
-  // The More dropdown closes on an outside click or Escape, like a menu.
-  const more = useRef<HTMLDetailsElement>(null);
-  useEffect(() => {
-    const close = (event: Event) => {
-      const menu = more.current;
-      if (!menu?.open) return;
-      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !menu.contains(event.target as Node)) menu.open = false;
-    };
-    document.addEventListener('pointerdown', close); document.addEventListener('keydown', close);
-    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', close); };
-  }, []);
+  const isSaved = Boolean(tools.id) && !tools.dirty;
+  const [newBoard, setNewBoard] = useState('');
+  const saveNow = () => { const savedId = tools.save(); if (savedId) onSaved?.(savedId); };
+  const columnSelect = (axis: 'x' | 'y') => <label className={styles.inlineField}>{axis === 'x' ? 'Labels' : 'Values'}<span className={styles.selectWrap}><select className={styles.input} disabled={axis === 'y' && !numeric} value={tools.chart[axis]} onChange={event => { const index = Number(event.target.value); tools.setChart({ ...tools.chart, [axis]: index, view: axis === 'x' && tools.chart.view === 'line' && !supportsLine(result,index) ? 'bar' : tools.chart.view }); }}>{result.columns.map((column, index) => axis === 'y' && column.type !== 'number' ? null : <option key={column.key} value={index}>{column.label.replaceAll('_', ' ')}</option>)}</select></span></label>;
   return <div className={`${styles.panelBody} ${embedded ? styles.embeddedPanel : ''}`}>
     {!embedded ? <h2 className={styles.resultTitle}>{tools.title}</h2> : null}
     <div className={`${styles.resultToolbar} ${embedded ? styles.embeddedToolbar : ''}`}>
       <div className={styles.viewSwitch} role="group" aria-label="Result view">{([['table', 'Table', true], ['bar', 'Bar', numeric], ['line', 'Line', lineAllowed]] as const).map(([view, label, allowed]) => <button type="button" key={view} aria-pressed={tools.chart.view === view} disabled={!allowed} onClick={() => tools.setChart({ ...tools.chart, view })}>{label}</button>)}</div>
       <div className={styles.resultActions}>
         {actions}
-        <button className={styles.button} disabled={!tools.ready || disabled} onClick={tools.save}>{hasSave ? 'Save changes' : 'Save'}</button>
-        <button className={styles.button} disabled={disabled} onClick={() => void tools.copyLink()}>Share query</button>
+        {editAction}
+        {isSaved ? <Menu label={<><span aria-hidden="true">✓ </span>Saved</>} ariaLabel="Saved analysis options">
+          <p className={styles.menuHeading}>Saved in this browser</p>
+          <label className={styles.field} htmlFor={analysisTitleId}>Name<RenameField id={analysisTitleId} autoFocus={false} key={tools.title} value={tools.title} label="Analysis name" onDone={next => { if (next !== null && next.trim() && next.trim() !== tools.title) tools.renameDocument(tools.id!, next); }} /></label>
+          <label className={styles.field}>Notes<textarea id={analysisTitleId + '-notes'} name="notes" autoComplete="off" className={styles.input} maxLength={4000} defaultValue={tools.notes} key={tools.id + tools.notes} rows={3} onBlur={event => { if (event.target.value !== tools.notes) tools.updateNotes(tools.id!, event.target.value); }} placeholder="Optional" /></label>
+          <button type="button" data-close data-tone="danger" className={styles.menuItem} onClick={() => tools.removeDocument(tools.id!)}>Remove from saved</button>
+        </Menu> : <button className={styles.button} disabled={!tools.ready || disabled} onClick={saveNow}>{tools.id ? 'Save changes' : 'Save'}</button>}
+        <Menu label="Add to dashboard" disabled={!tools.ready || disabled}>
+          <p className={styles.menuHeading}>Dashboards</p>
+          {tools.library.dashboards.length ? <div className={styles.checkList}>{tools.library.dashboards.map(board => <label key={board.id} className={styles.checkRow}><input type="checkbox" checked={Boolean(tools.id && board.items.includes(tools.id))} onChange={() => { const savedId = tools.toggleDashboard(board.id); if (savedId) onSaved?.(savedId); }} /><span>{board.title}</span><span className={styles.checkCount}>{board.items.length}</span></label>)}</div> : <p className={styles.caption}>No dashboards yet.</p>}
+          <form className={styles.newBoard} onSubmit={event => { event.preventDefault(); const savedId = tools.createDashboard(newBoard); if (savedId) { setNewBoard(''); onSaved?.(savedId); } }}>
+            <input aria-label="New dashboard name" className={styles.input} maxLength={120} value={newBoard} onChange={event => setNewBoard(event.target.value)} placeholder="New dashboard name" />
+            <button type="submit" className={styles.button} disabled={!newBoard.trim()}>Create</button>
+          </form>
+          {!tools.id || tools.dirty ? <p className={styles.caption}>Adding also saves this analysis in your library.</p> : null}
+          {/^(?:Added to|Removed from|Created)/.test(tools.notice) ? <p className={styles.menuStatus} role="status">{tools.notice}</p> : null}
+        </Menu>
+        <Menu label="Share">
+          <button type="button" data-close className={styles.menuItem} disabled={disabled} onClick={() => void tools.copyLink()}>Copy query link</button>
+          <p className={styles.menuNote}>Shares the SQL, name and chart settings, not results. It never runs automatically.</p>
+          <p className={styles.menuHeading}>Download</p>
+          <button type="button" data-close className={styles.menuItem} disabled={disabled || !hasSnapshot} onClick={tools.exportCSV}>Results as CSV</button>
+          <button type="button" data-close className={styles.menuItem} disabled={disabled} onClick={() => tools.exportFile(true)}>Report (Markdown)</button>
+          <button type="button" data-close className={styles.menuItem} disabled={disabled} onClick={() => tools.exportFile(false)}>Research file (JSON)</button>
+        </Menu>
       </div>
-      <details ref={more} className={styles.moreOptions}><summary>More</summary><div className={styles.moreBody}>
-        {editAction ? <div className={styles.optionGroup}><p className={styles.optionHeading}>Query</p><div className={styles.actions}>{editAction}</div></div> : null}
-        <fieldset className={styles.optionGroup}><legend>Name &amp; notes</legend>
-          <label className={styles.field} htmlFor={analysisTitleId}>Analysis title<input id={analysisTitleId} name="title" autoComplete="off" className={styles.input} maxLength={120} value={tools.title} onChange={event => tools.setTitle(event.target.value)} /></label>
-          <label className={styles.field}>Research notes<textarea name="notes" autoComplete="off" className={styles.input} maxLength={4000} value={tools.notes} onChange={event => tools.setNotes(event.target.value)} rows={3} /></label>
-        </fieldset>
-        <fieldset className={styles.optionGroup}><legend>Chart settings</legend>
-          <div className={styles.columns}>{(['x', 'y'] as const).map(axis => <label className={styles.field} key={axis}>{axis === 'x' ? 'Labels' : 'Values'}<span className={styles.selectWrap}><select className={styles.input} disabled={axis === 'y' && !numeric} value={tools.chart[axis]} onChange={event => { const index = Number(event.target.value); tools.setChart({ ...tools.chart, [axis]: index, view: axis === 'x' && tools.chart.view === 'line' && !supportsLine(result,index) ? 'bar' : tools.chart.view }); }}>{result.columns.map((column, index) => axis === 'y' && column.type !== 'number' ? null : <option key={column.key} value={index}>{column.label.replaceAll('_', ' ')}</option>)}</select></span></label>)}</div>
-          <p className={styles.caption}>Charts follow query order. Line charts need an ordered date or numeric label column.</p>
-        </fieldset>
-        <fieldset className={styles.optionGroup}><legend>Download</legend>
-          <div className={styles.actions}><button className={styles.button} disabled={disabled || !hasSnapshot} onClick={tools.exportCSV}>CSV results</button><button className={styles.button} disabled={disabled} onClick={() => tools.exportFile(false)}>Research file</button><button className={styles.button} disabled={disabled} onClick={() => tools.exportFile(true)}>Markdown report</button></div>
-          <p className={styles.caption}>Research files and reports include the question, saved answer and exact results when available. Edited SQL needs a new run to include a result snapshot.</p>
-        </fieldset>
-        <fieldset className={styles.optionGroup}><legend>Local library</legend>
-          <label className={styles.field}>Dashboard name<input name="dashboard" autoComplete="off" className={styles.input} value={tools.dashboard} maxLength={120} onChange={event => tools.setDashboard(event.target.value)} placeholder="My Zcash research…" /></label>
-          <div className={styles.actions}><button className={styles.button} disabled={!tools.ready || disabled || !tools.id || !tools.dashboard.trim()} onClick={tools.addToDashboard}>Add to dashboard</button>{tools.id ? <button className={styles.button} disabled={disabled} onClick={tools.remove}>Remove local save</button> : null}</div>
-          {!tools.id ? <p className={styles.caption}>Save this analysis before adding it to a dashboard.</p> : null}
-        </fieldset>
-      </div></details>
       {trailing ? <div className={styles.resultActions}>{trailing}</div> : null}
     </div>
+    {tools.chart.view !== 'table' ? <div className={styles.chartColumns}>{columnSelect('x')}{columnSelect('y')}</div> : null}
     <ShareLinkField tools={tools} />
-    {tools.shareURL ? <p className={styles.caption}>This link shares the SQL draft, title and chart settings. Answers, notes and result snapshots are excluded. It never runs automatically.</p> : null}
     <ResearchStatus tools={tools} />
     <ResearchData result={result} chart={tools.chart} sources={sources} savedSnapshot={saved === true} />
   </div>;
 }
 export function ResearchDashboard({ tools, busy, onOpen }: { tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void }) {
+  const [renaming, setRenaming] = useState(false);
   const board = tools.library.dashboards.find(d => d.id === tools.boardId);
   if (!board) return null;
-  return <section aria-label="Saved dashboard"><div className={styles.toolbar}><h2 className={styles.resultTitle}>{board.title}</h2><button className={styles.button} onClick={() => tools.setBoardId(null)}>Back to analysis</button></div><p className={styles.caption}>Saved snapshots · open an analysis to refresh it</p><div className={styles.dashboard}>{board.items.map(id => { const doc = tools.library.documents.find(d => d.id === id)!; return <article key={id} className={askStyles.analysis}><div className={styles.panelBody}><button className={styles.textButton} disabled={busy} onClick={() => onOpen(doc)}>{doc.title} →</button>{doc.result ? <ResearchData result={doc.result} chart={doc.chart} savedSnapshot /> : <p className={styles.caption}>Run this query to add its results.</p>}</div></article>; })}</div><div className={styles.actions}><button className={styles.button} onClick={() => void tools.copyLink(true)}>Copy dashboard link</button><button className={styles.button} onClick={tools.downloadLibrary}>Download all saved research</button><button className={styles.button} onClick={tools.removeDashboard}>Remove dashboard</button></div><ShareLinkField tools={tools} /><p className={styles.caption}>Dashboard links contain query drafts, titles and chart settings. Results and notes are excluded; queries never run automatically.</p><ResearchStatus tools={tools} /></section>;
+  const docs = board.items.map(id => tools.library.documents.find(d => d.id === id)).filter((doc): doc is ResearchDocument => Boolean(doc));
+  return <section aria-label="Saved dashboard">
+    <div className={styles.toolbar}>
+      {renaming ? <RenameField value={board.title} label="Dashboard name" onDone={next => { if (next !== null && next.trim() && next.trim() !== board.title) tools.renameDashboard(board.id, next); setRenaming(false); }} /> : <h2 className={styles.resultTitle}>{board.title}</h2>}
+      <div className={styles.actions}>
+        {!renaming ? <button className={styles.button} onClick={() => setRenaming(true)}>Rename</button> : null}
+        <Menu label="Share"><button type="button" data-close className={styles.menuItem} onClick={() => void tools.copyLink(true)}>Copy dashboard link</button><p className={styles.menuNote}>Shares each query, name and chart setting, not results. Nothing runs automatically.</p><button type="button" data-close className={styles.menuItem} onClick={tools.downloadLibrary}>Download all saved research</button></Menu>
+        <button className={styles.button} onClick={() => tools.deleteDashboard(board.id)}>Delete</button>
+        <button className={styles.button} onClick={() => tools.setBoardId(null)}>Close</button>
+      </div>
+    </div>
+    <p className={styles.caption}>{docs.length} {docs.length === 1 ? 'analysis' : 'analyses'} · saved snapshots, open one to refresh it</p>
+    <ShareLinkField tools={tools} /><ResearchStatus tools={tools} />
+    {docs.length ? <div className={styles.dashboard}>{docs.map(doc => <article key={doc.id} className={`${askStyles.analysis} ${styles.dashboardCard}`} data-wide={doc.chart.view === 'table' && (doc.result?.columns.length ?? 0) > 3 ? 'true' : undefined}>
+      <div className={styles.panelBody}>
+        <div className={styles.cardHeader}><button className={styles.cardTitle} disabled={busy} onClick={() => onOpen(doc)}>{doc.title} <span aria-hidden="true">→</span></button><button type="button" className={styles.iconButton} aria-label={`Remove ${doc.title} from this dashboard`} title="Remove from dashboard" onClick={() => tools.removeFromDashboard(board.id, doc.id)}>×</button></div>
+        {doc.result ? <ResearchData result={doc.result} chart={doc.chart} savedSnapshot /> : <p className={styles.caption}>Run this query to add its results.</p>}
+      </div>
+    </article>)}</div> : <p className={styles.emptyBoard}>This dashboard is empty. Open a saved analysis and choose Add to dashboard.</p>}
+  </section>;
 }
 
 function ShareLinkField({ tools }: { tools: Tools }) {

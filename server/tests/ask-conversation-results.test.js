@@ -92,38 +92,43 @@ function panelFixture(overrides = {}, embedded = true) {
     '@/lib/ask/research-library': require('../../lib/ask/research-library'),
     '@/lib/ask/research-share': require('../../lib/ask/research-share'),
   };
-  const calls = [], tools = {ready:true, importing:false, id:null, title:'Known block fees', notes:'', dashboard:'', chart:{view:'table',x:0,y:0}, sql:'SELECT 1',limit:100, setTitle:value => calls.push(['title',value]), save:() => calls.push(['save']), setChart:value => calls.push(['chart',value]), ...overrides};
+  const calls = [], tools = {ready:true, importing:false, id:null, dirty:true, title:'Known block fees', notes:'', library:{documents:[],dashboards:[{id:'board-1',title:'Fee watch',items:[]}]}, notice:'', error:'', chart:{view:'table',x:0,y:0}, sql:'SELECT 1',limit:100, setTitle:value => calls.push(['title',value]), save:() => { calls.push(['save']); return 'saved-analysis'; }, setChart:value => calls.push(['chart',value]), renameDocument:(id,value) => { calls.push(['rename',id,value]); return true; }, toggleDashboard:id => { calls.push(['toggle',id]); return 'saved-analysis'; }, ...overrides};
   const result = {query:{version:3,sql:'SELECT 1',limit:100},columns:[{key:'c0',label:'mean_fee_zec',type:'number'}], rows:[['0.0013379257']], indexedThrough:'2026-10-19T00:00:00Z', retrievedAt:'2026-10-19T00:01:00Z', coverage:'Public analytics', units:'ZEC', fingerprint:'a'.repeat(64)};
   const actions = React.createElement('button', {'aria-haspopup':'dialog'}, 'Expand results ↗');
   const html = renderToStaticMarkup(React.createElement(loadComponent('app/ask/ResearchWorkbench.tsx',imports).ResearchPanel,{tools,result,busy:overrides.busy || false,embedded,actions}));
   return {html,elements,calls};
 }
-test('embedded results retain exact data, editable labelled title, save and chart controls', () => {
+test('embedded results keep exact data and one clear control per action: save, dashboard, share', () => {
   const {html,elements,calls} = panelFixture();
   assert.match(html, /<td[^>]*><span title="0\.0013379257">0\.0013379257<\/span>/);
-  assert.equal((html.match(/name="title"/g)||[]).length,1);
-  const title = elements.find(item => item.type === 'input' && item.props.name === 'title');
-  assert.equal(title.props.value,'Known block fees'); assert.equal(title.props.maxLength,120);
-  assert.ok(elements.some(item => item.type === 'label' && item.props.htmlFor === title.props.id));
-  title.props.onChange({target:{value:'Renamed fee analysis'}});
   const save = elements.find(item => item.type === 'button' && item.props.children === 'Save');
   assert.equal(save.props.disabled,false); save.props.onClick();
   // The view switch is a group of pressed-state buttons (Table / Bar / Line).
   const bar = elements.find(item => item.type === 'button' && item.props.children === 'Bar' && 'aria-pressed' in item.props);
   assert.equal(bar.props.disabled,false);
   bar.props.onClick();
-  assert.deepEqual(calls,[['title','Renamed fee analysis'],['save'],['chart',{view:'bar',x:0,y:0}]]);
+  // Dashboards are a checklist; ticking one adds (saving first when needed).
+  const box = elements.find(item => item.type === 'input' && item.props.type === 'checkbox');
+  assert.equal(box.props.checked,false); box.props.onChange();
+  assert.deepEqual(calls,[['save'],['chart',{view:'bar',x:0,y:0}],['toggle','board-1']]);
   assert.match(html, /aria-haspopup="dialog">Expand results ↗/);
-  assert.match(html, /<summary>More<\/summary>/);
-  for (const label of ['Chart settings', 'CSV results', 'Research file', 'Markdown report', 'Add to dashboard', 'Sources &amp; details']) assert.ok(html.includes(label), label+' stays available');
-  assert.doesNotMatch(html, /<summary>Exact data<\/summary>/);
+  assert.doesNotMatch(html, /<summary>More<\/summary>|Local library|Chart settings/);
+  for (const label of ['<summary>Add to dashboard</summary>', '<summary>Share</summary>', 'Fee watch', 'New dashboard name', 'Copy query link', 'Results as CSV', 'Report (Markdown)', 'Research file (JSON)', 'Adding also saves this analysis', 'Sources &amp; details']) assert.ok(html.includes(label), label+' stays available');
   for (const state of [{ready:false},{importing:true},{busy:true}]) {
     const fixture = panelFixture(state);
     assert.equal(fixture.elements.find(item => item.type === 'button' && item.props.children === 'Save').props.disabled,true);
   }
-  const expanded = panelFixture({id:'saved-analysis'},false);
-  assert.equal(expanded.elements.find(item => item.type === 'button' && item.props.children === 'Save changes').props.disabled,false);
-  assert.equal((expanded.html.match(/name="title"/g)||[]).length,1);
+  // Saved and unchanged: a Saved menu renames in place; changed: Save changes.
+  const clean = panelFixture({id:'saved-analysis',dirty:false},false);
+  assert.ok(!clean.elements.some(item => item.type === 'button' && /^Save/.test(String(item.props.children))));
+  assert.match(clean.html,/aria-label="Saved analysis options"/);
+  const name = clean.elements.find(item => item.type === 'input' && item.props['aria-label'] === 'Analysis name');
+  assert.equal(name.props.value,'Known block fees'); assert.equal(name.props.maxLength,120); assert.notEqual(name.props.autoFocus,true);
+  assert.match(clean.html,/Remove from saved/);
+  const changed = panelFixture({id:'saved-analysis',dirty:true},false);
+  assert.equal(changed.elements.find(item => item.type === 'button' && item.props.children === 'Save changes').props.disabled,false);
+  // Chart columns appear beside the chart only while one is shown.
+  assert.match(panelFixture({chart:{view:'bar',x:0,y:0}}).html,/Labels<span/);
 });
 test('switching current result to SQL retains earlier preset and record replies', () => {
   const reordered = [turns.at(-1), ...turns.slice(0,-1)];

@@ -100,23 +100,61 @@
 .viewSelect {min-height:34px;max-width:160px;padding:6px 26px 6px 10px;border:1px solid var(--color-border);border-radius:6px;background:var(--color-surface);color:var(--color-text-secondary);font-size:12px;}
 .resultToolbar > .resultActions {margin-left:auto;gap:10px;}
 .resultToolbar.embeddedToolbar {padding-top:0;border-top:0;}
-/* "More" opens as a dropdown anchored to its button: the toolbar and result never move. */
-.moreOptions {position:relative;min-width:0;}
-.moreOptions > summary {display:flex;align-items:center;gap:10px;min-height:34px;padding:6px 12px 6px 12px;border:1px solid var(--color-border);border-radius:6px;color:var(--color-text-secondary);font-size:12px;cursor:pointer;list-style:none;}
-.moreOptions > summary::-webkit-details-marker {display:none;}
-.moreOptions > summary::after {content:'';width:6px;height:6px;margin:-3px 2px 0 0;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);transition:transform 120ms;}
-.moreOptions[open] > summary::after {margin-top:3px;transform:rotate(-135deg);}
-.moreOptions[open] > summary {background:var(--color-hover);color:var(--color-text-primary);}
-.moreOptions > summary:hover {background:var(--color-hover);color:var(--color-text-primary);}
-.moreOptions > summary:focus-visible,.viewSelect:focus-visible {outline:2px solid var(--color-gold);outline-offset:3px;}
-.moreBody {position:absolute;right:0;top:calc(100% + 8px);z-index:30;width:min(600px,calc(100vw - 32px));max-height:min(70vh,560px);overflow:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px;padding:18px 20px;background:var(--color-elevated);border:1px solid var(--color-border);border-radius:10px;box-shadow:0 16px 40px rgb(0 0 0 / 0.35);}
-.optionGroup {border:0;padding:0;margin:0;min-width:0;}
-.optionGroup legend,.optionHeading {font-size:12px;font-weight:500;color:var(--color-text-secondary);padding:0;}
-.optionGroup .actions {margin-top:12px;}
-/* Plain action buttons passed into the menu (e.g. Edit SQL) match its button style. */
-.optionGroup .actions > button:not(.button) {min-height:32px;padding:6px 10px;border:1px solid var(--color-border);border-radius:6px;font-size:12px;color:var(--color-text-secondary);}
-.optionGroup .actions > button:not(.button):hover {background:var(--color-hover);color:var(--color-text-primary);}
-.optionGroup .columns {margin-bottom:0;}
+/* Toolbar dropdowns (Saved, Add to dashboard, Share) open anchored to their
+   button, so the toolbar and result never move. */
+.menu {position:relative;min-width:0;}
+.menu > summary {display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 10px;border:1px solid var(--color-border);border-radius:6px;color:var(--color-text-secondary);font-size:12px;cursor:pointer;list-style:none;white-space:nowrap;}
+.menu > summary::-webkit-details-marker {display:none;}
+.menu > summary::after {content:'';width:5px;height:5px;margin:-3px 1px 0 2px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);transition:transform 120ms;}
+.menu[open] > summary::after {margin-top:2px;transform:rotate(-135deg);}
+.menu[open] > summary,.menu > summary:hover {background:var(--color-hover);color:var(--color-text-primary);}
+.menu > summary[aria-disabled="true"] {opacity:.45;cursor:default;}
+.menu > summary:focus-visible {outline:2px solid var(--color-gold);outline-offset:2px;}
+.menuBody {position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:min(300px,calc(100vw - 32px));display:flex;flex-direction:column;gap:2px;padding:10px;text-align:left;background:var(--color-elevated);border:1px solid var(--color-border);border-radius:10px;box-shadow:0 16px 40px rgb(0 0 0 / 0.35);}
+.menu[data-align="left"] > .menuBody {right:auto;left:0;}
+.menuBody .field {margin-top:8px;padding:0 4px;}
+.menuBody .input {padding:7px 10px;font-size:13px;line-height:1.5;}
+.menuHeading {padding:6px 6px 4px;font-size:12px;font-weight:500;letter-spacing:.02em;color:var(--color-text-muted);}
+.menuHeading:not(:first-child) {margin-top:6px;border-top:1px solid var(--color-border);padding-top:10px;}
+.menuItem,.menuBody > button {display:block;width:100%;padding:7px 8px;border-radius:6px;text-align:left;font-size:13px;color:var(--color-text-secondary);}
+.menuItem:hover:not(:disabled),.menuBody > button:hover:not(:disabled) {background:var(--color-hover);color:var(--color-text-primary);}
+.menuItem:disabled {opacity:.45;cursor:default;}
+.menuBody [data-tone="danger"] {color:var(--color-danger);margin-top:6px;}
+.menuNote {padding:0 8px 6px;font-size:12px;line-height:1.5;color:var(--color-text-muted);}
+.menuStatus {padding:6px 8px 0;font-size:12px;color:var(--color-text-secondary);}
+.menuBody > .caption {padding:0 6px;}
+.checkList {display:flex;flex-direction:column;max-height:220px;overflow:auto;}
+.checkRow {display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:6px;font-size:13px;color:var(--color-text-secondary);cursor:pointer;}
+.checkRow:hover {background:var(--color-hover);color:var(--color-text-primary);}
+.checkRow > span:nth-of-type(1) {flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.checkRow input {accent-color:var(--color-gold);width:14px;height:14px;}
+.checkCount {font-size:12px;color:var(--color-text-muted);}
+.newBoard {display:flex;gap:6px;margin-top:8px;padding:8px 2px 2px;border-top:1px solid var(--color-border);}
+.newBoard .input {flex:1;}
+/* Chart columns sit with the chart, only while a chart is shown. */
+.chartColumns {display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;}
+.inlineField {display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-muted);}
+.inlineField .input {min-width:150px;padding:6px 10px;font-size:12px;}
+/* Library rows: open on the title, rename/remove from the ⋯ menu. */
+.libraryRow {position:relative;display:flex;align-items:center;min-width:0;}
+.libraryRow > button {flex:1;min-width:0;}
+.rowMenu {position:absolute;right:2px;top:50%;transform:translateY(-50%);opacity:0;transition:opacity 120ms;}
+.libraryRow:hover .rowMenu,.libraryRow:focus-within .rowMenu,.rowMenu[open],.libraryRowSelected .rowMenu {opacity:1;}
+.rowMenu > summary {min-height:24px;padding:0 6px;border-color:transparent;background:var(--color-surface);font-size:14px;line-height:1;}
+.rowMenu > summary::after {display:none;}
+.rowMenu > .menuBody {width:190px;}
+.renameInput {padding:6px 8px;font-size:12px;line-height:1.4;}
+.libraryRow > .renameInput {margin:2px 0;}
+@media(hover:none){.rowMenu{opacity:1}}
+/* Dashboard cards: tables with many columns take the full row. */
+.dashboardCard[data-wide="true"] {grid-column:1 / -1;}
+.cardHeader {display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+.cardTitle {text-align:left;font-size:14px;font-weight:500;color:var(--color-text-primary);overflow-wrap:anywhere;}
+.cardTitle:hover:not(:disabled) {color:var(--color-gold);}
+.cardTitle > span {color:var(--color-text-muted);}
+.iconButton {flex-shrink:0;width:28px;height:28px;border:1px solid var(--color-border);border-radius:6px;font-size:16px;line-height:1;color:var(--color-text-muted);}
+.iconButton:hover {background:var(--color-hover);color:var(--color-text-primary);}
+.emptyBoard {margin-top:24px;padding:32px;border:1px dashed var(--color-border);border-radius:8px;text-align:center;font-size:13px;color:var(--color-text-muted);}
 .provenance {font-size:12px;line-height:1.7;color:var(--color-text-muted);overflow-wrap:anywhere;}
 .provenance > p {margin-top:12px;}
 .provRows {display:grid;gap:8px;margin-top:12px;}
@@ -130,7 +168,7 @@
 @media(max-width:640px){.provRows > div{grid-template-columns:1fr;gap:2px}}
 .detailLabel {font-weight:500;color:var(--color-text-secondary);}
 .fingerprint {font-family:var(--font-geist-mono),monospace;}
-@media(max-width:640px){.resultToolbar{gap:8px}.resultToolbar > .resultActions{margin-left:0;gap:8px}.viewPicker{flex:1 0 100%}.viewSelect{flex:1;max-width:200px}.moreBody{grid-template-columns:1fr;gap:18px;padding:16px}.moreOptions{margin-left:auto}.resultToolbar .button,.moreOptions > summary{min-height:36px}.columns{gap:10px}}
+@media(max-width:640px){.resultToolbar{gap:8px}.resultToolbar > .resultActions{margin-left:0;gap:8px}.viewPicker{flex:1 0 100%}.viewSelect{flex:1;max-width:200px}.resultToolbar .button,.menu > summary{min-height:36px}.columns{gap:10px}}
 
 .shareRow {display:flex;gap:8px;align-items:center;min-width:0;}
 .shareRow .shareInput {flex:1;}
@@ -155,8 +193,8 @@
 .copyButton:hover {background:var(--color-hover);color:var(--color-text-primary);}
 .copyButton:focus-visible {outline:2px solid var(--color-gold);outline-offset:2px;}
 
-/* Trailing actions (Expand) follow More directly at the far right. */
-.resultToolbar > .moreOptions + .resultActions {margin-left:0;}
+/* Trailing actions (Expand) follow the other actions at the far right. */
+.resultToolbar > .resultActions + .resultActions {margin-left:0;}
 .provRows dd a {color:var(--color-text-secondary);}
 .provRows dd a:hover {color:var(--color-gold);}
 .provRows dd > .inlineCopy {display:inline-flex;vertical-align:middle;margin-left:8px;}

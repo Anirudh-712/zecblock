@@ -22,25 +22,25 @@ function toolsFixture(initial=result,narrative=context){
  const HookFrame=()=>{cursor=0;return useResearchTools(initial,'Latest block',narrative);};let tools=HookFrame();for(const fn of effects.splice(0))fn();tools=HookFrame();return{render:HookFrame,tools,storage,cleanup(){if(savedWindow===undefined)delete global.window;else global.window=savedWindow;global.fetch=savedFetch;}};
 }
 function panel(overrides={},panelProps={}){
- const capture=[],calls=[],exports=load({capture});const tools={ready:true,importing:false,id:null,title:'Latest block',notes:'',dashboard:'',result,sql:result.query.sql,limit:100,chart:{view:'table',x:0,y:0},setTitle:value=>calls.push(['title',value]),setNotes:()=>{},setDashboard:()=>{},setChart:value=>calls.push(['chart',value]),save:()=>calls.push(['save']),copyLink:()=>calls.push(['share']),exportCSV:()=>calls.push(['csv']),exportFile:()=>{},addToDashboard:()=>{},...overrides};
+ const capture=[],calls=[],exports=load({capture});const tools={ready:true,importing:false,id:null,dirty:true,title:'Latest block',notes:'',library:{documents:[],dashboards:[]},notice:'',error:'',result,sql:result.query.sql,limit:100,chart:{view:'table',x:0,y:0},setTitle:value=>calls.push(['title',value]),setNotes:()=>{},setChart:value=>calls.push(['chart',value]),save:()=>{calls.push(['save']);return 'saved';},copyLink:()=>calls.push(['share']),exportCSV:()=>calls.push(['csv']),exportFile:()=>{},toggleDashboard:()=>null,createDashboard:()=>null,renameDocument:()=>true,updateNotes:()=>{},removeDocument:()=>{},...overrides};
  const props={tools,result,busy:false,embedded:true,actions:React.createElement('button',null,'Expand results'),editAction:React.createElement('button',null,'Edit SQL'),sources:React.createElement('a',{href:'/learn/blocks'},'Reading a block'),...panelProps};return{html:renderToStaticMarkup(React.createElement(exports.ResearchPanel,props)),capture,calls};
 }
 
-test('one native view selector and primary actions keep advanced research controls under More',()=>{
+test('one view switch and direct actions: Edit SQL, Save, Add to dashboard, Share, Expand',()=>{
  const {html,capture,calls}=panel();assert.equal(capture.filter(e=>e.type==='div'&&e.props['aria-label']==='Result view').length,1,'one view switch');
- assert.match(html,/aria-label="Result view"><button[^>]*aria-pressed="true"[^>]*>Table<\/button>/);assert.match(html,/<summary>More<\/summary>/);assert.match(html,/>Share query<\/button>/);assert.match(html,/>Expand results<\/button>/);assert.match(html,/>Edit SQL<\/button>/);
- for(const label of ['Name &amp; notes','Chart settings','CSV results','Research file','Markdown report','Local library','Add to dashboard'])assert.ok(html.includes(label),label);
+ assert.match(html,/aria-label="Result view"><button[^>]*aria-pressed="true"[^>]*>Table<\/button>/);assert.doesNotMatch(html,/<summary>More<\/summary>/);assert.match(html,/<summary>Share<\/summary>/);assert.match(html,/<summary>Add to dashboard<\/summary>/);assert.match(html,/>Expand results<\/button>/);assert.match(html,/>Edit SQL<\/button>/);
+ for(const label of ['Copy query link','Results as CSV','Report (Markdown)','Research file (JSON)','No dashboards yet.','New dashboard name'])assert.ok(html.includes(label),label);
  assert.doesNotMatch(html,/role="(?:menu|menuitem)"|<summary>Exact data<\/summary>|<summary>Notes &amp; downloads<\/summary>/);
  capture.find(e=>e.type==='button'&&e.props.children==='Bar'&&'aria-pressed' in e.props).props.onClick();
- capture.find(e=>e.type==='button'&&e.props.children==='Save').props.onClick();capture.find(e=>e.type==='button'&&e.props.children==='Share query').props.onClick();
+ capture.find(e=>e.type==='button'&&e.props.children==='Save').props.onClick();capture.find(e=>e.type==='button'&&e.props.children==='Copy query link').props.onClick();
  assert.deepEqual(calls,[['chart',{view:'bar',x:0,y:0}],['save'],['share']]);
 });
 test('table mode is direct and Sources & details contains guide, exact query and provenance together',()=>{
  const {html}=panel();assert.equal((html.match(/<summary>Sources &amp; details<\/summary>/g)||[]).length,1);assert.match(html,/Reading a block/);assert.match(html,/SQL behind this result/);assert.match(html,/SELECT height FROM blocks LIMIT 1/);assert.match(html,/Query fingerprint/);assert.match(html,/3,534,000/);assert.doesNotMatch(html,/<summary>View data<\/summary>/);
  const capture=[],exports=load({capture});const chart=renderToStaticMarkup(React.createElement(exports.ResearchData,{result,chart:{view:'bar',x:0,y:0},showDetails:false}));assert.match(chart,/<summary>View data<\/summary>/);assert.doesNotMatch(chart,/Sources &amp; details|Query fingerprint/);
 });
-test('share field describes a reusable draft and CSV is disabled for an edited SQL snapshot',()=>{
- const {html,capture}=panel({shareURL:'https://fixture.example/ask#research=example',sql:'SELECT height FROM blocks LIMIT 2'});assert.match(html,/name="research-link"/);assert.match(html,/SQL draft, title and chart settings/);assert.match(html,/Answers, notes and result snapshots are excluded/);assert.match(html,/never runs automatically/);assert.equal(capture.find(e=>e.type==='button'&&e.props.children==='CSV results').props.disabled,true);
+test('share menu describes a reusable draft and CSV is disabled for an edited SQL snapshot',()=>{
+ const {html,capture}=panel({shareURL:'https://fixture.example/ask#research=example',sql:'SELECT height FROM blocks LIMIT 2'});assert.match(html,/name="research-link"/);assert.match(html,/Shares the SQL, name and chart settings, not results\. It never runs automatically\./);assert.equal(capture.find(e=>e.type==='button'&&e.props.children==='Results as CSV').props.disabled,true);
 });
 test('initial narrative and same-event accept plus annotate are bound to the current result',()=>{
  const fixture=toolsFixture();try{let tools=fixture.tools;assert.deepEqual(tools.document().narrative,context);const newer={...result,query:{...result.query,sql:'SELECT height FROM blocks ORDER BY height DESC LIMIT 1'},fingerprint:'b'.repeat(64)},next={...context,fingerprint:newer.fingerprint,answer:'A newer checked answer.'};
@@ -86,4 +86,29 @@ test('action feedback and errors remain outside the provenance disclosure',()=>{
   const {html}=panel({notice,error:'Browser storage is full.'},{saved:true});const details=html.indexOf('<summary>Sources &amp; details');
   assert.ok(html.indexOf(notice)<details);assert.match(html,/<p[^>]*role="status"[^>]*>/);assert.match(html,/<p[^>]*role="alert"[^>]*>Browser storage is full\.<\/p>/);
  }
+});
+test('library edits: rename, dashboard add/remove/create saves first, delete keeps analyses',()=>{
+ const fixture=toolsFixture();try{let tools=fixture.tools;
+  assert.equal(tools.dirty,true);
+  const created=tools.createDashboard('  Fee watch  ');tools=fixture.render();
+  assert.ok(created);assert.equal(tools.library.documents.length,1,'creating a dashboard saved the analysis');assert.equal(tools.id,created);assert.equal(tools.dirty,false);
+  const board=tools.library.dashboards[0];assert.equal(board.title,'Fee watch');assert.deepEqual(board.items,[created]);
+  assert.equal(tools.toggleDashboard(board.id),created);tools=fixture.render();assert.deepEqual(tools.library.dashboards[0].items,[],'toggling a member removes it');assert.match(tools.notice,/Removed from “Fee watch”/);
+  tools.toggleDashboard(board.id);tools=fixture.render();assert.deepEqual(tools.library.dashboards[0].items,[created]);
+  assert.equal(tools.renameDocument(created,'Renamed fees'),true);tools=fixture.render();assert.equal(tools.library.documents[0].title,'Renamed fees');assert.equal(tools.title,'Renamed fees');assert.equal(tools.dirty,false);
+  assert.equal(tools.renameDocument(created,'   '),false);
+  tools.renameDashboard(board.id,'Fees');tools.removeFromDashboard(board.id,created);tools=fixture.render();assert.equal(tools.library.dashboards[0].title,'Fees');assert.deepEqual(tools.library.dashboards[0].items,[]);
+  tools.setBoardId(board.id);tools=fixture.render();tools.deleteDashboard(board.id);tools=fixture.render();assert.equal(tools.library.dashboards.length,0);assert.equal(tools.boardId,null);assert.equal(tools.library.documents.length,1,'deleting a dashboard keeps its analyses');
+  tools.setTitle('Edited title');tools=fixture.render();assert.equal(tools.dirty,true,'an edit marks the save as changed');
+  tools.removeDocument(created);tools=fixture.render();assert.equal(tools.library.documents.length,0);assert.equal(tools.id,null);
+ }finally{fixture.cleanup();}
+});
+test('UTC-midnight timestamps read as dates and first-of-month columns as months',()=>{
+ const {dateFormatter}=require('../../lib/ask/research-display');
+ const months={columns:[{key:'c0',label:'month',type:'text'}],rows:[['2025-10-01 00:00:00+00'],['2025-11-01 00:00:00+00']]};
+ assert.equal(dateFormatter(months,0)('2025-10-01 00:00:00+00'),'Oct 2025');
+ const days={columns:[{key:'c0',label:'day',type:'text'}],rows:[['2025-10-01 00:00:00+00'],['2025-10-02 00:00:00+00']]};
+ assert.equal(dateFormatter(days,0)('2025-10-02 00:00:00+00'),'2025-10-02');
+ assert.equal(dateFormatter({columns:[{key:'c0',label:'t',type:'text'}],rows:[['2025-10-01 12:30:00+00']]},0),null,'a real time of day is left exact');
+ assert.equal(dateFormatter({columns:[{key:'c0',label:'n',type:'number'}],rows:[['1']]},0),null);
 });

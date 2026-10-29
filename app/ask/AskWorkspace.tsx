@@ -271,8 +271,15 @@ export function AskWorkspace() {
     }
   }
 
+  // A saved analysis that is already open as a recent conversation reopens
+  // there instead of adding a duplicate.
+  function markSaved(docId: string) {
+    setSessions(all => all.map(item => item.id !== activeId ? item : { ...item, title: tools.title, messages: item.messages.map(message => message.id === latestRecords?.id ? { ...message, savedDocumentId: docId } : message) }));
+  }
   function openSaved(doc: ResearchDocument, shared = false) {
     if (busy || tools.importing) return;
+    const existing = shared ? undefined : sessions.find(item => item.messages.some(message => message.savedDocumentId === doc.id));
+    if (existing) { tools.setBoardId(null); if (existing.id === activeId) tools.open(doc); else switchSession(existing.id); return; }
     tools.open(doc, shared); const id = ++serial.current;
     const narrative = doc.narrative;
     const sql = narrative?.inputMode === 'sql' ? narrative.question : !narrative ? doc.query.sql : undefined;
@@ -364,7 +371,7 @@ export function AskWorkspace() {
   }
   function renderRecords(message: Message, expandedView = false) {
     const sources = message.sources?.length || message.dataContext ? <AskSources inline sources={message.sources || []} dataContext={message.dataContext} /> : undefined;
-    if (message.research) return message.id === latestRecords?.id ? <ResearchPanel embedded={!expandedView} actions={expandedView ? undefined : explainAction(message)} trailing={expandedView ? undefined : <button aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button>} editAction={editAction(message)} sources={sources} saved={message.savedSnapshot} tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} sources={sources} savedSnapshot={message.savedSnapshot} chart={{view:'table',x:0,y:0}}/></div>;
+    if (message.research) return message.id === latestRecords?.id ? <ResearchPanel embedded={!expandedView} actions={expandedView ? undefined : explainAction(message)} trailing={expandedView ? undefined : <button aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button>} editAction={editAction(message)} onSaved={markSaved} sources={sources} saved={message.savedSnapshot} tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} sources={sources} savedSnapshot={message.savedSnapshot} chart={{view:'table',x:0,y:0}}/></div>;
     return <div className="p-4 sm:p-5"><AskAnalytics result={message.analytics}/><AskBlocks result={message.blocks} expanded/><AskTransactions result={message.transactions} expanded/>{message.transfers ? <AskTransfers result={message.transfers}/> : null}</div>;
   }
   const sqlMode = inputMode === 'sql';
