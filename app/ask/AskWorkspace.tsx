@@ -77,7 +77,7 @@ export function AskWorkspace() {
   const initialResearch = handoff?.turns.filter(turn => turn.research).at(-1);
   const tools = useResearchTools(initialResearch?.research, initialResearch ? analysisTitle(initialResearch.question) : undefined, initialResearch ? narrativeFor(initialResearch) : undefined);
   const [activeId, setActiveId] = useState(0);
-  const [question, setQuestion] = useState('');
+  const [question, setQuestion] = useState(handoff?.question || '');
   const [sharedResearch, setSharedResearch] = useState<ResearchShare | null>(null);
   const [sqlInput, setSQLInput] = useState('');
   const [sqlLimit, setSQLLimit] = useState(100);
@@ -88,7 +88,7 @@ export function AskWorkspace() {
   const resultDialog = useRef<HTMLDialogElement>(null);
   const [inputMode, setInputMode] = useState<'ask' | 'sql'>('ask');
   const [phase, setPhase] = useState<'thinking' | 'submitting' | 'explaining'>('thinking');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(handoff?.question ? 'Your question from the page is ready. Press Enter to run it in Zift.' : '');
   const feedback = useAskFeedback(inputMode);
   const aiBlocked = feedback.blockedFor('ask');
   const sqlBlocked = feedback.blockedFor('sql');

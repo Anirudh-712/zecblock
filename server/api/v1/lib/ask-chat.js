@@ -25,6 +25,12 @@ function task(name, validator, instruction) {
   return { name, validator, schema, instruction };
 }
 const selectionSchema = z.object({ intent: z.enum(['analysis', 'knowledge', 'transfers', 'blocks', 'transactions', 'unsupported']), blockQuery: blockQuerySchema.nullable(), transactionQuery: transactionQuerySchema.nullable(), flowQuery: querySchema.nullable(), spec: analysisSchema.nullable(), topics: z.array(z.enum(knowledgeIds)).max(3), locale: z.enum(locales) }).strict();
+// Page-widget selection may mark a question as needing a custom query; the
+// server then offers Zift and never drafts or runs SQL on that page.
+function withZiftHandoff(selection) {
+  const validator = selection.validator.extend({ intent: z.enum([...selection.validator.shape.intent.options, 'needs_query']) });
+  return task(selection.name, validator, `${selection.instruction}\nIf answering needs a custom query over public Zcash chain data (a calendar period, filter, comparison or measure that the tools above cannot express), use intent=needs_query with spec, flowQuery, blockQuery, transactionQuery${selection.validator.shape.analyticsPlan ? ', analyticsPlan' : ''} null and topics []. Never use needs_query for questions that are not about Zcash data.`);
+}
 function selectionTask(analysisInstructions, analytics) {
   if(analytics?.researchEnabled){
     const validator=selectionSchema.extend({intent:z.enum(['research','analysis','knowledge','transfers','blocks','transactions','clarify_growth','unsupported']),sql:z.string().max(8192).nullable()});
@@ -62,6 +68,9 @@ function answerTaskFor(facts, records, hasAnalysis = false, compact = false) {
   }).strict(), `${instruction}\n${analysisGuidance}${hasAnalysis ? `
 You are interpreting measured data, including when the question is "Explain this page", "Explain this view" or "Explain this chart". Lead with a concrete finding using supplied fact placeholders in the opening sentence. Never open with a description of what the page shows or a glossary definition. Explain what makes the finding significant: concentration, expansion/contraction, a shift in balance, uneven activity, or changing recent pace. Choose the finding relevant to the user's question; for a general pool overview use selectedPools for overall movement and concentration, rather than silently substituting the Orchard/Ironwood pair. For flows lead with the measured public net direction and its size, then peak concentration or recent pace. Support your interpretation with at most one additional observation, preferably recent pace or a dated change; avoid a dump of ending values. For a general all-pool overview stay with that denominator rather than switching to the Orchard/Ironwood pair unless the user asks for that comparison. State the selected pool and observation window naturally so the finding has a clear scope and time frame. A single-pool result must name that pool and must never be presented as all shielded pools. Calm periods and decreases are valid findings: do not manufacture drama, causes, forecasts, buying pressure or recommendations. Definitions belong only where needed to understand the finding. Keep the response around one hundred words in two short paragraphs. Leave limitation empty for ordinary descriptive findings with complete coverage. Use it only for a specific material issue, such as incomplete coverage or a causal inference the question asks about. Do not append stock warnings about hidden wallets or private payments to every answer.` : ''}`);
 }
+const ziftHandoff = {
+  en: 'This page’s charts cannot answer that directly. Zift can try it with a custom query over public mainnet data.',
+};
 const unsupported = {
   en: 'I cannot answer that with the data and tools available here. I can analyze available public Zcash data and explain Zcash, supported wallets and nodes.',
   fr: 'Je peux expliquer Zcash, les portefeuilles et nœuds pris en charge, et les données publiques du réseau.',
@@ -132,9 +141,14 @@ async function chat(input, run, internalClient, signal, analysisInstructions, ca
   const guideQuestion = Object.keys(getKnowledge([page.topic])[0]?.questions || {}).some(text => text.toLowerCase().replace(/[?.!]+$/, '') === input.question.trim().toLowerCase().replace(/[?.!]+$/, ''));
   const transactionShortcut = resolveTransactionQuery(input);
   const blockShortcut = resolveBlockQuery(input);
-  const selection = transactionShortcut ? { intent: 'transactions', transactionQuery: transactionShortcut, locale: input.locale === 'auto' ? 'en' : input.locale } : blockShortcut ? { intent: 'blocks', blockQuery: blockShortcut, locale: input.locale === 'auto' ? 'en' : input.locale } : guideQuestion ? { intent: 'knowledge', spec: null, topics: [pageTopic], locale: input.locale === 'auto' ? 'en' : input.locale } : publicExplain || contextualFollowUp || shortcut ? { intent: shortcut || input.context || page.spec ? 'analysis' : 'knowledge', spec: shortcut || input.context || page.spec || null, topics: [pageTopic], locale: input.locale === 'auto' ? 'en' : input.locale } : await run({ ...input, challenge: undefined, page, catalogue: knowledge.map(({ id, title }) => ({ id, title })), ...(analytics ? { analyticsCatalogue: analytics.catalogue, utcDate: new Date().toISOString().slice(0,10) } : {}) }, selectionTask(analysisInstructions, input.page==='ask'?analytics:analytics?{...analytics,researchEnabled:false}:null));
+  const selection = transactionShortcut ? { intent: 'transactions', transactionQuery: transactionShortcut, locale: input.locale === 'auto' ? 'en' : input.locale } : blockShortcut ? { intent: 'blocks', blockQuery: blockShortcut, locale: input.locale === 'auto' ? 'en' : input.locale } : guideQuestion ? { intent: 'knowledge', spec: null, topics: [pageTopic], locale: input.locale === 'auto' ? 'en' : input.locale } : publicExplain || contextualFollowUp || shortcut ? { intent: shortcut || input.context || page.spec ? 'analysis' : 'knowledge', spec: shortcut || input.context || page.spec || null, topics: [pageTopic], locale: input.locale === 'auto' ? 'en' : input.locale } : await run({ ...input, challenge: undefined, page, catalogue: knowledge.map(({ id, title }) => ({ id, title })), ...(analytics ? { analyticsCatalogue: analytics.catalogue, utcDate: new Date().toISOString().slice(0,10) } : {}) }, (input.page!=='ask'&&analytics?.researchEnabled?withZiftHandoff:value=>value)(selectionTask(analysisInstructions, input.page==='ask'?analytics:analytics?{...analytics,researchEnabled:false}:null)));
   const locale = input.locale === 'auto' ? selection.locale : input.locale;
-  if (selection.intent === 'unsupported') return { answer: unsupportedAnswer(input.question,locale), sources: [], spec: null, locale };
+  // The page widget has no SQL research route. A question that needs one is
+  // offered to Zift instead of refused (no SQL is compiled or run here); an
+  // unsupported one keeps its refusal with a softer offer to try Zift.
+  const widgetHandoff = analytics?.researchEnabled && input.page !== 'ask';
+  if (widgetHandoff && ['needs_query', 'research', 'clarify_growth'].includes(selection.intent)) return { answer: ziftHandoff[locale] || ziftHandoff.en, sources: [], spec: null, locale, handoff: 'zift' };
+  if (selection.intent === 'unsupported') return { answer: unsupportedAnswer(input.question,locale), sources: [], spec: null, locale, ...(widgetHandoff ? { handoff: 'try-zift' } : {}) };
   if (selection.intent === 'clarify_growth') {
     if (!analytics?.researchEnabled || input.page !== 'ask' || selection.sql !== null || selection.spec !== null || selection.flowQuery !== null || selection.blockQuery !== null || selection.transactionQuery !== null) throw askError('answer');
     return { answer: growthClarification[locale], sources: [], spec: null, locale };

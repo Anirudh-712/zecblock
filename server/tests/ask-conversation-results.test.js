@@ -173,3 +173,9 @@ test('guided charts keep filters and exports under closed secondary controls wit
   assert.equal(elements.filter(item=>item.type==='input' && item.props.type==='date').length,2);
   assert.match(html,/aria-haspopup="dialog"[^>]*>Expand results/);
 });
+
+test('a question handed over by the page widget is prefilled in Zift, not sent', () => {
+  const html = workspace({turns:[], spec:null, page:'pools', question:'How has the Orchard pool balance changed this month?'});
+  assert.match(html, /<textarea[^>]*id="ask-question"[^>]*>How has the Orchard pool balance changed this month\?<\/textarea>/);
+  assert.doesNotMatch(html, /aria-label="Conversation"/, 'nothing ran: the welcome composer is shown');
+});

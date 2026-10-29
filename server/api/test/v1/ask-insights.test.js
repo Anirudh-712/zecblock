@@ -288,3 +288,18 @@ test('overall recent pace cancels pool redistribution and excludes unknown combi
  assert.equal(partial.analysis.selectedPools.recentComparison,undefined);
  assert.equal(partial.analysis.series[1].observedValues,14);
 });
+
+test('the page widget offers Zift for custom-query questions without compiling or running SQL', async () => {
+  const selection = intent => ({ intent, spec: null, flowQuery: null, blockQuery: null, transactionQuery: null, topics: [], locale: 'en', sql: null });
+  const analytics = { researchEnabled: true, jobsEnabled: true, catalogue: [{ dataset: 'daily' }], submit: () => assert.fail('the widget never submits SQL'), execute: () => assert.fail('the widget never executes SQL') };
+  const source = { dispatch: async () => assert.fail('no source read') };
+  const tasks = [];
+  const ask = (intent, page) => chat({ question: 'How has the Orchard pool balance changed this month?', page, context: spec, history: [], locale: 'en' }, async (body, task) => { tasks.push(task); return selection(intent); }, source, AbortSignal.timeout(1000), '', undefined, analytics);
+  const research = await ask('needs_query', 'pools');
+  assert.equal(research.handoff, 'zift'); assert.match(research.answer, /Zift can try it/);
+  const unsupported = await ask('unsupported', 'pools');
+  assert.equal(unsupported.handoff, 'try-zift'); assert.match(unsupported.answer, /cannot answer that/);
+  assert.equal((await ask('unsupported', 'ask')).handoff, undefined, 'Zift itself does not offer to open Zift');
+  assert.ok(tasks[0].validator.shape.intent.options.includes('needs_query') && /needs_query/.test(tasks[0].instruction), 'the widget can say a question needs a custom query');
+  assert.ok(!tasks.at(-1).validator.shape.intent.options.includes('needs_query'), 'Zift itself plans SQL instead');
+});

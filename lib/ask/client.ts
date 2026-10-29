@@ -63,7 +63,8 @@ export async function askChat(question: string, page: string, context: AnalysisS
   if (meta.network !== 'mainnet') throw new Error('Wrong network');
   return data;
 }
-export interface AskHandoff { transaction?: string; block?: string; turns: AskTurn[]; spec: AnalysisSpec | null; page: string }
+// question: a draft the page widget could not answer, prefilled in Zift.
+export interface AskHandoff { transaction?: string; block?: string; turns: AskTurn[]; spec: AnalysisSpec | null; page: string; question?: string }
 // Memory only, never URL parameters, browser storage or analytics.
 let handoff: AskHandoff | null = null;
 export function saveAskHandoff(value: AskHandoff) { handoff = { ...value, turns: value.turns.slice(-12) }; }
