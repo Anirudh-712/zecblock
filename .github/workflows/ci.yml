@@ -129,6 +129,7 @@ jobs:
           node --test server/tests/crosslink-freshness.test.js
           python3 server/tests/crosslink-snapshot.test.py
           npm run test:server-regressions
+          npm run test:release
           npm run test:activity
           npm run test:bot
           npm run test:hashrate-postgres
