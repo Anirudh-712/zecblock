@@ -146,4 +146,4 @@ async function admit(redis, config, req, fetchImpl = fetch) {
     throw askError('unavailable');
   }
 }
-module.exports = { RESERVE, ADMIT, ADMIT_WORK, budgetConfig, maximumCost, reserve, admit, admitWork };
+module.exports = { RESERVE, ADMIT, ADMIT_WORK, budgetConfig, maximumCost, reserve, admit, admitWork, identityFor };

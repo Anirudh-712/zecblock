@@ -67,7 +67,7 @@ function checkCoreGuard(row){if(!row || !['dedicated','identity','restricted','d
 const ADMIT_QUERY = `
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
 if tonumber(redis.call('GET', KEYS[2]) or '0') >= tonumber(ARGV[4]) then return -2 end
-if redis.call('ZCARD', KEYS[1]) >= 2 then
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[5] or '2') then
  local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
  return {-1, math.max(1, math.min(45, math.ceil((tonumber(first[2]) - tonumber(ARGV[1])) / 1000)))}
 end
@@ -132,7 +132,10 @@ function evidenceFor(compiled, rows, coverage, retrievedAt) {
 function createAnalytics(env, dependencies = {}) {
   const config = analyticsConfig(env);
   if (!config) return null;
-  const pool = dependencies.pool || new Pool({ ...(config.connection || {connectionString:config.connectionString}), max: 2, connectionTimeoutMillis: 1500, idleTimeoutMillis: 10000,
+  // Simultaneous queries across every worker process (Redis leases) and in
+  // this process (pool). Keep the database role's CONNECTION LIMIT at least this.
+  const concurrency = Number.isInteger(Number(env.ASK_ANALYTICS_CONCURRENCY)) && Number(env.ASK_ANALYTICS_CONCURRENCY) >= 1 && Number(env.ASK_ANALYTICS_CONCURRENCY) <= 16 ? Number(env.ASK_ANALYTICS_CONCURRENCY) : 2;
+  const pool = dependencies.pool || new Pool({ ...(config.connection || {connectionString:config.connectionString}), max: concurrency, connectionTimeoutMillis: 1500, idleTimeoutMillis: 10000,
     statement_timeout: 3000, query_timeout: env.ASK_RESEARCH_JOBS_ENABLED==='true'?35000:3500, application_name: 'zecblock-ask-analytics', options: '-c default_transaction_read_only=on -c search_path=pg_catalog' });
   pool.on?.('error', () => {}); // Never log connection strings or raw SQL errors.
   let active = 0;
@@ -143,7 +146,7 @@ function createAnalytics(env, dependencies = {}) {
       if(research && (env.ASK_RESEARCH_ENABLED!=='true'||config.profile!=='logical_public_core'))throw askError('source');
       const compiled = research ? await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'}) : compilePlan(input, now, config.profile); // Validate before quota or pool access.
       if (!redis?.isReady) throw askError('unavailable');
-      if (active >= 2) throw sqlQuotaError('ask-sql-busy', 1);
+      if (active >= concurrency) throw sqlQuotaError('ask-sql-busy', 1);
       active++;
       const deadline = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(background?35000:10000)]);
       const lease = randomUUID(); let admitted = false; let client; let released = false;
@@ -161,7 +164,7 @@ function createAnalytics(env, dependencies = {}) {
       deadline.addEventListener('abort', destroy, { once: true });
       try {
         deadline.throwIfAborted();
-        const accepted = await bounded(redis.eval(ADMIT_QUERY, { keys: ['ask:{mainnet}:analytics:active', `ask:{mainnet}:analytics:queries:${new Date(now).toISOString().slice(0,10)}`], arguments: [String(now), String(now + (background?45000:30000)), lease, String(config.daily)] }), deadline);
+        const accepted = await bounded(redis.eval(ADMIT_QUERY, { keys: ['ask:{mainnet}:analytics:active', `ask:{mainnet}:analytics:queries:${new Date(now).toISOString().slice(0,10)}`], arguments: [String(now), String(now + (background?45000:30000)), lease, String(config.daily), String(concurrency)] }), deadline);
         admitted = Number(accepted) === 1;
         deadline.throwIfAborted();
         if (!admitted) {

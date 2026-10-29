@@ -5,7 +5,7 @@ const { askError, askStage, classifyFailure, failureExtra } = require('../lib/as
 const { policyFeedback } = require('../../../../lib/ask/sql-feedback');
 const { z } = require('zod');
 const { createHash, randomUUID } = require('node:crypto');
-const { RESERVE, budgetConfig, reserve, admit, admitWork } = require('../lib/ask-budget');
+const { RESERVE, budgetConfig, reserve, admit, admitWork, identityFor } = require('../lib/ask-budget');
 const { chatRequestSchema } = require('../../../../lib/ask/chat');
 const { resolveTransactionQuery } = require('../lib/ask-transactions');
 const { resolveBlockQuery } = require('../lib/ask-blocks');
@@ -140,8 +140,9 @@ function createAskRouter(env = process.env, dependencies = {}) {
       };
       const requestAnalytics=analytics?{...analytics,
         execute:async(...args)=>{await ensureSQL();return analytics.execute(...args);},
-        submit:async(...args)=>{
-          await ensureSQL();const ticket=await analytics.submit(...args);
+        // The worker caps queued+running jobs per visitor with this daily keyed hash.
+        submit:async(query,options={})=>{
+          await ensureSQL();const ticket=await analytics.submit(query,{...options,owner:identityFor(manual?researchConfig:config,req,new Date().toISOString().slice(0,10))});
           if(aiAdmitted)try{
             // A server-only, ticket-bound receipt lets narration finish without
             // charging a second AI question. It is never supplied by a client.

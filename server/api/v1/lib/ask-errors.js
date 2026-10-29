@@ -36,6 +36,7 @@ const quotaDetails = Object.freeze({
   'ask-sql-global-day': 'SQL has reached its site-wide daily query allowance.' + keptSQL,
   'ask-sql-busy': 'SQL is handling the maximum number of simultaneous queries. Try again shortly.' + keptSQL,
   'ask-sql-queue': 'The SQL queue is full. Try again shortly.' + keptSQL,
+  'ask-sql-visitor': 'You already have two queries running or waiting. Try again when one finishes.' + keptSQL,
   'ask-sql-status-minute': 'Too many research status, cancellation or explanation requests from your connection.' + keptSQL + ' Ask can still answer other direct questions, subject to its own limits.',
 });
 function askError(kind) { const error = new Error('Ask operation failed'); error.askKind = kind; return error; }

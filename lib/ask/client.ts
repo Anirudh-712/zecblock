@@ -22,6 +22,7 @@ const quotaFailures: Record<string, { title: string; detail: string; maxRetrySec
   'ask-sql-global-day': { title: 'SQL limit reached', detail: 'SQL has reached its site-wide daily query allowance.' + keptSQL },
   'ask-sql-busy': { title: 'SQL busy', detail: 'SQL is handling the maximum number of simultaneous queries. Try again shortly.' + keptSQL },
   'ask-sql-queue': { title: 'SQL busy', detail: 'The SQL queue is full. Try again shortly.' + keptSQL },
+  'ask-sql-visitor': { title: 'Queries in progress', detail: 'You already have two queries running or waiting. Try again when one finishes.' + keptSQL },
   'ask-sql-status-minute': { title: 'Research updates limited', detail: 'Too many research status, cancellation or explanation requests from your connection.' + keptSQL + ' Ask can still answer other direct questions, subject to its own limits.', maxRetrySeconds: 60 },
 });
 function quotaFailure(error: ApiError) {

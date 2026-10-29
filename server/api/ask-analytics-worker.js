@@ -29,7 +29,7 @@ function createWorker(env, { analytics, redis, memoryPressure=createMemoryPressu
   for(const operation of ['submit','status','cancel'])app.post('/jobs/'+operation,express.json({limit:'12kb'}),async(req,res)=>{
     if(!jobs)return res.status(503).json({error:'unavailable'});
     try{if(operation==='submit')await memoryPressure.assertAvailable();const input=operation==='submit'?(await compileResearchSQL(req.body,{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request:jobTicketSchema.parse(req.body);
-      res.json(await jobs[operation](input));
+      res.json(await (operation==='submit'?jobs.submit(input,{owner:req.get('X-Ask-Visitor')}):jobs[operation](input)));
     }catch(error){const quota=sqlQuotaDetails(error);if(quota)res.set('Retry-After',String(quota.retryAfter));res.status(error?.askKind==='job'?404:error?.askKind==='quota'?429:error?.askKind==='resource'?422:error?.askKind?503:400).json({error:error?.askKind==='job'?'expired':error?.askKind==='quota'?'allowance':error?.askKind==='resource'?'resource':error?.askKind?'unavailable':'invalid-request',...(quota?{quota}:{})});}
   });
   app.post('/query', express.json({ limit:'12kb' }), async (req, res) => {

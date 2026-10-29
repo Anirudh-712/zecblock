@@ -43,10 +43,10 @@ function createAnalyticsClient(env, fetchImpl) {
   } catch { return null; }
   const transport=fetchImpl?null:require('./ask-worker-transport').createWorkerTransport();
   fetchImpl ||= transport.fetch;
-  async function jobRPC(operation,input,signal){
+  async function jobRPC(operation,input,signal,owner){
     if(env.ASK_RESEARCH_JOBS_ENABLED!=='true'||env.ASK_RESEARCH_ENABLED!=='true'||env.ASK_ANALYTICS_STORE!=='logical_public_core')throw askError('source');
     const body=operation==='submit'?(await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request:jobTicketSchema.parse(input);
-    const response=await fetchImpl(new URL('/jobs/'+operation,url),{method:'POST',redirect:'error',signal:AbortSignal.any([...(signal?[signal]:[]),AbortSignal.timeout(5000)]),headers:{'Content-Type':'application/json',Authorization:`Bearer ${env.ASK_ANALYTICS_SERVICE_KEY}`},body:JSON.stringify(body)});
+    const response=await fetchImpl(new URL('/jobs/'+operation,url),{method:'POST',redirect:'error',signal:AbortSignal.any([...(signal?[signal]:[]),AbortSignal.timeout(5000)]),headers:{'Content-Type':'application/json',Authorization:`Bearer ${env.ASK_ANALYTICS_SERVICE_KEY}`,...(operation==='submit'&&typeof owner==='string'&&/^[0-9a-f]{64}$/.test(owner)?{'X-Ask-Visitor':owner}:{})},body:JSON.stringify(body)});
     if(!response.ok){if(response.status===429)throw await workerQuotaError(response);await response.body?.cancel();throw askError(response.status===404?'job':response.status===422?'resource':'source');}
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>270000)throw askError('source');chunks.push(Buffer.from(value));}}finally{await reader.cancel();}
@@ -58,7 +58,7 @@ function createAnalyticsClient(env, fetchImpl) {
   }
   return {
     jobsEnabled:env.ASK_RESEARCH_JOBS_ENABLED==='true'&&env.ASK_RESEARCH_ENABLED==='true'&&env.ASK_ANALYTICS_STORE==='logical_public_core',
-    submit:(query,{signal}={})=>jobRPC('submit',query,signal),
+    submit:(query,{signal,owner}={})=>jobRPC('submit',query,signal,owner),
     status:(ticket,{signal}={})=>jobRPC('status',ticket,signal),
     cancel:(ticket,{signal}={})=>jobRPC('cancel',ticket,signal),
     catalogue:env.ASK_ANALYTICS_STORE==='logical_public_core'?coreCatalogue:catalogue,

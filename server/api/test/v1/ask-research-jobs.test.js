@@ -294,3 +294,25 @@ test('six-request readiness burst uses the private HTTP queue with retained resu
  const output=[];const result=await run(['--concurrency=6','--rounds=2','annual_activity','flow_months','address_incidence'],{...settings,ASK_ANALYTICS_URL:`http://127.0.0.1:${server.address().port}/`},{emit:r=>output.push(r)});
  assert.equal(result.failed,0,JSON.stringify(output));assert.equal(result.succeeded,6);
 });
+test('parallel runner slots run separate jobs at once without interrupting each other',async t=>{
+ const redis=await fixture(t);let running=0,peak=0;const release=[];
+ const analytics={execute:async input=>{running++;peak=Math.max(peak,running);await new Promise(resolve=>release.push(resolve));running--;return evidence(input);}};
+ const jobs=createResearchJobs({...env,ASK_RESEARCH_JOB_RUNNERS:'3'},{redis,analytics});t.after(()=>jobs.stop());
+ const tickets=[];for(let i=0;i<4;i++)tickets.push(await jobs.submit(query));
+ const run=jobs.tick();await wait(async()=>running===3);
+ // A second tick while three slots are busy never fails their running jobs.
+ const again=createResearchJobs({...env,ASK_RESEARCH_JOB_RUNNERS:'3'},{redis,analytics});t.after(()=>again.stop());await again.tick();
+ assert.deepEqual(await Promise.all(tickets.map(async ticket=>(await jobs.status(ticket)).state)),['running','running','running','queued']);
+ release.splice(0).forEach(resolve=>resolve());await run;
+ assert.equal(peak,3);assert.deepEqual(await Promise.all(tickets.slice(0,3).map(async ticket=>(await jobs.status(ticket)).state)),['succeeded','succeeded','succeeded']);
+});
+test('a visitor may hold only a bounded number of queued or running jobs; the queue length is configurable',async t=>{
+ const redis=await fixture(t);
+ const jobs=createResearchJobs({...env,ASK_RESEARCH_JOBS_PER_VISITOR:'2',ASK_RESEARCH_JOB_QUEUE:'3'},{redis,analytics:{execute:async input=>evidence(input)}});t.after(()=>jobs.stop());
+ const a='a'.repeat(64),b='b'.repeat(64);
+ await jobs.submit(query,{owner:a});await jobs.submit(query,{owner:a});
+ await assert.rejects(jobs.submit(query,{owner:a}),e=>e.quotaCode==='ask-sql-visitor');
+ await jobs.submit(query,{owner:b});
+ await assert.rejects(jobs.submit(query,{owner:'c'.repeat(64)}),e=>e.quotaCode==='ask-sql-queue','the shared queue still has a cap');
+ await jobs.tick();await jobs.submit(query,{owner:a});
+});
