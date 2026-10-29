@@ -7,3 +7,5 @@ export function writeLibrary(storage:Pick<Storage,'getItem'|'setItem'>,library:R
 export function readPortable(text:string):ResearchDocument|ResearchLibrary;
 export function mergePortable(current:ResearchLibrary,incoming:ResearchDocument|ResearchLibrary,uuid:()=>string):ResearchLibrary;
 export function markdownReport(document:ResearchDocument):string;
+
+export function csvReport(document:ResearchDocument):string;

@@ -1,0 +1,64 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),ts=require('typescript'),React=require('react');
+const {renderToStaticMarkup}=require('react-dom/server');
+const contract=require('../../lib/ask/research-contract');
+const when='2026-10-29T04:00:00Z';
+const result={query:{version:3,sql:'SELECT height FROM blocks LIMIT 1',limit:100},columns:[{key:'c0',label:'height',type:'number'}],rows:[['3534000']],truncated:false,datasets:['blocks'],fingerprint:'a'.repeat(64),retrievedAt:when,indexedThrough:when,coverage:'fixed public operator fixture',units:'exact decimal strings'};
+const context={question:'Show the latest canonical block height.',answer:'The returned block height is 3,534,000.',fingerprint:result.fingerprint,inputMode:'ask',locale:'en'};
+function load({hooks,capture}={}){
+ const filename=path.resolve(__dirname,'../../app/ask/ResearchWorkbench.tsx'),m=new Module(filename,module);m.filename=filename;m.paths=Module._nodeModulePaths(path.dirname(filename));const base=m.require.bind(m),runtime=require('react/jsx-runtime');
+ const wrap=fn=>(type,props,...rest)=>{capture?.push({type,props});return fn(type,props,...rest);};
+ const imports={'react':hooks?{...React,...hooks}:React,'react/jsx-runtime':capture?{...runtime,jsx:wrap(runtime.jsx),jsxs:wrap(runtime.jsxs)}:runtime,'next/dynamic':{default:()=>()=>null},'next/link':{default:({children,...props})=>React.createElement('a',props,children)},'@/lib/ask/research-display':require('../../lib/ask/research-display'),'@/lib/ask/research-contract':contract,'@/lib/ask/research-library':require('../../lib/ask/research-library'),'@/lib/ask/research-share':require('../../lib/ask/research-share')};
+ m.require=name=>Object.hasOwn(imports,name)?imports[name]:name.endsWith('.module.css')?{default:new Proxy({},{get:(_,key)=>key})}:base(name);
+ m._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.CommonJS}}).outputText,filename);return m.exports;
+}
+// Minimal hook scheduler exercises callback/ref binding before and after a
+// batched render. Real browser interaction is verified separately by staging.
+function toolsFixture(initial=result,narrative=context){
+ let cursor=0;const cells=[],effects=[];
+ const hooks={useState(initial){const i=cursor++;if(!(i in cells))cells[i]=typeof initial==='function'?initial():initial;return[cells[i],value=>{cells[i]=typeof value==='function'?value(cells[i]):value;}];},useRef(initial){const i=cursor++;if(!(i in cells))cells[i]={current:initial};return cells[i];},useEffect(fn){const i=cursor++;if(!(i in cells)){cells[i]=true;effects.push(fn);}}};
+ const {useResearchTools}=load({hooks}),storage=new Map(),savedWindow=global.window,savedFetch=global.fetch;
+ global.window={localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)},location:{origin:'https://fixture.example'},confirm:()=>true};global.fetch=()=>assert.fail('opening, saving and importing local research must not issue a request');
+ const HookFrame=()=>{cursor=0;return useResearchTools(initial,'Latest block',narrative);};let tools=HookFrame();for(const fn of effects.splice(0))fn();tools=HookFrame();return{render:HookFrame,tools,storage,cleanup(){if(savedWindow===undefined)delete global.window;else global.window=savedWindow;global.fetch=savedFetch;}};
+}
+function panel(overrides={}){
+ const capture=[],calls=[],exports=load({capture});const tools={ready:true,importing:false,id:null,title:'Latest block',notes:'',dashboard:'',result,sql:result.query.sql,limit:100,chart:{view:'table',x:0,y:0},setTitle:value=>calls.push(['title',value]),setNotes:()=>{},setDashboard:()=>{},setChart:value=>calls.push(['chart',value]),save:()=>calls.push(['save']),copyLink:()=>calls.push(['share']),exportCSV:()=>calls.push(['csv']),exportFile:()=>{},addToDashboard:()=>{},...overrides};
+ const props={tools,result,busy:false,embedded:true,actions:React.createElement('button',null,'Expand results'),editAction:React.createElement('button',null,'Edit SQL'),sources:React.createElement('a',{href:'/learn/blocks'},'Reading a block')};return{html:renderToStaticMarkup(React.createElement(exports.ResearchPanel,props)),capture,calls};
+}
+
+test('one native view selector and primary actions keep advanced research controls under More',()=>{
+ const {html,capture,calls}=panel();assert.equal(capture.filter(e=>e.type==='select'&&e.props.className==='viewSelect').length,1);
+ assert.match(html,/>Result view<select/);assert.match(html,/<summary>More<\/summary>/);assert.match(html,/>Share query<\/button>/);assert.match(html,/>Expand results<\/button>/);assert.match(html,/>Edit SQL<\/button>/);
+ for(const label of ['Name &amp; notes','Chart settings','CSV results','Research file','Markdown report','Local library','Add to dashboard'])assert.ok(html.includes(label),label);
+ assert.doesNotMatch(html,/role="(?:menu|menuitem)"|<summary>Exact data<\/summary>|<summary>Notes &amp; downloads<\/summary>/);
+ const selector=capture.find(e=>e.type==='select'&&e.props.className==='viewSelect');selector.props.onChange({target:{value:'bar'}});
+ capture.find(e=>e.type==='button'&&e.props.children==='Save').props.onClick();capture.find(e=>e.type==='button'&&e.props.children==='Share query').props.onClick();
+ assert.deepEqual(calls,[['chart',{view:'bar',x:0,y:0}],['save'],['share']]);
+});
+test('table mode is direct and Sources & details contains guide, exact query and provenance together',()=>{
+ const {html}=panel();assert.equal((html.match(/<summary>Sources &amp; details<\/summary>/g)||[]).length,1);assert.match(html,/Reading a block/);assert.match(html,/SQL behind this result/);assert.match(html,/SELECT height FROM blocks LIMIT 1/);assert.match(html,/Query fingerprint:/);assert.match(html,/3,534,000/);assert.doesNotMatch(html,/<summary>View data<\/summary>/);
+ const capture=[],exports=load({capture});const chart=renderToStaticMarkup(React.createElement(exports.ResearchData,{result,chart:{view:'bar',x:0,y:0},showDetails:false}));assert.match(chart,/<summary>View data<\/summary>/);assert.doesNotMatch(chart,/Sources &amp; details|Query fingerprint:/);
+});
+test('share field describes a reusable draft and CSV is disabled for an edited SQL snapshot',()=>{
+ const {html,capture}=panel({shareURL:'https://fixture.example/ask#research=example',sql:'SELECT height FROM blocks LIMIT 2'});assert.match(html,/name="research-link"/);assert.match(html,/SQL draft, title and chart settings/);assert.match(html,/Answers, notes and result snapshots are excluded/);assert.match(html,/never runs automatically/);assert.equal(capture.find(e=>e.type==='button'&&e.props.children==='CSV results').props.disabled,true);
+});
+test('initial narrative and same-event accept plus annotate are bound to the current result',()=>{
+ const fixture=toolsFixture();try{let tools=fixture.tools;assert.deepEqual(tools.document().narrative,context);const newer={...result,query:{...result.query,sql:'SELECT height FROM blocks ORDER BY height DESC LIMIT 1'},fingerprint:'b'.repeat(64)},next={...context,fingerprint:newer.fingerprint,answer:'A newer checked answer.'};
+ tools.accept(newer,'New result');assert.equal(tools.annotate(next),true);tools=fixture.render();assert.deepEqual(tools.document().narrative,next);assert.deepEqual(tools.narrative,next);
+ assert.equal(tools.annotate(context),false);tools=fixture.render();assert.deepEqual(tools.document().narrative,next);
+ tools.accept({...newer,rows:[['3534001']]},'Fresh run');tools=fixture.render();assert.equal(tools.document().narrative,undefined,'new result must clear old prose even with the same query fingerprint');
+ }finally{fixture.cleanup();}
+});
+test('edited SQL or row limit excludes both the old result and its narrative from portable saves',()=>{
+ const fixture=toolsFixture();try{let tools=fixture.tools;tools.setSQL('SELECT height FROM blocks LIMIT 2');tools=fixture.render();const draft=tools.document();assert.equal(draft.version,2);assert.equal(draft.result,null);assert.equal(draft.narrative,undefined);
+ tools.setSQL(result.query.sql);tools.setLimit(50);tools=fixture.render();assert.equal(tools.document().result,null);assert.equal(tools.document().narrative,undefined);
+ tools.reset();tools=fixture.render();assert.equal(tools.result,null);assert.equal(tools.narrative,null);assert.equal(tools.annotate(context),false);
+ }finally{fixture.cleanup();}
+});
+test('save and reopen retain version-two narrative, legacy files upgrade, and no local action runs SQL',async()=>{
+ const fixture=toolsFixture();try{let tools=fixture.tools;tools.save();tools=fixture.render();const doc=tools.library.documents[0];assert.equal(doc.version,2);assert.deepEqual(doc.narrative,context);assert.equal(tools.notice,'Saved in this browser.');
+ tools.reset();tools=fixture.render();tools.open(doc);tools=fixture.render();assert.deepEqual(tools.narrative,context);assert.deepEqual(tools.document().narrative,context);
+ const legacy={...doc,version:1};delete legacy.narrative;tools.open(legacy);tools=fixture.render();assert.equal(tools.narrative,null);assert.equal(tools.document().version,2);assert.equal(tools.document().narrative,undefined);
+ await tools.importFile({size:JSON.stringify(doc).length,text:async()=>JSON.stringify(doc)});tools=fixture.render();assert.equal(tools.library.documents.length,2);assert.equal(tools.result.fingerprint,legacy.result.fingerprint,'import does not replace or run the open query');
+ }finally{fixture.cleanup();}
+});
