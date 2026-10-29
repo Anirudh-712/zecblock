@@ -1028,6 +1028,38 @@
   },
   {
     "method": "GET",
+    "path": "/v1/search/prefix",
+    "description": "Resolve a shortened transaction id or block hash to complete identifiers.",
+    "category": "search",
+    "query": [
+      "q"
+    ],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "q is a hex prefix of 8–63 characters, or a displayed shortened id (prefix of at least 6 and suffix of at least 4 hex characters joined by ... or …). Returns at most 5 indexed transactions and 5 canonical blocks ordered by identifier; truncated is true when more matches exist. Mempool transactions and orphaned blocks are not searched. Empty results are cached for at most 5 seconds.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [
+      {
+        "name": "q",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 140,
+          "examples": [
+            "5b34c8b44d",
+            "5b34c8b44d...ec9e77"
+          ]
+        },
+        "description": "Hex prefix of 8–63 characters, or a shortened id: a prefix of at least 6 and a suffix of at least 4 hex characters joined by ... or …. Case-insensitive."
+      }
+    ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
     "path": "/v1/blocks/:hashOrHeight/archive",
     "description": "Orphaned/non-canonical block archive lookup.",
     "category": "blocks",

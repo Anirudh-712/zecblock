@@ -104,6 +104,12 @@ const MANIFEST = [
     v1: { path: '/v1/search/anchors/:root', status: 'adapter', shape: 'passthrough' },
   },
   {
+    method: 'GET', legacyPath: '/api/search/prefix', file: 'server/api/routes/blocks.js',
+    classification: 'public', domain: 'search', auth: 'none',
+    description: 'Resolve a shortened transaction id or block hash to complete identifiers.',
+    v1: { path: '/v1/search/prefix', status: 'adapter', shape: 'passthrough', notes: 'q is a hex prefix of 8–63 characters, or a displayed shortened id (prefix of at least 6 and suffix of at least 4 hex characters joined by ... or …). Returns at most 5 indexed transactions and 5 canonical blocks ordered by identifier; truncated is true when more matches exist. Mempool transactions and orphaned blocks are not searched. Empty results are cached for at most 5 seconds.' },
+  },
+  {
     method: 'GET', legacyPath: '/api/block-archive/:hashOrHeight', file: 'server/api/routes/blocks.js',
     classification: 'public', domain: 'blocks', auth: 'none',
     description: 'Orphaned/non-canonical block archive lookup.',
