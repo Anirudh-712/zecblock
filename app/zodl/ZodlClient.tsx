@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useApiQuery } from '@/hooks/useApiQuery';
+import { useUrlState } from '@/lib/use-url-state';
 
 // The server snapshot revalidates every 15 minutes; poll at the same cadence.
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
@@ -84,7 +85,7 @@ export function ZodlClient({
   initialFetchedAt?: number;
   initialPeriod: string;
 }) {
-  const [period, setPeriod] = useState(initialPeriod);
+  const [period, setPeriod] = useUrlState<string>('period', initialPeriod, PERIODS.map((option) => option.key));
   const [sortKey, setSortKey] = useState<'held' | 'shielded' | 'offramp' | 'blocks'>('held');
   const seeded = period === initialPeriod && initialData !== null;
   const { data, loading, isRefreshing, error } = useApiQuery<ZodlData>(

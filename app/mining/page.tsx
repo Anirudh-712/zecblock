@@ -24,6 +24,7 @@ import { PageSectionNav } from '@/components/PageSectionNav';
 import { MiningMetricsChart } from '@/components/network/MiningMetricsChart';
 import { NetworkHashrateChart } from '@/components/network/NetworkHashrateChart';
 import { zatToZec } from '@/lib/format-numbers';
+import { useUrlState } from '@/lib/use-url-state';
 
 const SECTIONS = [
   { id: 'metrics', label: 'Network' },
@@ -119,7 +120,7 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
 
 function DistributionSection() {
   const { theme } = useTheme();
-  const [period, setPeriod] = useState<Period>('30d');
+  const [period, setPeriod] = useUrlState<Period>('distribution', '30d', PERIODS);
   const [data, setData] = useState<PoolDist[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -169,7 +170,7 @@ function DistributionSection() {
 
 function RankingSection() {
   const { theme } = useTheme();
-  const [period, setPeriod] = useState<Period>('30d');
+  const [period, setPeriod] = useUrlState<Period>('ranking', '30d', PERIODS);
   const [ranking, setRanking] = useState<PoolRank[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -316,7 +317,7 @@ function ChartModeToggle({ mode, onChange }: { mode: ChartMode; onChange: (m: Ch
 function HashrateShareSection() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
-  const [period, setPeriod] = useState<Period>('30d');
+  const [period, setPeriod] = useUrlState<Period>('share', '30d', PERIODS);
   const [chartMode, setChartMode] = useState<ChartMode>('line');
   const [series, setSeries] = useState<HashratePoint[]>([]);
   const [allPools, setAllPools] = useState<string[]>([]);
@@ -514,7 +515,7 @@ function HashrateShareSection() {
 function MinerBehaviorSection() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
-  const [period, setPeriod] = useState<Period>('30d');
+  const [period, setPeriod] = useUrlState<Period>('behavior', '30d', PERIODS);
   const [series, setSeries] = useState<BehaviorPoint[]>([]);
   const [summary, setSummary] = useState<BehaviorSummary | null>(null);
   const [message, setMessage] = useState<string | null>(null);

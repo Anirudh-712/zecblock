@@ -22,6 +22,7 @@ import {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend,
 } from 'recharts';
 import { ChartTooltip as Tooltip } from '@/components/charts/ChartTooltip';
+import { useUrlState } from '@/lib/use-url-state';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -435,7 +436,7 @@ function TrendsChart() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
-  const [period, setPeriod] = useState<TrendPeriod>('30');
+  const [period, setPeriod] = useUrlState<TrendPeriod>('trend', '30', PERIOD_OPTIONS.map((option) => option.id));
   const [data, setData] = useState<TrendDay[]>([]);
   const [loading, setLoading] = useState(true);
 

@@ -10,6 +10,9 @@ import { ChartTooltip as Tooltip } from '@/components/charts/ChartTooltip';
 import { ChartWatermark } from '@/components/ChartWatermark';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getChartColors } from '@/lib/chart-theme';
+import { useUrlState } from '@/lib/use-url-state';
+
+const BLOCK_TIME_PERIODS = ['6h', '24h', '7d'];
 
 type Point = { height: number; timestamp: number; averageSeconds: number | null; intervalSeconds: number | null; targetSeconds: number | null };
 type Response = { success: boolean; period: string; points: Point[]; rollingIntervals: number; truncated: boolean; observedAt: string;
@@ -18,7 +21,7 @@ type Response = { success: boolean; period: string; points: Point[]; rollingInte
 export function BlockTimeChart() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
-  const [period, setPeriod] = useState('24h');
+  const [period, setPeriod] = useUrlState('interval', '24h', BLOCK_TIME_PERIODS);
   const [individual, setIndividual] = useState(false);
   const { data, loading, error } = useApiQuery<Response>('/v1/network/block-time', { period }, { refreshInterval: 15_000 });
   const points = data?.period === period ? data.points : [];
@@ -26,7 +29,7 @@ export function BlockTimeChart() {
   const activation = data?.schedule?.nu7Height;
   const showActivation = activation != null && points.length > 0 && activation >= points[0].height && activation <= points[points.length - 1].height;
   return <Card className="card-static p-4 sm:p-6"><CardBody><SectionHeader label="BLOCK_INTERVAL" className="max-sm:flex-col max-sm:items-stretch" actions={<div className="flex gap-2 max-sm:mt-2" aria-label="Average block interval period">
-    {['6h', '24h', '7d'].map(value => <button key={value} type="button" aria-pressed={period === value}
+    {BLOCK_TIME_PERIODS.map(value => <button key={value} type="button" aria-pressed={period === value}
       className={`filter-btn ${period === value ? 'filter-btn-active' : ''}`}
       onClick={() => setPeriod(value)}>{value}</button>)}
   </div>} />

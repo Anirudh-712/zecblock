@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import { useApiQuery } from '@/hooks/useApiQuery';
 import { Card, CardBody } from '@/components/ui/Card';
 import { DataTable, SectionHeader } from '@/components/ui';
+import { useUrlState } from '@/lib/use-url-state';
 
 type Period = '24h' | '7d' | '30d';
 interface PoolRate {
@@ -43,7 +43,7 @@ function utc(value: string) {
 }
 
 export function OrphanRateSection() {
-  const [period, setPeriod] = useState<Period>('30d');
+  const [period, setPeriod] = useUrlState<Period>('orphans', '30d', ['24h', '7d', '30d']);
   const { data, loading, error } = useApiQuery<OrphanRates>('/v1/mining/orphan-rates', undefined, { refreshInterval: 60_000 });
   const supported = data?.method === 'observed-indexer-reorg-v1' || data?.method === 'observed-block-capture-v2';
   const selected = supported ? data.periods.find(window => window.period === period) : null;

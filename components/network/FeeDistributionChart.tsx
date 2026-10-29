@@ -5,7 +5,6 @@ import { CHART_DATE_AXIS } from '@/lib/chart-theme';
 import { ChartWatermark } from '@/components/ChartWatermark';
 import { ChartSkeleton } from '@/components/ui/Skeleton';
 
-import { useState } from 'react';
 import {  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid,  ResponsiveContainer  } from 'recharts';
 import { ChartTooltip as Tooltip } from '@/components/charts/ChartTooltip';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -14,6 +13,7 @@ import { useApiQuery } from '@/hooks/useApiQuery';
 import { feeBand } from '@/lib/network-overview';
 import { Card, CardBody } from '@/components/ui/Card';
 import { SectionHeader } from '@/components/ui/SectionHeader';
+import { useUrlState } from '@/lib/use-url-state';
 
 const PERIODS = ['7d', '30d', '90d', '1y', 'all'] as const;
 type Period = typeof PERIODS[number];
@@ -23,7 +23,7 @@ export interface FeeDistributionResponse { daily: DayFees[]; period?: string; hi
 export function FeeDistributionChart({ initialData, initialFetchedAt }: { initialFetchedAt?: number; initialData?: FeeDistributionResponse | null }) {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
-  const [period, setPeriod] = useState<Period>('30d');
+  const [period, setPeriod] = useUrlState<Period>('fees', '30d', PERIODS);
   const { data, loading, error, isRefreshing } = useApiQuery<FeeDistributionResponse>('/v1/network/fee-distribution', { period }, {
     initialFetchedAt,
     initialData: period === '30d' ? initialData ?? undefined : undefined, refreshInterval: 300_000,
