@@ -14,13 +14,13 @@ async function serve(t){
 }
 test('the pre-verification attempt guard identifies its own limit without using provider or distributed allowance',async t=>{
  const api=await serve(t),body={page:'ask',question:'What is a viewing key?',context:null,history:[],locale:'en'};
- for(let i=0;i<10;i++)assert.equal((await api.post('/chat',body)).status,403);
+ for(let i=0;i<20;i++)assert.equal((await api.post('/chat',body)).status,403);
  const response=await api.post('/chat',body);assert.equal(response.status,429);assert.ok(Number(response.headers.get('retry-after'))>0);assert.ok(Number(response.headers.get('retry-after'))<=60);
  assert.equal((await response.json()).code,'ask-request-attempts');assert.equal(api.admissions(),0);
 });
 test('the job lifecycle limit is explicit and does not exhaust ordinary direct answers',async t=>{
  const api=await serve(t),ticket={id:randomUUID(),token:'a'.repeat(64)};
- for(let i=0;i<90;i++)assert.equal((await api.post('/research/jobs/status',ticket)).status,200);
- const response=await api.post('/research/jobs/status',ticket);assert.equal(response.status,429);assert.equal((await response.json()).code,'ask-sql-status-minute');assert.equal(api.statusCalls(),90);assert.equal(api.admissions(),0);
+ for(let i=0;i<120;i++)assert.equal((await api.post('/research/jobs/status',ticket)).status,200);
+ const response=await api.post('/research/jobs/status',ticket);assert.equal(response.status,429);assert.equal((await response.json()).code,'ask-sql-status-minute');assert.equal(api.statusCalls(),120);assert.equal(api.admissions(),0);
  const direct=await api.post('/chat',{page:'ask',question:'What is a viewing key?',context:null,history:[],locale:'en',challenge:'fixture'});assert.equal(direct.status,200);assert.equal((await direct.json()).data.mode,'guided');assert.equal(api.admissions(),1);
 });

@@ -5,10 +5,12 @@ const { createHmac, randomUUID } = require('node:crypto');
 // All keys share a Redis Cluster slot. Reserve the conservative maximum, never
 // refund uncertain/cancelled calls. Prices are deployment-reviewed upper bounds.
 // Ordinary beta traffic gets useful routing headroom without making distributed
-// cheap requests unbounded: 10/minute and 200/day/IP; 600/hour and 2000/day/site.
-// AI and SQL work retain independent conservative 5/minute and 20/day/IP caps.
-const REQUEST_LIMITS = Object.freeze({ minute: 10, day: 200, globalHour: 600, globalDay: 2000 });
-const WORK_LIMITS = Object.freeze({ minute: 5, day: 20 });
+// cheap requests unbounded: 20/minute and 400/day/IP; 3000/hour and 20000/day/site.
+// AI work keeps 5/minute and 20/day/IP (it also spends the USD budgets). SQL runs
+// on our own database and gets 10/minute and 100/day/IP; the worker separately
+// caps site-wide daily executions (ASK_ANALYTICS_DAILY_QUERY_LIMIT).
+const REQUEST_LIMITS = Object.freeze({ minute: 20, day: 400, globalHour: 3000, globalDay: 20000 });
+const WORK_LIMITS = Object.freeze({ ai: Object.freeze({ minute: 5, day: 20 }), sql: Object.freeze({ minute: 10, day: 100 }) });
 const RESERVE = `
 local calls = tonumber(redis.call('GET', KEYS[1]) or '0')
 local daily = tonumber(redis.call('GET', KEYS[3]) or '0')
@@ -39,8 +41,8 @@ return 1`;
 const ADMIT_WORK = `
 local minute = math.max(tonumber(redis.call('GET', KEYS[1]) or '0'), tonumber(redis.call('GET', KEYS[3]) or '0'))
 local day = math.max(tonumber(redis.call('GET', KEYS[2]) or '0'), tonumber(redis.call('GET', KEYS[4]) or '0'))
-if day >= ${WORK_LIMITS.day} then return -2 end
-if minute >= ${WORK_LIMITS.minute} then return -1 end
+if day >= tonumber(ARGV[2] or '${WORK_LIMITS.ai.day}') then return -2 end
+if minute >= tonumber(ARGV[1] or '${WORK_LIMITS.ai.minute}') then return -1 end
 -- Seed from the larger historical/current count before incrementing. Merely
 -- comparing the maximum and incrementing a smaller new count grants extra work.
 -- Historical keys are never changed; each work class carries its own baseline.
@@ -112,7 +114,7 @@ async function admitWork(redis, config, req, kind, now = Date.now()) {
   const prefix = `ask:{mainnet}:work:${kind}:${identity}`, legacy = `ask:{mainnet}:ip:${identity}`;
   const minute = Math.floor(now / 60000);
   const result = Number(await redis.eval(ADMIT_WORK, {
-    keys: [`${prefix}:${minute}`, `${prefix}:day`, `${legacy}:${minute}`, `${legacy}:day`], arguments: [],
+    keys: [`${prefix}:${minute}`, `${prefix}:day`, `${legacy}:${minute}`, `${legacy}:day`], arguments: [String(WORK_LIMITS[kind].minute), String(WORK_LIMITS[kind].day)],
   }));
   if (result === -1) throw quotaError(`ask-${kind}-minute`, windowRetry(now, 60000));
   if (result === -2) throw quotaError(`ask-${kind}-day`, windowRetry(now, 86400000));
@@ -146,4 +148,4 @@ async function admit(redis, config, req, fetchImpl = fetch) {
     throw askError('unavailable');
   }
 }
-module.exports = { RESERVE, ADMIT, ADMIT_WORK, budgetConfig, maximumCost, reserve, admit, admitWork, identityFor };
+module.exports = { RESERVE, ADMIT, ADMIT_WORK, REQUEST_LIMITS, WORK_LIMITS, budgetConfig, maximumCost, reserve, admit, admitWork, identityFor };

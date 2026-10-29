@@ -109,8 +109,8 @@ function createAskRouter(env = process.env, dependencies = {}) {
     const failure=classifyFailure({quota:true,quotaCode,retryAfter});
     return sendProblem(res,failure.type,{status:failure.status,detail:failure.detail,extra:{code:failure.code}});
   };
-  const pollingLimiter=createRateLimiter({max:90,windowMs:60000,key:'ask-jobs',onLimit:localLimit('ask-sql-status-minute')});
-  const limiter = createRateLimiter({ max: 10, windowMs: 60000, key: 'ask',onLimit:localLimit('ask-request-attempts') });
+  const pollingLimiter=createRateLimiter({max:120,windowMs:60000,key:'ask-jobs',onLimit:localLimit('ask-sql-status-minute')});
+  const limiter = createRateLimiter({ max: 20, windowMs: 60000, key: 'ask',onLimit:localLimit('ask-request-attempts') });
   router.use((req, res, next) => {
     res.set('Cache-Control', 'private, no-store');res.set('X-Robots-Tag','noindex, nofollow');
     if (authenticatedStaging && req.v1?.authenticatedStaging !== true) return sendProblem(res, 'access-denied', { status: 403, detail: 'Authenticated staging access is required.' });
