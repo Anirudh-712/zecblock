@@ -1709,6 +1709,357 @@
   },
   {
     "method": "GET",
+    "path": "/v1/crosschain/venues/analytics",
+    "description": "Indexed Maya or THORChain native-ZEC analytics: history, volume, routes, outcomes and explicit traversal coverage.",
+    "category": "crosschain",
+    "query": [
+      "granularity",
+      "period",
+      "venue"
+    ],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Requires venue=maya|thorchain and explicit reader activation. Independent additive venue tables and resumable backfill; no writes to NEAR history. Exact decimal-string amounts; USD derives from amount times provider-reported first-stream-interval asset price, with missing values counted. Retained-provider traversal is not proof of all protocol history. Venue totals are separate observations and must not be summed as a unique global total. Partial refunds are separate outcomes with no duplicate successful volume. Returns 503 when unavailable; never a successful fabricated zero.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [
+      {
+        "name": "granularity",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "hour",
+            "day"
+          ],
+          "description": "Defaults to hour for 24h/7d, day otherwise. Hour is only accepted for 24h/7d."
+        },
+        "description": "Defaults to hour for 24h/7d, day otherwise. Hour is only accepted for 24h/7d."
+      },
+      {
+        "name": "period",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "24h",
+            "7d",
+            "30d",
+            "90d",
+            "1y",
+            "all"
+          ],
+          "default": "30d",
+          "description": "Trailing UTC window; all starts at the earliest indexed record. Coverage can be incomplete."
+        },
+        "description": "Trailing UTC window; all starts at the earliest indexed record. Coverage can be incomplete."
+      },
+      {
+        "name": "venue",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "maya",
+            "thorchain"
+          ]
+        },
+        "description": "Independent indexed venue dataset."
+      }
+    ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
+    "path": "/v1/crosschain/venues/swaps",
+    "description": "Filter and paginate indexed Maya or THORChain actions, retaining exact native legs, refund details and source identity.",
+    "category": "crosschain",
+    "query": [
+      "chain",
+      "cursor",
+      "destAsset",
+      "direction",
+      "from",
+      "limit",
+      "maxUsd",
+      "minUsd",
+      "period",
+      "referral",
+      "search",
+      "sourceAsset",
+      "status",
+      "to",
+      "token",
+      "venue"
+    ],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Requires venue=maya|thorchain. data.nextCursor is bound to venue, filters and its time snapshot. Native token atomic units carry explicit decimals; ZEC amounts remain exact. Full providerRecord inputs/outputs retain affiliate and refund legs. No viewing keys, private data or unknown-as-zero conversion.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [
+      {
+        "name": "chain",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]{1,32}$"
+        },
+        "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 8192,
+          "description": "Opaque data.nextCursor. Bound to filters and the original time window; do not construct or edit."
+        },
+        "description": "Opaque data.nextCursor. Bound to filters and the original time window; do not construct or edit."
+      },
+      {
+        "name": "destAsset",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Exact upstream destinationAsset identifier."
+        },
+        "description": "Exact upstream destinationAsset identifier."
+      },
+      {
+        "name": "direction",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "inflow",
+            "outflow",
+            "internal"
+          ],
+          "description": "Native ZEC asset acquired, exchanged or ZEC-to-ZEC. Asset direction does not prove an on-chain transfer."
+        },
+        "description": "Native ZEC asset acquired, exchanged or ZEC-to-ZEC. Asset direction does not prove an on-chain transfer."
+      },
+      {
+        "name": "from",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive UTC ISO timestamp, overrides the period start."
+        },
+        "description": "Inclusive UTC ISO timestamp, overrides the period start."
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 25
+        },
+        "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "maxUsd",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000000000,
+          "description": "Inclusive source-side USD maximum (up to 8 decimal places)."
+        },
+        "description": "Inclusive source-side USD maximum (up to 8 decimal places)."
+      },
+      {
+        "name": "minUsd",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000000000,
+          "description": "Inclusive source-side USD minimum (up to 8 decimal places)."
+        },
+        "description": "Inclusive source-side USD minimum (up to 8 decimal places)."
+      },
+      {
+        "name": "period",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "24h",
+            "7d",
+            "30d",
+            "90d",
+            "1y",
+            "all"
+          ],
+          "default": "30d",
+          "description": "Trailing UTC window; all starts at the earliest indexed record. Coverage can be incomplete."
+        },
+        "description": "Trailing UTC window; all starts at the earliest indexed record. Coverage can be incomplete."
+      },
+      {
+        "name": "referral",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Exact upstream referral value."
+        },
+        "description": "Exact upstream referral value."
+      },
+      {
+        "name": "search",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Exact deposit, recipient or sender address, or source/destination transaction hash."
+        },
+        "description": "Exact deposit, recipient or sender address, or source/destination transaction hash."
+      },
+      {
+        "name": "sourceAsset",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Exact upstream originAsset identifier."
+        },
+        "description": "Exact upstream originAsset identifier."
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "SUCCESS",
+            "FAILED",
+            "REFUNDED",
+            "PROCESSING",
+            "PENDING_DEPOSIT",
+            "INCOMPLETE_DEPOSIT"
+          ]
+        },
+        "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Exclusive UTC ISO timestamp, fixes the end of the window."
+        },
+        "description": "Exclusive UTC ISO timestamp, fixes the end of the window."
+      },
+      {
+        "name": "token",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "venue",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "maya",
+            "thorchain"
+          ]
+        },
+        "description": "Independent indexed venue dataset."
+      }
+    ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
+    "path": "/v1/crosschain/venues",
+    "description": "Recent native-ZEC Maya or THORChain swaps with exact full transaction legs, provider observation time and cursor pagination.",
+    "category": "crosschain",
+    "query": [
+      "cursor",
+      "limit",
+      "venue"
+    ],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Requires venue=maya|thorchain. Read-only Midgard observations, cached for 60 seconds with an explicitly stale fallback up to five minutes; unavailable sources return 503. data.nextCursor is opaque and venue-bound. Amounts are exact decimal strings. Each coin exposes amountBaseUnits and decimals: external Midgard assets use 8 decimals; native Maya CACAO uses 10 and native MAYA uses 4. Refund actions carry refundKind=partial|full and summarize returned source assets; all associated payout legs remain visible, without recounting successful volume. Successful streaming actions can contain partial refunds; preserve observedStatus, zecAmountBasis and every leg. This recent feed is not complete historical coverage, not a combined venue total, and is never added to indexed NEAR analytics.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "description": "Opaque data.nextCursor from this venue; do not construct or edit."
+        },
+        "description": "Opaque data.nextCursor from this venue; do not construct or edit."
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 25,
+          "default": 10
+        },
+        "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "venue",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "maya",
+            "thorchain"
+          ],
+          "description": "One native-ZEC venue. Required; providers have independent observation and availability states."
+        },
+        "description": "One native-ZEC venue. Required; providers have independent observation and availability states."
+      }
+    ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
     "path": "/v1/crosschain/analytics",
     "description": "Indexed ZEC swap analytics with explicit coverage, native ZEC volumes, UTC buckets and observed lifecycle counts.",
     "category": "crosschain",

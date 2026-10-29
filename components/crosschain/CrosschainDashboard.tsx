@@ -13,6 +13,7 @@ import { ActivityCharts } from "./ActivityCharts";
 import { SwapFilterLink, useAnalyticsPeriod } from "./SwapFilterLink";
 import { SwapExplorer } from "./SwapExplorer";
 import { WrappedZecTracker, WrappedZecAsset } from "./WrappedZecTracker";
+import { CrosschainVenueContext, type CrosschainVenue } from "./VenueContext";
 import {
   Analytics,
   CHAINS,
@@ -31,16 +32,21 @@ const SECTIONS = [
 ];
 export function CrosschainDashboard({
   params = {},
+  venue = "near",
+  venueTabs,
 }: {
   params?: Record<string, string>;
+  venue?: CrosschainVenue;
+  venueTabs?: React.ReactNode;
 }) {
-  const [unit, setUnit] = useState<Unit>("usd");
+  const [unit, setUnit] = useState<Unit>(venue === "near" ? "usd" : "zec");
   const [allRoutes, setAllRoutes] = useState(false);
   const [requestedPairSort, setPairSort] = useState<"swaps" | Unit>("swaps");
+  const venueName = venue === "near" ? "NEAR Intents" : venue === "maya" ? "Maya Protocol" : "THORChain";
   const period = useAnalyticsPeriod(params.period || "30d");
   const { data, loading, error, isRefreshing } = useApiQuery<Analytics>(
-    "/v1/crosschain/analytics",
-    { period },
+    venue === "near" ? "/v1/crosschain/analytics" : "/v1/crosschain/venues/analytics",
+    { period, ...(venue === "near" ? {} : { venue }) },
     { refreshInterval: 120000 },
   );
   const wrapped = useApiQuery<{
@@ -65,21 +71,19 @@ export function CrosschainDashboard({
   );
   if (loading && !data)
     return (
-      <div className="card min-h-[240px] text-muted" role="status">
-        Loading indexed cross-chain activity…
-      </div>
+      <div className="space-y-4">{venueTabs}<div className="card min-h-[240px] text-muted" role="status">Loading indexed cross-chain activity…</div></div>
     );
   if (!data)
     return (
-      <div className="card" role="alert">
-        <h2 className="text-secondary">Cross-chain data unavailable</h2>
+      <div className="space-y-4">{venueTabs}<div className="card" role="alert">
+        <h2 className="text-secondary">{venueName} data unavailable</h2>
         <p className="text-sm text-muted mt-2">
           {error || "The analytics service has not returned a snapshot."}
         </p>
         <p className="text-sm text-muted mt-2">
           No zero-volume figures are inferred from an unavailable index.
         </p>
-      </div>
+      </div></div>
     );
   const s = data.summary,
     c = data.coverage;
@@ -118,6 +122,7 @@ export function CrosschainDashboard({
     pairSort === "swaps" ? r.swaps : Number(r[`volume_${pairSort}`] ?? 0);
   const pairMax = Math.max(1, ...rankedPairs.map(pairMetric));
   return (
+    <CrosschainVenueContext.Provider value={venue}>
     <div className="space-y-6" aria-busy={isRefreshing}>
       {IS_DEMO && (
         <aside
@@ -129,14 +134,13 @@ export function CrosschainDashboard({
           </p>
         </aside>
       )}
-      <PageSectionNav sections={SECTIONS} ariaLabel="Cross-chain sections" />
       <section id="overview" className="space-y-4 scroll-mt-40">
         <div className="flex flex-wrap justify-between items-center gap-3">
           <nav aria-label="Analytics period" className="filter-group flex-wrap">
             {PERIODS.map((p) => (
               <Link
                 key={p}
-                href={href({ period: p })}
+                href={href({ period: p, ...(venue === "near" ? {} : { venue }) })}
                 aria-current={period === p ? "page" : undefined}
                 className={`filter-btn ${period === p ? "filter-btn-active" : ""}`}
               >
@@ -146,29 +150,7 @@ export function CrosschainDashboard({
           </nav>
           {unitToggle}
         </div>
-        <p className="text-xs text-muted">
-          History from {c.earliest ? date(c.earliest).slice(0, 10) : "unknown"}
-          {" · "}
-          <a href="#data-details" className="underline">
-            Coverage details
-          </a>
-          {(c.stale || error) && (
-            <span className="text-cipher-orange">
-              {" "}
-              ·{" "}
-              {error
-                ? "Refresh failed; showing last snapshot"
-                : "Data may be out of date"}
-            </span>
-          )}
-          {missing > 0 && (
-            <span className="text-cipher-orange">
-              {" "}
-              · {missing.toLocaleString()} swaps missing {unit.toUpperCase()}{" "}
-              values
-            </span>
-          )}
-        </p>
+        {c.stale || error ? <p className="text-xs text-cipher-orange" role="status">{error ? "Refresh failed; showing last snapshot" : "Data may be out of date"}</p> : null}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {metrics.map(([label, v, hint]) => (
             <div key={label} className="card">
@@ -182,6 +164,8 @@ export function CrosschainDashboard({
             </div>
           ))}
         </div>
+        {venueTabs}
+        <PageSectionNav sections={SECTIONS} ariaLabel="Cross-chain sections" />
         <ActivityCharts data={data} unit={unit} />
       </section>
       <section id="flows" className="space-y-4 scroll-mt-40">
@@ -327,7 +311,7 @@ export function CrosschainDashboard({
             className="text-sm text-secondary font-mono"
             title="Latest observed statuses for records created in the selected period. Unfunded pending-deposit quotes are excluded."
           >
-            Swap outcomes
+            {venue === 'near' ? 'Swap outcomes' : 'Swap & refund actions'}
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[
@@ -367,12 +351,12 @@ export function CrosschainDashboard({
               </SwapFilterLink>
             ))}
           </div>
-          <p className="text-xs text-muted">
+          {venue === 'near' ? <p className="text-xs text-muted">
             {c.source === "legacy-success-index"
               ? "This view currently covers completed swaps only; other outcome counts are unavailable. "
               : "Latest observed outcomes; older status changes appear after reconciliation. "}
             Unfunded pending-deposit quotes are excluded.
-          </p>
+          </p> : null}
           <OutcomeBreakdown data={data} />
         </section>
         <RelativeTimeProvider initialNow={Date.parse(data.end)}>
@@ -465,6 +449,7 @@ export function CrosschainDashboard({
                 </ul>
               </details>
             )}
+            {!data.referrals.length && <p className="text-xs text-muted">No referral observations are available for this selection.</p>}
           </div>
           <div className="card space-y-4">
             <h2 className="text-sm text-secondary font-mono">
@@ -513,6 +498,7 @@ export function CrosschainDashboard({
           Data coverage & methodology
         </summary>
         <div className="rounded-lg border border-cipher-border p-4 text-xs text-muted space-y-2">
+          <p><span className="text-secondary">Venue / source:</span> {venueName} · {c.source}</p>
           <p>
             <span className="text-secondary">Indexed history:</span>{" "}
             {date(c.earliest)} → {date(c.latest)} · {c.records.toLocaleString()}{" "}
@@ -546,6 +532,7 @@ export function CrosschainDashboard({
               are unavailable here. Pending-deposit quotes are excluded.
             </p>
           )}
+          {venue !== "near" && !c.historyTraversalComplete ? <p>Historical backfill is in progress. Statistics cover the indexed records currently available; unobserved intervals remain gaps.</p> : null}
           {missing > 0 && (
             <p className="text-cipher-orange">
               {missing.toLocaleString()} successful swaps have no{" "}
@@ -559,22 +546,19 @@ export function CrosschainDashboard({
             ? "ZEC uses actual reported swap amounts, never conversion at today’s price."
             : "USD uses the reported source-side valuation."}{" "}
           Swaps of ZEC-backed tokens on other chains retain their own chain
-          identity. Direction follows the asset route; an Intents-balance trade
-          does not itself prove an on-chain deposit or withdrawal.
+          identity. Direction follows the asset route; {venue === "near" ? "an Intents-balance trade does not itself prove an on-chain deposit or withdrawal." : "provider-reported native legs remain separate from independently verified chain finality."}
         </p>
 
         <p>
           Outcomes show the latest observed status for each record created in
-          the selected period. Unfunded pending-deposit quotes are excluded;
-          these figures do not measure quote conversion.
+          the selected period. {venue === "near" ? "Unfunded pending-deposit quotes are excluded; these figures do not measure quote conversion." : "Separate refund actions do not create extra successful swap volume."}
         </p>
         <p>
           Charts use UTC intervals. The first and last intervals may be partial;
           gaps indicate unknown coverage.
         </p>
         <p>
-          Swap sizes use reported dollar values; swaps with missing USD values
-          are excluded.
+          {venue === "near" ? "Swap sizes use reported dollar values; swaps with missing USD values are excluded." : "Size buckets use provider-reported prices at the first swap interval. Missing valuations are excluded; these estimates are not settlement-time or current-price valuations."}
         </p>
         <p>
           Chain history shows weekly net native ZEC on successful external
@@ -598,14 +582,15 @@ export function CrosschainDashboard({
           analytics.
         </p>
         <a
-          href="https://docs.near-intents.org/api-reference/get-transactions"
+          href={venue === "near" ? "https://docs.near-intents.org/api-reference/get-transactions" : venue === "maya" ? "https://docs.mayaprotocol.com/mayachain-dev-docs/concepts/connecting-to-mayachain" : "https://dev.thorchain.org/concepts/connecting-to-thorchain.html"}
           className="text-cipher-gold hover:underline"
           target="_blank"
           rel="noopener noreferrer"
         >
-          NEAR Explorer API definitions ↗
+          {venue === "near" ? "NEAR Explorer API definitions" : `${venue === "maya" ? "Maya" : "THORChain"} provider definitions`} ↗
         </a>
       </details>
     </div>
+    </CrosschainVenueContext.Provider>
   );
 }

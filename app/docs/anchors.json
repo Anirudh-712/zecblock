@@ -1,4 +1,7 @@
 {
+  "GET /v1/crosschain/venues/analytics": "crosschain-venue-analytics",
+  "GET /v1/crosschain/venues/swaps": "crosschain-venue-swaps",
+  "GET /v1/crosschain/venues": "crosschain-venues",
   "GET /v1/ask": "ask-capability",
   "POST /v1/ask": "ask-analysis",
   "POST /v1/ask/chat": "ask-chat",

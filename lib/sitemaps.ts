@@ -90,6 +90,7 @@ export const CORE_PATHS = [
 ] as const;
 
 export const CONTENT_PATHS = [
+  '/docs/mcp',
   '/learn',
   '/newsletter',
   '/about',
