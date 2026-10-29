@@ -54,8 +54,8 @@ function prefixSearchSql(table, column, extraColumns, parsed, limit = MAX_RESULT
     where.push(`${column} < $${params.length}`);
   }
   if (parsed.suffix) {
-    params.push(parsed.suffix);
-    where.push(`right(${column}, ${parsed.suffix.length}) = $${params.length}`);
+    params.push(parsed.suffix.length, parsed.suffix);
+    where.push(`right(${column}, $${params.length - 1}) = $${params.length}`);
   }
   params.push(limit + 1);
   return {

@@ -23,8 +23,9 @@ test('the exclusive upper bound follows hexadecimal order with carry', () => {
 test('generated SQL is parameterized and bounded', () => {
   const { sql, params } = prefixSearchSql('transactions', 'txid', ['block_height'], { prefix: 'ffffffff', suffix: 'ab12' }, 5);
   assert.doesNotMatch(sql, /ffff|ab12/, 'values are never interpolated');
-  assert.match(sql, /txid >= \$1 AND left\(txid, \$2\) = \$1 AND right\(txid, 4\) = \$3 ORDER BY txid LIMIT \$4$/);
-  assert.deepEqual(params, ['ffffffff', 8, 'ab12', 6]);
+  assert.match(sql, /txid >= \$1 AND left\(txid, \$2\) = \$1 AND right\(txid, \$3\) = \$4 ORDER BY txid LIMIT \$5$/);
+  assert.doesNotMatch(sql, /, \d+\)/, 'no input-derived numbers in the SQL text');
+  assert.deepEqual(params, ['ffffffff', 8, 4, 'ab12', 6]);
 });
 
 test('results are capped and report truncation', async () => {
