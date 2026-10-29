@@ -113,7 +113,32 @@ a.action{color:var(--text);text-underline-offset:4px}
 </style></head><body><main><a class="brand" href="/"><i></i>ZecBlock</a><p class="code">&gt; ${title.toLowerCase()}</p><h1>${title}</h1><p>${message}</p><a class="action" href="${link.href}">${link.label} &rarr;</a></main></body></html>`;
 }
 
+// IndexNow key: https://<canonical host>/<INDEXNOW_KEY>.txt, mainnet only.
+// The key lives in private environment configuration and is never committed;
+// every other `.txt` path falls through to the normal routes and 404s.
+const INDEXNOW_KEY_PATTERN = /^[a-zA-Z0-9-]{8,128}$/;
+
+function indexNowKeyResponse(request: NextRequest): NextResponse | null {
+  const key = process.env.INDEXNOW_KEY?.trim();
+  if (!key || !INDEXNOW_KEY_PATTERN.test(key)) return null;
+  if (request.nextUrl.pathname !== `/${key}.txt`) return null;
+  if (request.method !== 'GET' && request.method !== 'HEAD') return null;
+  if (getConfiguredNetwork() !== 'mainnet') return null;
+  const host = request.headers.get('host')?.replace(/:\d+$/, '').toLowerCase() || '';
+  if (host !== (process.env.INDEXNOW_HOST?.trim().toLowerCase() || CANONICAL_HOST)) return null;
+  return new NextResponse(request.method === 'HEAD' ? null : key, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Robots-Tag': 'noindex',
+    },
+  });
+}
+
 export async function proxy(request: NextRequest) {
+  const indexNowKey = indexNowKeyResponse(request);
+  if (indexNowKey) return indexNowKey;
   const networkDetailPath = request.nextUrl.pathname;
   if (['/network/block-speed', '/network/upgrades'].some(path => networkDetailPath === path || networkDetailPath.startsWith(`${path}/`))
     && getConfiguredNetwork() === 'crosslink-testnet') {
@@ -221,5 +246,5 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // Canonical lowercase tx URLs bypass Proxy; only uppercase aliases need it.
-  matcher: ['/name/:path*', '/api/:path*', '/tx/:txid((?=[a-fA-F0-9]{0,63}[A-F])[a-fA-F0-9]{64})', '/block/:path*', '/blocks', '/governance/:path*', '/charts/:slug', '/network/block-speed/:path*', '/network/upgrades/:path*'],
+  matcher: ['/:indexNowKey([a-zA-Z0-9-]{8,128}\\.txt)', '/name/:path*', '/api/:path*', '/tx/:txid((?=[a-fA-F0-9]{0,63}[A-F])[a-fA-F0-9]{64})', '/block/:path*', '/blocks', '/governance/:path*', '/charts/:slug', '/network/block-speed/:path*', '/network/upgrades/:path*'],
 };
