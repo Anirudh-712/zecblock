@@ -33,11 +33,13 @@ async function checkResearchCost(client, compiled, budget) {
 
 // Separate connection and credentials. Never import the explorer's read router:
 // it can fall back to primary, which is forbidden for this service.
+// The role must keep a finite connection limit; 16 matches the highest
+// ASK_ANALYTICS_CONCURRENCY, and the limit must be at least that setting.
 const GUARD = `SELECT pg_catalog.pg_is_in_recovery() AS standby,
   current_user = 'ask_analytics_reader' AND session_user = current_user AS identity,
   EXTRACT(EPOCH FROM (pg_catalog.clock_timestamp() - pg_catalog.pg_last_xact_replay_timestamp())) AS replay_age,
   NOT (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls OR r.rolinherit)
-    AND r.rolconnlimit BETWEEN 1 AND 2 AS restricted,
+    AND r.rolconnlimit BETWEEN 1 AND 16 AS restricted,
   pg_catalog.pg_size_bytes(current_setting('temp_file_limit')) BETWEEN 0 AND 16777216 AS disk_bounded,
   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE member = r.oid) AS no_memberships,
   NOT pg_catalog.has_database_privilege(current_user, current_database(), 'CREATE')
