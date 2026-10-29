@@ -9,6 +9,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { dataHeaderNames } = require('./lib/data-headers');
 const { Pool } = require('pg');
 const WebSocket = require('ws');
 const http = require('http');
@@ -314,9 +315,9 @@ app.use(cors({
   credentials: true,
   exposedHeaders: [
     'X-Request-Id',
-    'X-CipherScan-Cache',
-    'X-CipherScan-Indexed-Height',
-    'X-CipherScan-Data-Age-Blocks',
+    ...dataHeaderNames('Cache'),
+    ...dataHeaderNames('Indexed-Height'),
+    ...dataHeaderNames('Data-Age-Blocks'),
     'Server-Timing',
     'Retry-After',
     'RateLimit-Limit',

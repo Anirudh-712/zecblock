@@ -12,6 +12,7 @@ const { decodeCoinbaseText } = require('../coinbase-data');
 const { applyListCacheHeaders, createListCache } = require('../list-cache');
 const { parseSafeListPagination, offsetExceededError } = require('../lib/pagination');
 const { logSafeError } = require('../lib/safe-log');
+const { parseIdQuery, searchIdPrefix } = require('../lib/id-prefix-search');
 const { readAllocationHealth } = require('../lib/subsidy-allocation-health');
 
 const disabledListCache = createListCache({ enabled: false });
@@ -929,6 +930,34 @@ router.get('/api/search/anchor/:root', async (req, res) => {
   } catch (error) {
     logSafeError('Error searching anchor root:', error);
     res.status(500).json({ error: 'Failed to search anchor root' });
+  }
+});
+
+// ============================================================================
+// SHORTENED ID SEARCH (txid / block hash prefixes)
+// ============================================================================
+
+// Resolves the shortened ids the explorer displays ("5b34c8b44d...ec9e77" or a
+// bare prefix of at least 8 hex characters) against indexed transactions and
+// canonical blocks. Mempool transactions are not searched.
+router.get('/api/search/prefix', async (req, res) => {
+  try {
+    const parsed = parseIdQuery(req.query.q);
+    if (!parsed) {
+      return res.status(400).json({
+        error: 'Invalid query (expected at least 8 hex characters, or a shortened id such as 5b34c8b44d...ec9e77)',
+      });
+    }
+    const result = await searchIdPrefix((sql, params) => pool.query(sql, params), parsed);
+    const found = result.transactions.length + result.blocks.length > 0;
+    // Missing results stay briefly cached so newly mined transactions appear.
+    res.set('Cache-Control', found
+      ? 'public, s-maxage=30, stale-while-revalidate=120'
+      : 'public, s-maxage=5');
+    res.json({ prefix: parsed.prefix, suffix: parsed.suffix, ...result });
+  } catch (error) {
+    logSafeError('Error searching id prefix:', error);
+    res.status(500).json({ error: 'Failed to search identifiers' });
   }
 });
 

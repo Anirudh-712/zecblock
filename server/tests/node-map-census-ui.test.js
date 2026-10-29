@@ -68,6 +68,7 @@ function detailHarness({ version = 3, torNodes = 4, torClassificationAvailable }
     '@/components/ChartWatermark': { ChartWatermark: 'ChartWatermark' },
     '@/components/ui/Skeleton': { ChartCardSkeleton: 'ChartCardSkeleton' },
     '@/components/ui/Card': { Card: 'Card', CardBody: 'CardBody' },
+    '@/components/ExportButton': { ExportButton: () => null },
     '@/components/ui/SectionHeader': { PageHeader: 'PageHeader', SectionHeader: 'SectionHeader' },
     '@/components/network/NodeMapExplorer': { NodeMapExplorer: 'NodeMapExplorer' },
     '@/lib/network-colors': { clientLabel: value => value, clientColor: () => 'gold' },

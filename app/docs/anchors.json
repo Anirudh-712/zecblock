@@ -14,6 +14,7 @@
   "GET /v1/blocks": "blocks-list",
   "GET /v1/blocks/:heightOrHash": "block-by-height",
   "GET /v1/search/anchors/:root": "get-search-anchors-root",
+  "GET /v1/search/prefix": "get-search-prefix",
   "GET /v1/blocks/:hashOrHeight/archive": "get-blocks-hashOrHeight-archive",
   "GET /v1/network/stats": "network-stats",
   "GET /v1/network/fees": "network-fees",

@@ -47,6 +47,9 @@ function getQueryConstraint(route, name) {
     };
     return fields[name] ? { required: name === 'venue', schema: fields[name], description: fields[name].description } : null;
   }
+  if (route === '/v1/search/prefix' && name === 'q') {
+    return { required: true, schema: { type: 'string', minLength: 8, maxLength: 140, examples: ['5b34c8b44d', '5b34c8b44d...ec9e77'] }, description: 'Hex prefix of 8–63 characters, or a shortened id: a prefix of at least 6 and a suffix of at least 4 hex characters joined by ... or …. Case-insensitive.' };
+  }
   if (route === '/v1/shielded-pools/activity' && name === 'period') {
     return { required: false, schema: { type: 'string', enum: ['7d', '30d', '90d', '1y'], default: '30d' }, description: 'Trailing complete UTC calendar days, excluding today. One year means 365 days.' };
   }
