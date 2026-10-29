@@ -23,6 +23,7 @@ function loadProxy({ network = 'mainnet', env = {} } = {}) {
     './lib/governance-request': {},
     './lib/chart-catalog': { CHART_CATALOG: [] },
     './lib/name-validation': {},
+    './lib/address-syntax': {},
   };
   vm.runInNewContext(ts.transpileModule(source('proxy.ts'), { compilerOptions }).outputText, {
     exports, URL, process: { env: { NODE_ENV: 'production', INDEXNOW_KEY: KEY, ...env } }, setInterval: () => {},

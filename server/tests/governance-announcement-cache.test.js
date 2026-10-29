@@ -222,7 +222,7 @@ test('shared announcement responses omit per-IP quota headers while the same lim
   const { NextRequest, NextResponse } = require('next/server');
   const { proxy } = load('proxy.ts', {
     'next/server': { NextResponse },
-    './lib/governance-request': {}, './lib/network': {}, './lib/chart-catalog': {}, './lib/name-validation': {},
+    './lib/governance-request': {}, './lib/network': {}, './lib/chart-catalog': {}, './lib/name-validation': {}, './lib/address-syntax': {},
   }, { process: { env: { NODE_ENV: 'production' } }, setInterval: () => {} });
   const request = path => new NextRequest(`https://zecblock.com${path}`, {
     headers: { host: 'zecblock.com', 'x-forwarded-for': '192.0.2.123' },
