@@ -1,7 +1,7 @@
 'use client';
 import {useId,useSyncExternalStore} from 'react';
 import {ResponsiveContainer,ComposedChart,Bar,Cell,Line,Area,XAxis,YAxis,CartesianGrid,ReferenceDot,ReferenceLine} from 'recharts';
-import {shortLabel,supportsLine,chartLabel,chartSeries,chartValues,axisFor,dateFormatter,chartHighlight,SERIES_COLORS} from '@/lib/ask/research-display';
+import {shortLabel,supportsLine,chartLabel,chartSeries,chartValues,axisFor,dateFormatter,axisDateFormatter,chartHighlight,SERIES_COLORS} from '@/lib/ask/research-display';
 import {ChartTooltip} from '@/components/charts/ChartTooltip';
 import type {ResearchResult,ResearchChart} from '@/lib/ask/research-contract';
 import styles from './research.module.css';
@@ -30,9 +30,9 @@ export default function ResearchPlot({result,chart}:{result:ResearchResult;chart
  const data=result.rows.map(row=>({x:chart.view==='bar'?chartLabel(result,row,chart.x,series?.column):row[chart.x]??'Unavailable',...Object.fromEntries(values.map(i=>[`v${i}`,row[i]===null?null:Number(row[i])])),...Object.fromEntries(values.map(i=>[`s${i}`,row[i]])),fill:series?series.colorFor(row[series.column]):SERIES_COLORS[0]}));
  if(data.some(d=>values.some(i=>{const v=(d as Record<string,unknown>)[`v${i}`];return v!==null&&!Number.isFinite(v);})))return <p className="text-sm text-secondary">Choose a numeric value column to draw this chart.</p>;
  const name=(i:number,k:number)=>`${result.columns[i].label.replaceAll('_',' ')}${axes[k]==='right'?' (right axis)':''}`;
- // Ordered labels are raw values; dates read as "Oct 2025" on the axis. The tooltip
+ // Ordered labels are raw values; dates read as "Oct 2025" or "Oct 28" on the axis. The tooltip
  // shows readable dates and each value's exact cell text, never the drawn float.
- const dates=ordered?dateFormatter(result,chart.x):null;
+ const dates=ordered?axisDateFormatter(result,chart.x):null;
  const xLabel=(value:unknown)=>shortLabel(dates&&typeof value==='string'?dates(value):value);
  const labelDates=dateFormatter(result,chart.x);
  const pointLabel=(value:string|null)=>value===null?'Unavailable':labelDates?labelDates(value):value;
@@ -57,7 +57,7 @@ export default function ResearchPlot({result,chart}:{result:ResearchResult;chart
    {legend.length?<ul className="flex flex-wrap justify-end gap-4 text-xs text-secondary" aria-hidden="true">{legend.map(item=><li key={item.value} className="flex items-center gap-2"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{background:item.color}}/>{item.value}</li>)}</ul>:null}
   </div>:null}
   <ResponsiveContainer width="100%" height={280}>
-   <ComposedChart data={data} margin={{top:12,right:right?4:28,bottom:0,left:0}} barCategoryGap={data.length>20?'12%':'22%'}>
+   <ComposedChart data={data} margin={{top:12,right:right?4:36,bottom:0,left:0}} barCategoryGap={data.length>20?'12%':'22%'}>
     <defs>{values.map((i,k)=><linearGradient key={i} id={`${gradient}-${k}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" style={{stopColor:SERIES_COLORS[k],stopOpacity:stacked?0.5:0.32}}/><stop offset="100%" style={{stopColor:SERIES_COLORS[k],stopOpacity:stacked?0.18:0}}/></linearGradient>)}</defs>
     <CartesianGrid vertical={false} strokeDasharray="2 6" stroke="var(--color-border)"/>
     <XAxis dataKey="x" tick={tick} tickLine={false} axisLine={{stroke:'var(--color-border)'}} interval={chart.view==='bar'&&!dense?0:'preserveStartEnd'} minTickGap={dense?16:24} tickFormatter={xLabel} angle={crowded?-30:0} textAnchor={crowded?'end':'middle'} height={crowded?72:36}/>
