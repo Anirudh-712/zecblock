@@ -60,30 +60,4 @@ function periodGrainDiagnostics(tree,{question}={}){
  if(!targets.some(target=>sourceField(target)==='date')||!targets.some(target=>countFields.has(sourceField(target))))return [];
  return ['The question requests a whole-period total or share for the complete specified calendar month, but this draft returns separate raw daily activity rows. Aggregate across the full requested month instead of returning daily rows. Recompute period shares from SUM(numerator) divided by SUM(denominator), with the requested percentage scaling and zero-denominator handling; never average daily percentages. Preserve every requested measure, date bound, null/missing-value meaning, filter and classification denominator, including unclassified transactions when requested. Omit an unnecessary daily date column from the whole-period result.'];
 }
-function periodAggregateContext(tree,{question,locale='en'}={}){
- const source=sourcePeriod(tree,question);if(!source)return null;
- const {s,sourceField,period}=source;
- if(s.sortClause?.length)return null; // Unnecessary scalar ordering is unresolved.
- let aggregate=false;
- const sourceFields=new Set('date blocks transactions shielded_transactions transparent_transactions unclassified_transactions bytes fees missing_fees missing_bytes'.split(' '));
- function scalar(node,insideAggregate=false){
-  if(!node||typeof node!=='object')return true;
-  if(node.ColumnRef)return insideAggregate&&sourceFields.has(sourceField(node));
-  const call=node.FuncCall,fn=call?.funcname?.at(-1)?.String?.sval;
-  if(call&&aggregates.has(fn)){
-   if(!['sum','count','min','max'].includes(fn)||insideAggregate)return false;
-   aggregate=true;
-   return Object.values(call).every(value=>Array.isArray(value)?value.every(part=>scalar(part,true)):scalar(value,true));
-  }
-  return Object.values(node).every(value=>Array.isArray(value)?value.every(part=>scalar(part,insideAggregate)):scalar(value,insideAggregate));
- }
- if(!(s.targetList?.length&&s.targetList.every(target=>scalar(target.ResTarget?.val)))||!aggregate)return null;
- try{
-  if(typeof locale!=='string'||locale.length>35)return null;
-  const label=new Intl.DateTimeFormat(locale,{timeZone:'UTC',month:'long',year:'numeric'}).format(new Date(period.start+'T00:00:00Z'));
-  // This labels declared query bounds only: no claim about SQL calculations,
-  // source completeness, result cardinality or a first-day constant's meaning.
-  return {calendarPeriod:'month',label};
- }catch{return null;}
-}
-module.exports={periodGrainDiagnostics,periodAggregateContext};
+module.exports={periodGrainDiagnostics};

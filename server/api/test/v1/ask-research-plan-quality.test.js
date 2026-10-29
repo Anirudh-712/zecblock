@@ -62,17 +62,18 @@ test('empty English research gets an honest receipt without spending on a fabric
  const reply=await researchReply(result,{},()=>assert.fail('No paid empty-result narrative'),'en',()=>assert.fail());assert.match(reply.answer,/does not establish zero activity/);assert.match(reply.answer,/Edit query/);
 });
 
-test('research summaries retain complete sentences without treating decimal points as boundaries',()=>{
- const {completeSummary}=require('../../v1/lib/ask-research-reply');
- assert.equal(completeSummary('The peak was 944.58% above baseline. The result card shows a'),'The peak was 944.58% above baseline.');
- assert.equal(completeSummary('The peak was 944.58'),null);
- assert.equal(completeSummary('A complete finding.'),'A complete finding.');
- assert.equal(completeSummary('There were 944.58 records'),null);
- assert.equal(completeSummary('観測値が増加しました。 表は'), '観測値が増加しました。');
- assert.equal(completeSummary('A finding. Values are a; b; c; d. A useful interpretation.'),'A finding. A useful interpretation.');
- assert.equal(completeSummary('A finding. Its meaning. An unrelated third sentence.'),'A finding. Its meaning.');
- assert.equal(completeSummary('Seven dates met both conditions. On Sep of the returned dates, flows rose.','Seven dates met both conditions. On Sep of the returned dates, flows rose.'),'Seven dates met both conditions.');
- assert.equal(completeSummary('On Sep 3, 2026, flows rose.','On {{row_a_a}}, flows rose.'),'On Sep 3, 2026, flows rose.');
+test('research captions keep two complete sentences without treating decimal points as boundaries',()=>{
+ const {checkedCaption}=require('../../v1/lib/ask-research-reply');
+ const facts={row_a_a:'3 Sept 2026',row_a_b:'944.58%'},numeric=new Set(['row_a_b']);
+ assert.equal(checkedCaption('The peak was {{row_a_b}} above baseline. The result card shows a',facts,numeric),'The peak was 944.58% above baseline.');
+ assert.equal(checkedCaption('The peak was {{row_a_b}}',facts,numeric),null);
+ assert.equal(checkedCaption('A complete finding of {{row_a_b}}.',facts,numeric),'A complete finding of 944.58%.');
+ assert.equal(checkedCaption('A finding with no cited fact.',facts,numeric),null);
+ assert.equal(checkedCaption('観測値は{{row_a_b}}でした。 表は',facts,numeric),'観測値は944.58%でした。');
+ assert.equal(checkedCaption('A finding of {{row_a_b}}. Its meaning. An unrelated third sentence.',facts,numeric),'A finding of 944.58%. Its meaning.');
+ // Literal calendar words are dates without a fact: the whole caption fails.
+ assert.equal(checkedCaption('Seven dates met both conditions. On Sep of the returned dates, flows rose.',facts,numeric),null);
+ assert.equal(checkedCaption('On {{row_a_a}}, flows rose.',facts,numeric),'On 3 Sept 2026, flows rose.');
 });
 
 test('swap time filters must not compare timestamptz to numeric Unix bounds',async()=>{

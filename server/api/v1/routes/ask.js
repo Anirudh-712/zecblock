@@ -21,7 +21,6 @@ const {compileResearchSQL}=require('../lib/ask-research-sql');
 const {compileResearchDraft}=require('../lib/ask-research-plan-quality');
 const {jobTicketSchema}=require('../../../../lib/ask/research-job-contract');
 const {researchReply}=require('../lib/ask-research-reply');
-const {answerTaskFor}=require('../lib/ask-chat');
 const {sqlQuerySchema}=require('../../../../lib/ask/research-contract');
 const jobAIAdmissionKey=ticket=>'ask:{mainnet}:job-ai-admission:'+createHash('sha256').update(ticket.id+ticket.token).digest('hex');
 const RELEASE_EXPLANATION="if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0";
@@ -207,7 +206,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
         }
         return askStage('answer',()=>interpret(config,input,signal,dependencies.fetch||fetch,task,async body=>{const release=await reserve(redis,config,body);providerAttempted=true;return release;}));
       };
-      const reply={...await researchReply(status.result,{question},run,locale==='auto'?'en':locale,answerTaskFor),mode:'ai'};
+      const reply={...await researchReply(status.result,{question},run,locale==='auto'?'en':locale),mode:'ai'};
       await redis.set(base,JSON.stringify(reply),{EX:3600});sendSuccess(res,reply);
     }catch(error){
       if(locked&&!providerAttempted)try{await redis.eval(RELEASE_EXPLANATION,{keys:[base+':attempt'],arguments:[attemptOwner]});}catch{/* no unsafe retry after an uncertain claim release */}
