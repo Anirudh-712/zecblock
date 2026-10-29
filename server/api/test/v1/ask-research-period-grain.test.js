@@ -3,7 +3,7 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
 const {parse}=require('pgsql-parser');
-const {periodGrainDiagnostics,periodAggregateContext}=require('../../v1/lib/ask-research-period-grain');
+const {periodGrainDiagnostics}=require('../../v1/lib/ask-research-period-grain');
 const {compileResearchSQL}=require('../../v1/lib/ask-research-sql');
 const {cases}=require('../../v1/lib/ask-research-eval-cases');
 const item=cases.find(item=>item.id==='classification_denominator');
@@ -11,7 +11,6 @@ const question=item.question;
 const bad=fs.readFileSync(path.join(__dirname,'../fixtures/ask-fixed-period-grain.sql'),'utf8').trim();
 const fixed=item.referenceSQL;
 const diagnose=async(sql=bad,q=question)=>periodGrainDiagnostics(await parse(sql),{question:q});
-const context=async(sql=fixed,q=question,locale='en')=>periodAggregateContext(await parse(sql),{question:q,locale});
 const signal=/whole-period total or share/;
 const bounds="date>=DATE '2026-09-01' AND date<DATE '2026-10-01'";
 
@@ -53,7 +52,7 @@ for(const q of [
  'For September 15, 2026 show total transactions.',
  'For 2026-09-01 through 2026-09-30 show total transactions.',
 ])test('abstains from daily/ambiguous/multi-period/incomplete requests: '+q,async()=>{
- assert.deepEqual(await diagnose(bad,q),[]);assert.equal(await context(fixed,q),null);
+ assert.deepEqual(await diagnose(bad,q),[]);
 });
 
 for(const q of [
@@ -66,7 +65,7 @@ for(const q of [
  'For September 2026 show total transaction counts as unaggregated data.',
 ])test('preserves explicit time-series or unaggregated research without an AI repair: '+q,async()=>{
  const {compileResearchDraft}=require('../../v1/lib/ask-research-plan-quality');
- assert.deepEqual(await diagnose(bad,q),[]);assert.equal(await context(fixed,q),null);
+ assert.deepEqual(await diagnose(bad,q),[]);
  let calls=0;
  const query=await compileResearchDraft(bad,{question:q},async()=>{calls++;assert.fail('explicit unaggregated research must not request whole-period repair');},{extended:true});
  assert.equal(calls,0);
@@ -75,7 +74,6 @@ for(const q of [
 
 test('period proof requires exactly one parsed statement',async()=>{
  assert.deepEqual(await diagnose(bad+'; SELECT 1'),[]);
- assert.equal(await context(fixed+'; SELECT 1'),null);
 });
 
 for(const [name,sql] of [
@@ -108,24 +106,6 @@ test('all existing research references avoid the wrong-grain hint',async()=>{
  assert.equal(checked,33);
 });
 
-test('completed-month scalar context comes from matching question/source bounds, not a column alias',async()=>{
- assert.deepEqual(await context(),{calendarPeriod:'month',label:'September 2026'});
- const labelled=`SELECT DATE '2026-09-01' AS misleading_first_day,sum(transactions) AS arbitrary_name FROM activity_daily WHERE ${bounds}`;
- assert.deepEqual(await context(labelled),{calendarPeriod:'month',label:'September 2026'});
- assert.deepEqual(await context(labelled,question,'fr'),{calendarPeriod:'month',label:'septembre 2026'});
-});
-
-test('period context abstains from raw dates, extra filters, other periods and unknown scalar meaning',async()=>{
- assert.equal(await context(bad),null);
- assert.equal(await context(fixed.replace('2026-09-01','2026-09-02')),null);
- assert.equal(await context(fixed+' AND fees>0'),null);
- assert.equal(await context(`SELECT date,sum(transactions) FROM activity_daily WHERE ${bounds}`),null);
- assert.equal(await context(`SELECT avg(transactions) FROM activity_daily WHERE ${bounds}`),null);
- assert.equal(await context(`SELECT sum(transactions),(SELECT count(*) FROM blocks) AS n FROM activity_daily WHERE ${bounds}`),null);
- assert.equal(await context(`WITH observed AS(SELECT * FROM activity_daily WHERE ${bounds}) SELECT sum(transactions) FROM observed`),null);
- assert.equal(await context(fixed,question,'invalid_locale_!'),null);
-});
-
 test('the existing model draft repair gets one chance to aggregate the entire requested month',async()=>{
  const {compileResearchDraft}=require('../../v1/lib/ask-research-plan-quality');let calls=0;
  const query=await compileResearchDraft(bad,{question},async(input,task)=>{
@@ -142,5 +122,4 @@ test('the existing model draft repair gets one chance to aggregate the entire re
 test('unambiguous ISO literals compared to the proven DATE source also retain the month proof',async()=>{
  const sql="SELECT date,transactions FROM activity_daily WHERE date>='2026-09-01' AND date<'2026-10-01'";
  assert.equal((await diagnose(sql)).length,1);
- assert.deepEqual(await context("SELECT sum(transactions) FROM activity_daily WHERE date>='2026-09-01' AND date<'2026-10-01'"),{calendarPeriod:'month',label:'September 2026'});
 });
