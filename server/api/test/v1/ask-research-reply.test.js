@@ -1,16 +1,18 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
-const {researchReply,researchFacts,researchTemplate,captionTask,checkedInterpretation,additiveColumns,caveats}=require('../../v1/lib/ask-research-reply');
+const {researchReply,researchFacts,researchTemplate,captionTask,checkedInterpretation,columnShapes,caveats}=require('../../v1/lib/ask-research-reply');
 const metadata={truncated:false,fingerprint:'a'.repeat(64),retrievedAt:'2026-10-29T00:00:00Z',indexedThrough:'2026-10-29T00:00:00Z',coverage:'verified canonical records',units:'exact decimal strings'};
 const research=(sql,columns,rows,extra={})=>({query:{version:3,sql,limit:100},columns:columns.map(([label,type],i)=>({key:'c'+i,label,type})),rows,datasets:['blocks'],...metadata,...extra});
 const caption=summary=>async()=>({finding:summary});
 
 // Observed on mainnet staging: last 1,000 blocks payout share. The model
 // caption failed number checks and the reply fell back to a bare receipt.
+// Only the top four of the real result's rows are known, so these rows cover
+// 653 of the 1,000 blocks; share_pct is SQL's share of the whole window.
 const payout=research("WITH recent AS (SELECT miner FROM blocks ORDER BY height DESC LIMIT 1000) SELECT miner,count(*) AS blocks,round(100.0*count(*)/sum(count(*)) OVER(),2) AS share_pct FROM recent GROUP BY miner ORDER BY blocks DESC",
  [['miner','text'],['blocks','number'],['share_pct','number']],
  [['t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7','285','28.50'],['t1SqwRAAdSig6dE4EBPLonAait219VmkUjP','172','17.20'],['t1PEp2GJLSdhDfCKqc2J211WKDUS1NfoQNy','145','14.50'],[null,'51','5.10']]);
-const payoutTemplate='The first of 4 returned rows is t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7, with 285 blocks and share_pct 28.5%, 1.66× the next row; the top three rows account for 92.2% of the returned blocks. Next are t1SqwRAAdSig6dE4EBPLonAait219VmkUjP (172 blocks) and t1PEp2GJLSdhDfCKqc2J211WKDUS1NfoQNy (145 blocks).';
+const payoutTemplate='The first of 4 returned rows is t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7, with 285 blocks and share_pct 28.5%, 1.66× the next row; the top three rows account for 60.2% of the total by share_pct. Next are t1SqwRAAdSig6dE4EBPLonAait219VmkUjP (172 blocks) and t1PEp2GJLSdhDfCKqc2J211WKDUS1NfoQNy (145 blocks).';
 
 test('payout share regression: a failed caption falls back to a readable fact template, never a bare receipt',async()=>{
  const before=structuredClone(payout);let calls=0;
@@ -30,9 +32,9 @@ test('payout share regression: a valid caption uses only checked facts and the c
   assert.equal(task.validator.safeParse({finding:'The leader found 285 blocks.'}).success,false);
   assert.equal(task.validator.safeParse({finding:'Ok.',observations:[]}).success,false);
   assert.equal(task.validator.safeParse({finding:'{{row_a_b}} blocks.',interpretation:'Top {{row_a_a}} may dominate.'}).success,false,'no placeholders in interpretation');
-  return task.validator.parse({finding:'{{row_a_a}} leads with {{row_a_b}} blocks, {{ratio_b}} the runner-up, and the top three addresses produced {{top_three_share_b}} of the returned blocks.',interpretation:'Payouts look concentrated in a handful of addresses, though payout addresses are not proven pool identities, so this may overstate or understate real pool concentration.'});
+  return task.validator.parse({finding:'{{row_a_a}} leads with {{row_a_b}} blocks, {{ratio_b}} the runner-up, and the top three addresses produced {{top_three_share_c}} of all blocks in the window.',interpretation:'Payouts look concentrated in a handful of addresses, though payout addresses are not proven pool identities, so this may overstate or understate real pool concentration.'});
  },'en');
- assert.equal(reply.answer,'t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7 leads with 285 blocks, 1.66× the runner-up, and the top three addresses produced 92.2% of the returned blocks. Payouts look concentrated in a handful of addresses, though payout addresses are not proven pool identities, so this may overstate or understate real pool concentration.');
+ assert.equal(reply.answer,'t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7 leads with 285 blocks, 1.66× the runner-up, and the top three addresses produced 60.2% of all blocks in the window. Payouts look concentrated in a handful of addresses, though payout addresses are not proven pool identities, so this may overstate or understate real pool concentration.');
  assert.deepEqual(seen.evidence.facts,{
   row_count:'4',
   row_a_a:'t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7',row_a_b:'285',row_a_c:'28.5%',
@@ -40,10 +42,11 @@ test('payout share regression: a valid caption uses only checked facts and the c
   row_c_a:'t1PEp2GJLSdhDfCKqc2J211WKDUS1NfoQNy',row_c_b:'145',row_c_c:'14.5%',
   max_b:'285',max_b_at:'t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7',min_b:'51',min_b_at:'null',
   max_c:'28.5%',max_c_at:'t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7',min_c:'5.1%',min_c_at:'null',
-  // 285/172 and (285+172+145)/653, exact then rounded; gap is 285-172.
-  ratio_b:'1.66×',gap_b:'113',top_three_share_b:'92.2%',
+  // 285/172 exact then rounded; gap is 285-172. The top-three share sums
+  // SQL's whole-window shares (28.5+17.2+14.5), not 602 of the 653 returned.
+  ratio_b:'1.66×',gap_b:'113',top_three_share_c:'60.2%',
  });
- assert.match(seen.evidence.notes.top_three_share_b,/rounded to 1 dp/);
+ assert.match(seen.evidence.notes.top_three_share_c,/whole total computed in SQL/);
  assert.deepEqual(seen.evidence.caveats,['Block payout addresses are not proven mining pool, operator or company identities.']);
  assert.deepEqual(seen.evidence.columns.map(c=>c.unit),['unlabelled','unlabelled','percent']);
  assert.equal(seen.evidence.sql,payout.query.sql);
@@ -82,7 +85,7 @@ test('interpretation check: hedged, number-free, no unseen names, caveats respec
 
 test('top-three share is emitted only for additive non-negative measures, never balances, averages or windows',async()=>{
  const rows=[['orchard','400'],['sapling','300'],['sprout','200'],['ironwood','100']];
- const share=async(sql,label='amount')=>{const result=research(sql,[['pool','text'],[label,'number']],rows,{datasets:['flows']});return researchFacts(result,[],'en',await additiveColumns(sql,result.columns)).facts.top_three_share_b;};
+ const share=async(sql,label='amount',extra={})=>{const result=research(sql,[['pool','text'],[label,'number']],rows,{datasets:['flows'],...extra});return researchFacts(result,[],'en',await columnShapes(sql,result.columns)).facts.top_three_share_b;};
  assert.equal(await share('SELECT pool,sum(amount) AS amount FROM flows GROUP BY pool ORDER BY 2 DESC'),'90%');
  assert.equal(await share('SELECT pool,count(*) AS amount FROM flows GROUP BY pool ORDER BY 2 DESC'),'90%');
  assert.equal(await share('SELECT pool,round(sum(amount)::numeric/100000000,2) AS amount FROM flows GROUP BY pool ORDER BY 2 DESC'),'90%');
@@ -95,9 +98,29 @@ test('top-three share is emitted only for additive non-negative measures, never 
  assert.equal(await share('SELECT pool,sum(amount) OVER(PARTITION BY pool) AS amount FROM flows'),undefined);
  assert.equal(await share('SELECT pool,sum(amount)-1 AS amount FROM flows GROUP BY pool'),undefined);
  assert.equal(await share('SELECT pool,100.0*sum(amount)/sum(sum(amount)) OVER() AS amount_pct FROM flows GROUP BY pool','amount_pct'),undefined);
+ // Returned rows that are not the whole total never get a computed share:
+ // a LIMIT on the groups (outer or inside a CTE), truncation, or unparsed SQL.
+ assert.equal(await share('SELECT pool,sum(amount) AS amount FROM flows GROUP BY pool ORDER BY 2 DESC LIMIT 4'),undefined);
+ assert.equal(await share('WITH t AS (SELECT pool,sum(amount) AS total FROM flows GROUP BY pool ORDER BY 2 DESC LIMIT 4) SELECT pool,total FROM t','total'),undefined);
+ assert.equal(await share('SELECT pool,sum(amount) AS amount FROM flows GROUP BY pool ORDER BY 2 DESC','amount',{truncated:true}),undefined);
+ assert.equal(researchFacts(research('x',[['pool','text'],['amount','number']],rows),[],'en').facts.top_three_share_b,undefined,'unknown shape is partial');
+ // A LIMIT on the input rows, before grouping, still leaves the whole total.
+ assert.equal(await share('WITH recent AS (SELECT pool,amount FROM flows ORDER BY id DESC LIMIT 1000) SELECT pool,sum(amount) AS amount FROM recent GROUP BY pool ORDER BY 2 DESC'),'90%');
  // The ratio still describes any ranked column; three rows have no top-three share.
  const three=research('SELECT pool,sum(amount) AS amount FROM flows GROUP BY pool',[['pool','text'],['amount','number']],rows.slice(0,3),{datasets:['flows']});
- const facts=researchFacts(three,[],'en',[false,true]).facts;assert.equal(facts.ratio_b,'1.33×');assert.equal(facts.top_three_share_b,undefined);
+ const facts=researchFacts(three,[],'en',{additive:[false,true],shareOfTotal:[],partial:false}).facts;assert.equal(facts.ratio_b,'1.33×');assert.equal(facts.top_three_share_b,undefined);
+});
+
+test('a SQL share of the whole total is preferred, even when a LIMIT keeps only the top groups',async()=>{
+ const sql='SELECT miner,count(*) AS blocks,round(100.0*count(*)/sum(count(*)) OVER(),2) AS share_pct FROM blocks GROUP BY miner ORDER BY blocks DESC LIMIT 4';
+ const limited={...payout,query:{...payout.query,sql}};
+ const shapes=await columnShapes(sql,limited.columns);
+ assert.deepEqual(shapes,{additive:[false,true,false],shareOfTotal:[false,false,true],partial:true});
+ const {facts}=researchFacts(limited,[],'en',shapes);
+ assert.equal(facts.top_three_share_c,'60.2%');assert.equal(facts.top_three_share_b,undefined,'602 of 653 returned blocks would overstate concentration');
+ // A percent column that is not a share of one total (e.g. per-row rates) is never summed.
+ const rates={...limited,rows:limited.rows.map(row=>[row[0],row[1],'80'])};
+ assert.equal(researchFacts(rates,[],'en',shapes).facts.top_three_share_c,undefined);
 });
 
 test('monthly fees time series: exact first-to-last change, percent change and largest step',async()=>{
