@@ -297,3 +297,21 @@ test('a fact ID the model wrote without braces renders its checked value; a stra
  assert.equal(renderExplanation({summary:'Orchard fell over the ̷start_date to {{end_date}} observation window.',observations:[],limitation:''},facts).summary,'Orchard fell over the Sep 29, 2026 to Oct 29, 2026 observation window.');
  assert.throws(()=>renderExplanation({summary:'Orchard was 343 ZEC.',observations:[],limitation:''},facts),/Unvalidated/);
 });
+
+test('a latest period still running past the indexed data is named to date and left out of extremes and changes',async()=>{
+ const {windowFacts}=require('../../v1/lib/ask-research-reply');
+ const {parse}=require('pgsql-parser');
+ // Observed on production 2026-10-29: Nov 2025 – Oct 2026 with October incomplete
+ // read "transactions decreased by 55.9%" and "Nov 1, 2025 – Oct 31, 2026".
+ const sql="SELECT date_trunc('month', block_time) AS month, count(*) AS transactions FROM transactions WHERE block_time >= DATE '2025-11-01' AND block_time < DATE '2026-11-01' GROUP BY 1 ORDER BY 1";
+ const monthly=research(sql,[['month','text'],['transactions','number']],[['2025-11-01 00:00:00+00','473577'],['2026-09-01 00:00:00+00','363162'],['2026-10-01 00:00:00+00','208680']],{datasets:['transactions'],indexedThrough:'2026-10-29T22:55:02Z'});
+ const {facts,notes}=researchFacts(monthly,[],'en');
+ assert.equal(facts.partial_at,'October 2026');assert.equal(facts.partial_through,'Oct 29, 2026');assert.match(notes.partial_at,/incomplete/);
+ assert.equal(facts.last_at,'September 2026');assert.equal(facts.min_b,'363,162');assert.equal(facts.min_b_at,'September 2026');
+ assert.equal(facts.change_pct_b,'-23.3%');
+ const windows=windowFacts(await parse(sql),'en','2026-10-29T22:55:02Z').facts;
+ assert.equal(windows.window,'Nov 1, 2025 – Oct 29, 2026 (to date)');assert.equal(windows.window_length,undefined);
+ // Complete periods are untouched.
+ const done=researchFacts({...monthly,indexedThrough:'2026-11-01T00:00:00Z'},[],'en').facts;
+ assert.equal(done.partial_at,undefined);assert.equal(done.last_at,'October 2026');
+});

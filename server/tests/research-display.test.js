@@ -60,3 +60,16 @@ test('proposed charts are refitted to the rows: ordered axes for lines, same-axi
  assert.equal(fitResearchChart(months,{view:'bar',x:0,y:0}),null);
  assert.equal(fitResearchChart(months,{view:'pie',x:0,y:1}),null);
 });
+test('a latest period running past the indexed data is flagged, never the low or the end of a change',()=>{
+ const {partialPeriod,chartHighlight}=require('../../lib/ask/research-display');
+ const months={indexedThrough:'2026-10-29T22:55:02Z',columns:[{key:'c0',label:'month',type:'text'},{key:'c1',label:'transactions',type:'number'}],rows:[['2026-08-01 00:00:00+00','140215'],['2026-09-01 00:00:00+00','363162'],['2026-10-01 00:00:00+00','98000']]};
+ assert.equal(partialPeriod(months,0),2);
+ assert.equal(chartHighlight(months,{view:'line',x:0,y:1,highlight:'latest'}).partial,true);
+ assert.equal(chartHighlight(months,{view:'line',x:0,y:1,highlight:'low'}).row,0);
+ assert.equal(chartHighlight(months,{view:'line',x:0,y:1,highlight:'change'}).row,1);
+ // Complete days, a single row, or no indexing time: nothing is partial.
+ assert.equal(partialPeriod({...months,rows:[['2026-10-27','1'],['2026-10-28','2']]},0),-1);
+ assert.equal(partialPeriod({...months,rows:[['2026-10-28','1'],['2026-10-29','2']]},0),1);
+ assert.equal(partialPeriod({...months,rows:[months.rows[2]]},0),-1);
+ assert.equal(partialPeriod({...months,indexedThrough:undefined},0),-1);
+});

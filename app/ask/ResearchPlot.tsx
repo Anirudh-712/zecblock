@@ -50,7 +50,7 @@ export default function ResearchPlot({result,chart}:{result:ResearchResult;chart
  return <div role="img" aria-label={`${chart.view} chart of ${label} by ${result.columns[chart.x]?.label}; exact values in the table`}>
   {mark||legend.length?<div className={styles.plotHead}>
    {mark?<div className={styles.plotStat} aria-hidden="true">
-    <span className={styles.plotStatLabel}>{HIGHLIGHT_LABEL[mark.kind]} · {result.columns[chart.y].label.replaceAll('_',' ')} · {pointLabel(mark.label)}</span>
+    <span className={styles.plotStatLabel}>{HIGHLIGHT_LABEL[mark.kind]} · {result.columns[chart.y].label.replaceAll('_',' ')} · {pointLabel(mark.label)}{mark.partial?' (to date)':''}</span>
     <span className={styles.plotStatValue}>{grouped(mark.value)}</span>
     {mark.kind==='change'?<span className={styles.plotStatChange} data-direction={mark.delta>0?'up':mark.delta<0?'down':'flat'}>{delta}{mark.pct!==null?` (${mark.pct>0?'+':''}${mark.pct.toFixed(1)}%)`:''} since {pointLabel(mark.from.label)}</span>:null}
    </div>:<span/>}
