@@ -37,10 +37,16 @@ const numericRanges = (() => {
   }
   return ranges.join('');
 })();
+// Server facts whose value is exactly "ZIP <n>" may also be written literally:
+// a question naming ZIP 317 is answered naturally, while any other number
+// (including an invented ZIP) is still rejected.
+const literalFacts = facts => [...new Set(Object.values(facts).filter(value => typeof value === 'string' && /^ZIP \d{1,4}$/.test(value)))];
 function evidenceProse(facts) {
   const ids = Object.keys(facts);
   if (ids.some(id => !/^[a-z_]+$/.test(id))) throw new Error('Invalid server fact ID');
-  const pattern = ids.length ? `^(?:\\{\\{(?:${ids.join('|')})\\}\\}|[^${numericRanges}{}<>])*$` : `^[^${numericRanges}{}<>]*$`;
+  const literals = literalFacts(facts).map(value => value.replace(' ', '\\x20'));
+  const allowed = [...(ids.length ? [`\\{\\{(?:${ids.join('|')})\\}\\}`] : []), ...literals];
+  const pattern = allowed.length ? `^(?:${allowed.join('|')}|[^${numericRanges}{}<>])*$` : `^[^${numericRanges}{}<>]*$`;
   return z.string().regex(new RegExp(pattern, 'u'));
 }
 
@@ -113,11 +119,14 @@ function renderExplanation(raw, facts) {
   function render(raw) {
     // Invisible format characters (e.g. U+180E seen on staging) never reach readers.
     const text = raw.replace(/\p{Cf}/gu, '');
-    const remainder = text.replace(/\{\{([a-z_]+)\}\}/g, (_, id) => {
+    let remainder = text.replace(/\{\{([a-z_]+)\}\}/g, (_, id) => {
       if (!Object.hasOwn(facts, id)) throw new Error('Unknown evidence reference');
       return '';
     });
-    if (/[\p{N}\p{So}{}<>]|https?:|www\./iu.test(remainder)) throw new Error('Unvalidated numerical claim or markup');
+    for (const literal of literalFacts(facts)) remainder = remainder.replace(new RegExp(`\\b${literal.replace(' ', '\\s')}\\b`, 'g'), '');
+    // Unassigned and private-use code points can masquerade as digits (U+0C73
+    // stood in for "317" on staging) and are never valid prose.
+    if (/[\p{N}\p{So}\p{Cn}\p{Co}{}<>]|https?:|www\./iu.test(remainder)) throw new Error('Unvalidated numerical claim or markup');
     return substituteFacts(text, facts);
   }
   return { summary: render(parsed.summary), observations: parsed.observations.map(render), limitation: render(parsed.limitation) };

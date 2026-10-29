@@ -66,7 +66,9 @@ test('model-facing ZIP records expose numbers only as facts the renderer substit
   assert.equal(facts.zip_a, 'ZIP 317');
   const rendered = await renderExplanation({ summary: '{{zip_a}} defines a proportional transfer fee mechanism; the official index lists its status as {{zip_a_status}}.', observations: [], limitation: '' }, facts);
   assert.match(rendered.summary, /^ZIP 317 defines a proportional transfer fee mechanism; the official index lists its status as \[Revision 0\] Active/);
-  assert.throws(() => renderExplanation({ summary: 'ZIP 317 defines fees.', observations: [], limitation: '' }, facts), /Unvalidated numerical claim/);
+  // A literal attached ZIP number reads naturally; invented numbers and digit look-alikes do not pass.
+  assert.equal(renderExplanation({ summary: 'ZIP 317 defines fees.', observations: [], limitation: '' }, facts).summary, 'ZIP 317 defines fees.');
+  for (const summary of ['ZIP 999 defines fees.', 'ZIP \u0c73 defines fees.', 'Fees are 10000 zats.']) assert.throws(() => renderExplanation({ summary, observations: [], limitation: '' }, facts), /Unvalidated numerical claim/, summary);
   const plain = zipRecords(matchZips('ZIP 317')).records[0];
   assert.match(plain.text, /^ZIP 317 is "Proportional Transfer Fee Mechanism"\. Its current status is Active \(revisions in the official index: \[Revision 0\] Active/);
   assert.match(plain.text, /Active is its authoritative status/);
