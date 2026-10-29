@@ -363,7 +363,7 @@ export function AskWorkspace() {
     return <>{explainAction(message)}{includeEdit ? editAction(message) : null}<button aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button></>;
   }
   function renderRecords(message: Message, expandedView = false) {
-    const sources = <AskSources inline sources={message.sources || []} dataContext={message.dataContext} />;
+    const sources = message.sources?.length || message.dataContext ? <AskSources inline sources={message.sources || []} dataContext={message.dataContext} /> : undefined;
     if (message.research) return message.id === latestRecords?.id ? <ResearchPanel embedded={!expandedView} actions={expandedView ? undefined : explainAction(message)} trailing={expandedView ? undefined : <button aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button>} editAction={editAction(message)} sources={sources} saved={message.savedSnapshot} tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} sources={sources} savedSnapshot={message.savedSnapshot} chart={{view:'table',x:0,y:0}}/></div>;
     return <div className="p-4 sm:p-5"><AskAnalytics result={message.analytics}/><AskBlocks result={message.blocks} expanded/><AskTransactions result={message.transactions} expanded/>{message.transfers ? <AskTransfers result={message.transfers}/> : null}</div>;
   }
@@ -438,7 +438,7 @@ export function AskWorkspace() {
                 const previous = message.viewSpec || message.spec!;
                 const validated = analysisSchema.parse(next.period !== previous.period || next.pool !== previous.pool || next.metric !== previous.metric ? {...next, start:null, end:null} : next);
                 setSessions(all => all.map(item => item.id === activeId ? {...item, spec:validated, messages:item.messages.map(turn => turn.id === message.id ? {...turn, viewSpec:validated} : turn)} : item));
-              }} sources={<AskSources inline sources={message.sources || []} dataContext={message.dataContext} />} onExplain={() => void ask('Explain this view', message.viewSpec || message.spec!)} canExplain={capability.mode === 'ai' && verified && !aiBlocked} busy={busy}/> : null}
+              }} sources={message.sources?.length || message.dataContext ? <AskSources inline sources={message.sources || []} dataContext={message.dataContext} /> : undefined} onExplain={() => void ask('Explain this view', message.viewSpec || message.spec!)} canExplain={capability.mode === 'ai' && verified && !aiBlocked} busy={busy}/> : null}
               {message.research || message.analytics || message.blocks || message.transactions || message.transfers ? <div className={styles.replyResults} role="group" aria-label="Query results">{message.research && message.id === latestRecords?.id ? null : <div className={styles.resultActions}>{resultActions(message)}</div>}{renderRecords(message)}</div> : message.sql && message.state !== 'pending' ? <button className={styles.followup} disabled={busy} onClick={()=>editQuery(message)}>Edit query</button> : null}
               {!message.research && !message.spec ? <AskSources sources={message.sources || []} dataContext={message.dataContext} /> : null}
               </div></article>

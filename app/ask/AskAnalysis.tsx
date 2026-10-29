@@ -79,7 +79,7 @@ export function AskAnalysis({ spec, changed, onChange, onExplain, canExplain, bu
                 <dl className={research.provRows}>
                   <div><dt>Data</dt><dd><Link href={evidence.source}>{evidence.sourceLabel} · Indexed public data</Link> <span className={research.inlineCopy}><CopyButton text={`https://zecblock.com${evidence.source}`} label="source link" className={research.copyButton} /></span></dd></div>
                   {sources ? <div><dt>Guide</dt><dd>{sources}</dd></div> : null}
-                  <div><dt>Retrieved</dt><dd>{evidence.receivedAt.replace('T', ' ').slice(0, 19)} UTC · Source observed {evidence.meta.source?.observedAt ?? 'unavailable'}</dd></div>
+                  <div><dt>Retrieved</dt><dd>{evidence.receivedAt.replace('T', ' ').slice(0, 19)} UTC{evidence.meta.source?.observedAt ? ` · Source observed ${evidence.meta.source.observedAt}` : ''}</dd></div>
                   <div><dt>Coverage</dt><dd>{ranking ? `${summary.points.length} chains ranked by tracked swap volume. The bar chart shows the top 10; the table and CSV include every chain.` : spec.metric === 'migration_share' ? `Latest observed share ${summary.end}. Percentages compare pool balances on each returned day.` : spec.metric === 'balances' ? `${summary.points.length} daily snapshots. Headline balances are from ${summary.end}; changes compare the first and last observations.` : `${summary.points.length} daily buckets. Boundary days may be partial; absent days are not assumed to be zero.`}</dd></div>
                   {evidence.note ? <div><dt>Notes</dt><dd>{evidence.note}</dd></div> : null}
                   <div><dt>Units</dt><dd>CSV exports use {evidence.csvUnit}. ZEC values retain exact zatoshis; USD valuations are approximate.</dd></div>
