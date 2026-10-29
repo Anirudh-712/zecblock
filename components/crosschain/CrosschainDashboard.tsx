@@ -13,6 +13,7 @@ import { ActivityCharts } from "./ActivityCharts";
 import { SwapFilterLink, useAnalyticsPeriod } from "./SwapFilterLink";
 import { SwapExplorer } from "./SwapExplorer";
 import { WrappedZecTracker, WrappedZecAsset } from "./WrappedZecTracker";
+import { DisclosureSummary, PanelTitle } from "./PanelTitle";
 import { CrosschainVenueContext, type CrosschainVenue } from "./VenueContext";
 import {
   Analytics,
@@ -30,6 +31,21 @@ const SECTIONS = [
   { id: "swaps", label: "Swaps" },
   { id: "ecosystem", label: "Ecosystem" },
 ];
+const PERIOD_LABELS: Record<string, string> = {
+  "24h": "last 24 hours",
+  "7d": "last 7 days",
+  "30d": "last 30 days",
+  "90d": "last 90 days",
+  "1y": "last 12 months",
+  all: "all indexed history",
+};
+const OUTCOMES = [
+  ["SUCCESS", "Completed", "bg-cipher-green"],
+  ["REFUNDED", "Refunded", "bg-cipher-orange"],
+  ["FAILED", "Failed", "bg-cipher-coral"],
+  ["PROCESSING", "Processing", "bg-glass-12"],
+  ["INCOMPLETE_DEPOSIT", "Incomplete deposit", "bg-glass-12"],
+] as const;
 export function CrosschainDashboard({
   params = {},
   venue = "near",
@@ -91,22 +107,23 @@ export function CrosschainDashboard({
     inflow = s[`inflow_${unit}`],
     outflow = s[`outflow_${unit}`];
   const missing = unit === "usd" ? s.missing_usd : s.missing_zec;
-  const metrics = [
+  const net =
+    inflow == null || outflow == null ? null : Number(inflow) - Number(outflow);
+  const periodLabel = PERIOD_LABELS[period] || period;
+  const metrics: [string, string, string, string?][] = [
     [
       "Volume",
       value(volume, unit),
-      `${s.swaps.toLocaleString()} successful external swaps`,
+      missing > 0
+        ? `${missing.toLocaleString()} swaps without a ${unit.toUpperCase()} value`
+        : `Reported amounts · ${periodLabel}`,
     ],
-    ["Swaps", s.swaps.toLocaleString(), "Completed in the selected period"],
+    ["Swaps", s.swaps.toLocaleString(), `Completed external swaps · ${periodLabel}`],
     [
-      "Net flow",
-      value(
-        inflow == null || outflow == null
-          ? null
-          : Number(inflow) - Number(outflow),
-        unit,
-      ),
+      net == null ? "Net flow" : net >= 0 ? "Net into ZEC" : "Net out of ZEC",
+      net == null ? value(null, unit) : `${net >= 0 ? "+" : "−"}${value(Math.abs(net), unit)}`,
       `${value(inflow, unit)} in · ${value(outflow, unit)} out`,
+      net == null || net === 0 ? undefined : net > 0 ? "text-cipher-green" : "text-cipher-orange",
     ],
     [
       "Average swap",
@@ -114,6 +131,14 @@ export function CrosschainDashboard({
       `Median ${value(s[`median_${unit}`], unit)}`,
     ],
   ];
+  const fresh = !c.stale && !error;
+  const outcomeTotal = OUTCOMES.reduce(
+    (sum, [status]) =>
+      c.statusesAvailable.includes(status)
+        ? sum + (data.statuses.find((row) => row.status === status)?.count || 0)
+        : sum,
+    0,
+  );
   const pairSort = data.routeRankings ? requestedPairSort : "swaps";
   const rankedPairs = data.routeRankings?.[pairSort] || data.routes;
   const routes = allRoutes ? rankedPairs : rankedPairs.slice(0, 6);
@@ -136,35 +161,48 @@ export function CrosschainDashboard({
       )}
       <section id="overview" className="space-y-4 scroll-mt-40">
         <div className="flex flex-wrap justify-between items-center gap-3">
-          <nav aria-label="Analytics period" className="filter-group flex-wrap">
-            {PERIODS.map((p) => (
-              <Link
-                key={p}
-                href={href({ period: p, ...(venue === "near" ? {} : { venue }) })}
-                aria-current={period === p ? "page" : undefined}
-                className={`filter-btn ${period === p ? "filter-btn-active" : ""}`}
-              >
-                {p.toUpperCase()}
-              </Link>
-            ))}
-          </nav>
-          {unitToggle}
+          {venueTabs}
+          <div className="flex flex-wrap items-center gap-3">
+            <nav aria-label="Analytics period" className="filter-group flex-wrap">
+              {PERIODS.map((p) => (
+                <Link
+                  key={p}
+                  href={href({ period: p, ...(venue === "near" ? {} : { venue }) })}
+                  aria-current={period === p ? "page" : undefined}
+                  className={`filter-btn ${period === p ? "filter-btn-active" : ""}`}
+                >
+                  {p.toUpperCase()}
+                </Link>
+              ))}
+            </nav>
+            {unitToggle}
+          </div>
         </div>
-        {c.stale || error ? <p className="text-xs text-cipher-orange" role="status">{error ? "Refresh failed; showing last snapshot" : "Data may be out of date"}</p> : null}
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption font-mono text-muted">
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${fresh ? "bg-cipher-green" : "bg-cipher-orange"}`} aria-hidden="true" />
+          <span className={fresh ? "" : "text-cipher-orange"} role="status">
+            {error ? "Refresh failed; showing last snapshot" : c.stale ? "Data may be out of date" : venueName}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>Synced through {date(c.syncedThrough)}</span>
+          <span aria-hidden="true">·</span>
+          <span>{c.records.toLocaleString()} records since {date(c.earliest).slice(0, 10)}</span>
+          {!c.historyTraversalComplete ? <><span aria-hidden="true">·</span><span>Historical backfill in progress</span></> : null}
+          <a href="#data-details" className="text-cipher-gold hover:underline" onClick={() => { const el = document.getElementById("data-details"); if (el instanceof HTMLDetailsElement) el.open = true; }}>Coverage &amp; methodology</a>
+        </p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {metrics.map(([label, v, hint]) => (
+          {metrics.map(([label, v, hint, tone]) => (
             <div key={label} className="card">
               <p className="text-caption text-muted uppercase font-mono">
                 {label}
               </p>
-              <p className="text-2xl sm:text-3xl text-primary font-mono tabular-nums mt-2 break-words">
+              <p className={`text-xl sm:text-3xl font-mono tabular-nums mt-2 break-words ${tone || "text-primary"}`}>
                 {v}
               </p>
               <p className="text-xs text-muted mt-2">{hint}</p>
             </div>
           ))}
         </div>
-        {venueTabs}
         <PageSectionNav sections={SECTIONS} ariaLabel="Cross-chain sections" />
         <ActivityCharts data={data} unit={unit} />
       </section>
@@ -179,8 +217,7 @@ export function CrosschainDashboard({
         <div id="routes" className="grid lg:grid-cols-2 gap-4">
           <ActivityCharts data={data} unit={unit} panel="sizes" />
           <section className="card space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-sm text-secondary font-mono">Top pairs</h2>
+            <PanelTitle title="Top pairs" controls={
               <div
                 className="filter-group"
                 role="group"
@@ -202,7 +239,7 @@ export function CrosschainDashboard({
                   </button>
                 ))}
               </div>
-            </div>
+            } />
             <p className="text-xs text-muted">
               {pairSort === "swaps"
                 ? "Ranked by completed swap count."
@@ -219,7 +256,7 @@ export function CrosschainDashboard({
                 Missing valuations are excluded; totals use reported values only.
               </p>
             )}
-            <div className="space-y-2">
+            <div className="space-y-1">
               {routes.map((r) => (
                 <SwapFilterLink
                   scrollToSwaps
@@ -228,7 +265,7 @@ export function CrosschainDashboard({
                     r.dest_chain, r.dest_asset || r.dest_token,
                   ])}
                   title={`Median ${value(r[`median_${pairUnit}`], pairUnit)} · ${r.source_asset || r.source_token} → ${r.dest_asset || r.dest_token}`}
-                  className="relative flex items-center justify-between gap-3 rounded-lg px-3 py-3 hover:bg-glass-3"
+                  className="relative flex items-center justify-between gap-3 rounded-lg px-3 pt-3 pb-4 transition-colors hover:bg-glass-3"
                   href={
                     href({
                       period,
@@ -248,12 +285,14 @@ export function CrosschainDashboard({
                   }
                 >
                   <span
-                    className="absolute inset-y-0 left-0 rounded-lg bg-glass-3"
-                    style={{
-                      width: `${(pairMetric(r) / pairMax) * 100}%`,
-                    }}
+                    className="absolute bottom-1.5 left-3 right-3 h-1 rounded-full bg-glass-4 overflow-hidden"
                     aria-hidden="true"
-                  />
+                  >
+                    <span
+                      className="block h-full rounded-full bg-glass-12"
+                      style={{ width: `${(pairMetric(r) / pairMax) * 100}%` }}
+                    />
+                  </span>
                   <span className="relative text-xs">
                     <span className="flex items-center gap-2 text-secondary">
                       <TokenChainIcon
@@ -307,49 +346,38 @@ export function CrosschainDashboard({
       </section>
       <section id="swaps" className="space-y-4 scroll-mt-40">
         <section className="card space-y-4" aria-label="Swap outcomes">
-          <h2
-            className="text-sm text-secondary font-mono"
-            title="Latest observed statuses for records created in the selected period. Unfunded pending-deposit quotes are excluded."
-          >
-            {venue === 'near' ? 'Swap outcomes' : 'Swap & refund actions'}
-          </h2>
+          <PanelTitle
+            title={venue === "near" ? "Swap outcomes" : "Swap & refund actions"}
+            controls={<span className="text-caption text-muted font-mono">Latest observed status · select one to filter swaps</span>}
+          />
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[
-              "SUCCESS",
-              "REFUNDED",
-              "FAILED",
-              "PROCESSING",
-              "INCOMPLETE_DEPOSIT",
-            ].map((status) => (
-              <SwapFilterLink
-                scrollToSwaps
-                key={status}
-                href={href({ period, status }) + "#swaps"}
-                className="rounded-lg bg-glass-3 p-3 hover:bg-glass-6"
-              >
-                <p className="text-caption text-muted break-words">
-                  {
-                    (
-                      {
-                        SUCCESS: "Completed",
-                        REFUNDED: "Refunded",
-                        FAILED: "Failed",
-                        PROCESSING: "Processing",
-                        INCOMPLETE_DEPOSIT: "Incomplete deposit",
-                      } as Record<string, string>
-                    )[status]
-                  }
-                </p>
-                <p className="font-mono text-lg mt-1">
-                  {c.statusesAvailable.includes(status)
-                    ? (
-                        data.statuses.find((s) => s.status === status)?.count ||
-                        0
-                      ).toLocaleString()
-                    : "Unavailable"}
-                </p>
-              </SwapFilterLink>
-            ))}
+            {OUTCOMES.map(([status, label, dot]) => {
+              const count = data.statuses.find((row) => row.status === status)?.count || 0;
+              if (!c.statusesAvailable.includes(status))
+                return (
+                  <div key={status} className="rounded-lg border border-dashed border-cipher-border p-3" title={`${venueName} does not report this state in the indexed data.`}>
+                    <p className="text-caption text-muted break-words">{label}</p>
+                    <p className="text-sm text-muted mt-1.5">Not reported</p>
+                  </div>
+                );
+              return (
+                <SwapFilterLink
+                  scrollToSwaps
+                  key={status}
+                  href={href({ period, status }) + "#swaps"}
+                  className="rounded-lg bg-glass-3 p-3 transition-colors hover:bg-glass-6"
+                >
+                  <p className="flex items-center gap-1.5 text-caption text-muted break-words">
+                    <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
+                    {label}
+                  </p>
+                  <p className="font-mono text-lg tabular-nums mt-1">{count.toLocaleString()}</p>
+                  <p className="text-caption text-muted mt-0.5 tabular-nums">
+                    {outcomeTotal > 0 ? `${((count / outcomeTotal) * 100).toFixed(1)}% of ${outcomeTotal.toLocaleString()}` : "No observed records"}
+                  </p>
+                </SwapFilterLink>
+              );
+            })}
           </div>
           {venue === 'near' ? <p className="text-xs text-muted">
             {c.source === "legacy-success-index"
@@ -381,10 +409,9 @@ export function CrosschainDashboard({
           a proof of reserves. Their sum is not a measure of unique backing.
         </p>
       </section>
-      <details className="card">
-        <summary className="cursor-pointer text-sm text-secondary font-mono">
-          Confirmation times & more
-        </summary>
+      <details className="card group">
+        <DisclosureSummary title="Confirmation times & referrals" />
+        <div className="mt-5 space-y-4">
         {data.latency.length > 0 && (
           <LatencyComparisonChart
             inbound={data.latency
@@ -406,7 +433,7 @@ export function CrosschainDashboard({
           />
         )}
 
-        <div className="grid sm:grid-cols-2 gap-4 my-4 text-xs text-muted">
+        <div className="grid sm:grid-cols-2 gap-4 text-xs text-muted">
           <p>
             Median swap:{" "}
             <span className="text-primary">
@@ -423,15 +450,9 @@ export function CrosschainDashboard({
         </div>
         <section id="execution" className="grid lg:grid-cols-2 gap-4">
           <div className="card space-y-4">
-            <h2 className="text-sm text-secondary font-mono">
-              Reported referrals
-            </h2>
+            <PanelTitle title="Reported referrals" controls={<span className="text-caption text-muted font-mono">Distribution channels</span>} />
             {data.referrals.length > 0 && (
-              <details>
-                <summary className="text-xs cursor-pointer text-secondary">
-                  Distribution channels · reported referrals
-                </summary>
-                <ul className="mt-3 text-xs space-y-2">
+                <ul className="text-xs space-y-2">
                   {data.referrals.map((r) => (
                     <li
                       key={r.referral || "unknown"}
@@ -447,14 +468,11 @@ export function CrosschainDashboard({
                     </li>
                   ))}
                 </ul>
-              </details>
             )}
             {!data.referrals.length && <p className="text-xs text-muted">No referral observations are available for this selection.</p>}
           </div>
           <div className="card space-y-4">
-            <h2 className="text-sm text-secondary font-mono">
-              Zcash confirmation leg
-            </h2>
+            <PanelTitle title="Zcash confirmation leg" />
             <p className="text-xs text-muted">{data.latencyDefinition}</p>
             <div className="overflow-x-auto max-h-[280px]">
               <table className="w-full text-xs">
@@ -492,11 +510,10 @@ export function CrosschainDashboard({
             )}
           </div>
         </section>
+        </div>
       </details>
-      <details id="data-details" className="card text-xs text-muted space-y-3">
-        <summary className="cursor-pointer text-sm text-secondary">
-          Data coverage & methodology
-        </summary>
+      <details id="data-details" className="card group text-xs text-muted scroll-mt-40 [&[open]>*:not(summary)]:mt-3">
+        <DisclosureSummary title="Data coverage & methodology" />
         <div className="rounded-lg border border-cipher-border p-4 text-xs text-muted space-y-2">
           <p><span className="text-secondary">Venue / source:</span> {venueName} · {c.source}</p>
           <p>

@@ -9,6 +9,7 @@ import {
 import { TokenChainIcon } from "@/components/TokenChainIcon";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useCrosschainVenue } from "./VenueContext";
+import { PanelTitle } from "./PanelTitle";
 import { VenueTransferDetails } from "./VenueTransferDetails";
 import {
   CHAINS,
@@ -191,17 +192,17 @@ export function SwapExplorer({
     "bg-cipher-bg border border-cipher-border rounded-lg px-3 py-2 text-sm w-full";
   return (
     <section className="card space-y-4" aria-label="Recent swaps">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-mono text-secondary">Recent swaps</h2>
-        {IS_DEMO && (
+      <PanelTitle
+        title={venue === "near" ? "Recent swaps" : "Recent swaps & refunds"}
+        controls={IS_DEMO ? (
           <span
             className="text-xs text-cipher-orange"
             title="Simulated swaps: fixture addresses and transaction IDs are examples."
           >
             Demo data
           </span>
-        )}
-      </div>
+        ) : undefined}
+      />
       <div className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <nav aria-label="Swap direction" className="filter-group">

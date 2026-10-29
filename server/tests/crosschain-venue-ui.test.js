@@ -18,6 +18,7 @@ function load(name, overrides = {}) {
 }
 const { scopeVenueHref } = load('VenueContext.tsx');
 const venueContext = load('VenueContext.tsx');
+const panelTitle = load('PanelTitle.tsx');
 const { VenueTransferDetails } = load('VenueTransferDetails.tsx', { './model': { EXPLORERS: { eth: 'https://etherscan.io/tx/' } } });
 const txid = 'a'.repeat(64);
 const leg = { side: 'in', txid, address: 't1FullAddress', affiliate: false, coins: [{ asset: 'ZEC.ZEC', chain: 'zec', token: 'ZEC', amountBaseUnits: '10000001', decimals: 8, amount: '0.10000001' }] };
@@ -61,12 +62,12 @@ test('Maya native asset units and partial refunds retain their exact meaning', (
   assert.doesNotMatch(html, /undefined in 1e8/);
 });
 
-test('selected-venue statistics stay above tabs and the shared visualizations, with NEAR defaults preserved', () => {
+test('venue tabs lead the controls that scope the statistics and shared visualizations, with NEAR defaults preserved', () => {
   const analytics = {
     period: '30d', granularity: 'day', start: '2026-10-01T00:00:00.000Z', end: '2026-10-29T00:00:00.000Z',
-    coverage: { source: 'test-index', records: 2, earliest: '2026-10-01T00:00:00.000Z', latest: '2026-10-29T00:00:00.000Z', missingZecHash: 0, internalSwaps: 0, syncedThrough: '2026-10-29T00:00:00.000Z', continuousThrough: '2026-10-29T00:00:00.000Z', stale: false, statusesAvailable: ['SUCCESS'], historyTraversalComplete: false, backfill: [], note: 'Fixture coverage' },
+    coverage: { source: 'test-index', records: 2, earliest: '2026-10-01T00:00:00.000Z', latest: '2026-10-29T00:00:00.000Z', missingZecHash: 0, internalSwaps: 0, syncedThrough: '2026-10-29T00:00:00.000Z', continuousThrough: '2026-10-29T00:00:00.000Z', stale: false, statusesAvailable: ['SUCCESS', 'REFUNDED'], historyTraversalComplete: false, backfill: [], note: 'Fixture coverage' },
     summary: { swaps: 2, volume_usd: '456', volume_zec: '123', inflow_usd: '456', outflow_usd: '0', inflow_zec: '123', outflow_zec: '0', average_usd: '228', average_zec: '61.5', median_usd: '228', median_zec: '61.5', missing_usd: 0, missing_zec: 0, sender_addresses: 1 },
-    trends: [], flows: [], routes: [], distribution: [], statuses: [{ status: 'SUCCESS', count: 2 }], latency: [], referrals: [], latencyDefinition: 'No fixture latency', volumeDefinition: 'Fixture amounts',
+    trends: [], flows: [], routes: [], distribution: [], statuses: [{ status: 'SUCCESS', count: 3 }, { status: 'REFUNDED', count: 1 }], latency: [], referrals: [], latencyDefinition: 'No fixture latency', volumeDefinition: 'Fixture amounts',
   };
   for (const venue of ['near', 'maya', 'thorchain']) {
     const calls = [];
@@ -77,6 +78,7 @@ test('selected-venue statistics stay above tabs and the shared visualizations, w
       '@/components/TokenChainIcon': { TokenChainIcon: stub },
       '@/components/PageSectionNav': { PageSectionNav: stub },
       './VenueContext': venueContext,
+      './PanelTitle': panelTitle,
       './SwapFilterLink': { useAnalyticsPeriod: value => value, SwapFilterLink: ({ children, href }) => React.createElement('a', { href }, children) },
       './SwapExplorer': { SwapExplorer: stub },
       './LatencyComparisonChart': { LatencyComparisonChart: stub },
@@ -91,8 +93,15 @@ test('selected-venue statistics stay above tabs and the shared visualizations, w
     assert.equal(calls[0].route, venue === 'near' ? '/v1/crosschain/analytics' : '/v1/crosschain/venues/analytics');
     assert.deepEqual(calls[0].query, venue === 'near' ? { period: '30d' } : { period: '30d', venue });
     const amount = venue === 'near' ? '456 usd' : '123 zec';
-    assert.ok(html.indexOf(amount) < html.indexOf('data-testid="venue-tabs"'));
-    assert.ok(html.indexOf('data-testid="venue-tabs"') < html.indexOf('data-chart="volume"'));
+    assert.ok(html.indexOf('data-testid="venue-tabs"') < html.indexOf('aria-label="Analytics period"'));
+    assert.ok(html.indexOf('aria-label="Analytics period"') < html.indexOf(amount));
+    assert.ok(html.indexOf(amount) < html.indexOf('data-chart="volume"'));
+    assert.match(html, /Net into ZEC/);
+    assert.match(html, /75\.0% of 4/);
+    assert.match(html, /25\.0% of 4/);
+    assert.match(html, /Not reported/);
+    assert.doesNotMatch(html, /status=FAILED/);
     if (venue !== 'near') assert.match(html, /Historical backfill is in progress/);
+    assert.match(html, /Historical backfill in progress/);
   }
 });
