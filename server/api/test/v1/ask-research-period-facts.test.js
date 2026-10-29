@@ -53,3 +53,43 @@ test('only strict valid first-of-month UTC-midnight wires receive calendar-month
  for(const wire of valid){const result=await fixture(sql,[[wire,...rows[0].slice(1)]]);await researchReply(result,{question,history:[]},async(input,task)=>{assert.equal(input.evidence.facts.row_a_a,month,wire);return task.validator.parse(prose('The returned count for {{row_a_a}} was {{row_a_b}}.'));},locale,answerTaskFor);}
  for(const wire of ['2026-09-02','2026-09-01 00:00:01','2026-09-01 00:00:00+01','2026-02-30']){const result=await fixture(sql,[[wire,...rows[0].slice(1)]]);await researchReply(result,{question,history:[]},async(input,task)=>{assert.equal(input.evidence.columns[0].calendarBucket,undefined,wire);assert.notEqual(input.evidence.facts.row_a_a,month,wire);assert.equal(input.evidence.facts.row_a_a,wire==='2026-09-02'?day(wire):wire,wire);return task.validator.parse(prose('The returned count at {{row_a_a}} was {{row_a_b}}.'));},locale,answerTaskFor);}
 });
+
+const scalarMeasures='sum(transactions) AS total_non_coinbase_transactions,sum(shielded_transactions) AS shielded_transactions,sum(transparent_transactions) AS transparent_transactions,sum(unclassified_transactions) AS unclassified_transactions,round(100.0*sum(shielded_transactions)/nullif(sum(transactions),0),2) AS shielded_pct_of_all_transactions';
+const scalarBounds="date>=DATE '2026-09-01' AND date<DATE '2026-10-01'";
+const scalarWithConstant="SELECT DATE '2026-09-01' AS month,"+scalarMeasures+' FROM activity_daily WHERE '+scalarBounds;
+
+test('a constant date stays a date while independent proven scalar bounds supply the requested month label',async()=>{
+ const result=await fixture(scalarWithConstant),before=structuredClone(result);let calls=0;
+ const reply=await researchReply(result,{question,history:[]},async(input,task)=>{
+  calls++;assert.equal(input.evidence.facts.row_a_a,day('2026-09-01'),'a constant aliased month is not a month bucket');assert.equal(input.evidence.columns[0].calendarBucket,undefined);
+  assert.deepEqual(input.evidence.period,{calendarPeriod:'month',label:month});assert.equal(input.evidence.facts.period_label,month);assert.equal(input.evidence.facts.row_a_b,'363,162');assert.equal(input.evidence.facts.row_a_f,'57.78');assert.match(task.instruction,/Use \{\{period_label\}\} for its time scope/);
+  return task.validator.parse(prose('For {{period_label}}, there were {{row_a_b}} total non-coinbase transactions. Shielded transactions were {{row_a_f}}% of all transactions, including unclassified transactions in the denominator.'));
+ },locale,answerTaskFor);
+ assert.equal(calls,1);assert.ok(reply.answer.startsWith('For '+month+','));assert.doesNotMatch(reply.answer,/Sep(?:tember)? 1,/);assert.deepEqual(result,before);assert.deepEqual(reply.research,before);assert.equal(reply.evidenceKey,before.fingerprint);
+});
+
+test('five scalar numeric measures need no fabricated date column to receive a verified period fact',async()=>{
+ const statement='SELECT '+scalarMeasures+' FROM activity_daily WHERE '+scalarBounds,values=[rows[0].slice(1)],names=labels.slice(1),result=await fixture(statement,values,names,names.map(()=>'number')),before=structuredClone(result);let calls=0;
+ const reply=await researchReply(result,{question,history:[]},async(input,task)=>{calls++;assert.deepEqual(input.evidence.period,{calendarPeriod:'month',label:month});assert.equal(input.evidence.facts.period_label,month);assert.equal(input.evidence.facts.row_a_a,'363,162');assert.equal(input.evidence.facts.row_a_e,'57.78');return task.validator.parse(prose('During {{period_label}}, there were {{row_a_a}} non-coinbase transactions. Shielded transactions were {{row_a_e}}% of all transactions.'));},locale,answerTaskFor);
+ assert.equal(calls,1);assert.equal(reply.research.columns.length,5);assert.deepEqual(reply.research,before);assert.deepEqual(result,before);assert.ok(reply.answer.includes(month));
+});
+
+test('wrong bounds, extra filters and unsupported source scope cannot create a scalar period fact',async()=>{
+ const cases=[
+  [scalarWithConstant.replace("date>=DATE '2026-09-01'","date>=DATE '2026-09-02'"),rows,labels,labels.map((_,i)=>i?'number':'text')],
+  [scalarWithConstant.replace("date<DATE '2026-10-01'","date<DATE '2026-09-30'"),rows,labels,labels.map((_,i)=>i?'number':'text')],
+  [scalarWithConstant.replaceAll('2026-09-01','2026-08-01').replaceAll('2026-10-01','2026-09-01'),[['2026-08-01',...rows[0].slice(1)]],labels,labels.map((_,i)=>i?'number':'text')],
+  [scalarWithConstant+' AND fees>0',rows,labels,labels.map((_,i)=>i?'number':'text')],
+  ['SELECT sum(transactions) AS n FROM daily WHERE '+scalarBounds,[['100']],['n'],['number']],
+  ['SELECT sum(transactions) AS n FROM activity_daily',[['100']],['n'],['number']],
+ ];
+ for(const [statement,values,names,types] of cases){const result=await fixture(statement,values,names,types),before=structuredClone(result);let calls=0;await researchReply(result,{question,history:[]},async(input,task)=>{calls++;assert.equal(input.evidence.period,undefined,statement);assert.equal(input.evidence.facts.period_label,undefined,statement);const id=types[0]==='text'?'row_a_b':'row_a_a';return task.validator.parse({...prose('The returned count was {{'+id+'}}.'),sources:input.documents.map(record=>record.id)});},locale,answerTaskFor);assert.equal(calls,1);assert.deepEqual(result,before);}
+});
+
+test('explicit daily or ambiguous natural language does not receive whole-month scalar context',async()=>{
+ for(const inputQuestion of [question+' Show daily rows.',question+' Show each date.',question+' Include a rolling baseline.','Show total shielded transactions.','For September 2026 and September 2025 show total transactions.']){
+  const result=await fixture(scalarWithConstant),before=structuredClone(result);let calls=0;
+  const reply=await researchReply(result,{question:inputQuestion,history:[]},async(input,task)=>{calls++;assert.equal(input.evidence.period,undefined,inputQuestion);assert.equal(input.evidence.facts.period_label,undefined,inputQuestion);assert.equal(input.evidence.facts.row_a_a,day('2026-09-01'));return task.validator.parse(prose('The returned total count was {{row_a_b}}.'));},locale,answerTaskFor);
+  assert.equal(calls,1);assert.deepEqual(reply.research,before);assert.deepEqual(result,before);
+ }
+});

@@ -57,6 +57,42 @@ than rewriting a valid user answer to match a preferred phrase. Fixed operator
 fixtures are distinct from anonymous visitor telemetry; no visitor question or
 SQL corpus is collected.
 
+## Period grain and source-bound month context — staging acceptance pending
+
+The current implementation adds a narrow **AI-draft** grain diagnostic for an
+unambiguous whole-period total/share request naming one completed calendar month.
+It requires a direct `activity_daily` source, matching half-open month bounds and
+unaggregated date/count output. The repair asks for aggregation across that same
+full month and recomputes shares from `SUM(numerator)/SUM(denominator)`, retaining
+unclassified transactions in the denominator when requested. It does not average
+daily percentages, shorten the dates or silently drop requested measures.
+
+Explicit daily/per-day output, time series, raw or individual observations,
+rankings, rolling comparisons, multiple periods and unresolved intent abstain.
+CTEs, joins, extra source filters, windows, limits and other unresolved SQL shapes
+also retain the ordinary path. This diagnostic is not a new query restriction:
+handwritten SQL remains compiler-admitted with its existing capabilities, and no
+user SQL is rewritten. AI drafts use the **existing single SQL repair** and fail
+conservatively if that repair does not resolve a diagnosed mismatch. There is no
+extra retry loop, model change, quota reset or expansion of execution resources.
+
+For a separately proven scalar aggregate over the exact requested month,
+narration can receive a checked `period_label` such as a month and year. The
+label comes from the matching parsed question/source bounds, not a column alias
+or an invented interpretation of a first-day constant. A literal date aliased
+`month` remains a date fact; the independent period fact prevents describing a
+whole-month total as activity on that single day. Unknown filters, source scope,
+nonaggregate results and explicit unaggregated requests receive no such context.
+The context labels query bounds only: it does not certify source completeness,
+calculation correctness, result cardinality or an unknown metric. SQL, exact
+table cells, source timestamps and evidence fingerprints remain unchanged.
+
+These are implementation contracts and regression expectations, **not a claim
+that a new artifact is deployed or that the staging retest has passed**. Record
+subsequent exact-commit deployment and live result/narrative outcomes separately,
+preserving earlier failed observations. Existing call/spend/admission ledgers,
+the twelve-attempt evaluation ceiling and all worker limits remain in force.
+
 ## Expanded research catalogue — October 28, 2026
 
 The catalogue now has **40 operator-authored cases**: 33 research cases and
