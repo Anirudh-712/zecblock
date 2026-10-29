@@ -127,6 +127,15 @@ function comparisonPairs(columns){
 }
 // Plain words for a column label. A label claiming a unit its value does not
 // carry (orchard_zec on proven zatoshis) stays raw so prose never relabels it.
+// Two rows labelled as periods ("previous_7_days", "last_7_days"): which is
+// earlier and which is later. Any other labelling is not treated as time.
+const earlierRow=/^(?:previous|prior|earlier|before|preceding|baseline|prev)$/,laterRow=/^(?:recent|current|latest|this|last|after|now)$/;
+function periodRows(rows,label){
+ if(rows.length!==2||label<0)return null;
+ const kind=value=>{const words=String(value||'').toLowerCase().split(/[^a-z]+/).filter(Boolean);return words.some(w=>earlierRow.test(w))?'earlier':words.some(w=>laterRow.test(w))?'later':null;};
+ const [a,b]=rows.map(row=>kind(row[label]));
+ return a==='earlier'&&b==='later'?{earlier:0,later:1}:a==='later'&&b==='earlier'?{earlier:1,later:0}:null;
+}
 const readableLabel=(label,unit)=>{
  const claimed=labelUnit(label);
  if(claimed&&claimed!=='percent'&&claimed!=='points'&&claimed!==unit)return label;
@@ -240,7 +249,7 @@ function researchFacts(result,lineage,locale,{additive=[],shareOfTotal=[],partia
     }
    }
   }
- }else if(label>=0&&rows.length>=2){
+ }else if(label>=0&&rows.length>=2&&!periodRows(rows,label)){
   const j=numeric.find(k=>complete(k)&&rows.every((row,i)=>!i||compare(row[k],rows[i-1][k])<=0));
   if(j!==undefined){
    const c=letter(j),name=columns[j].label,[a,b]=[rows[0][j],rows[1][j]];
@@ -262,17 +271,30 @@ function researchFacts(result,lineage,locale,{additive=[],shareOfTotal=[],partia
    }
   }
  }
-  if(rows.length===1)for(const pair of comparisonPairs(columns)){
-  const [i,j]=[pair.from,pair.to],c=letter(j),before=rows[0][i],after=rows[0][j];
-  if(!decimal.test(before||'')||!decimal.test(after||'')||units[i]!==units[j]||i>=MAX_FACT_COLUMNS||j>=MAX_FACT_COLUMNS)continue;
-  const delta=minus(after,before),name=readableLabel(pair.stem,units[j]);
-  facts[`before_${c}`]=cell(rows[0],i);facts[`after_${c}`]=cell(rows[0],j);facts[`shift_${c}`]=change(delta,units[j]);facts[`direction_${c}`]=compare(delta,'0')>0?'rose':compare(delta,'0')<0?'fell':'was unchanged';
+ // Earlier-versus-later comparisons: one row with previous_x/recent_x
+ // columns, or two rows labelled as the earlier and later period.
+ const shifts=[];
+ const shift=(c,name,unit,[fromRow,i],[toRow,j])=>{
+  const before=fromRow[i],after=toRow[j];
+  if(!decimal.test(before||'')||!decimal.test(after||''))return false;
+  const delta=minus(after,before);
+  facts[`before_${c}`]=cell(fromRow,i);facts[`after_${c}`]=cell(toRow,j);facts[`shift_${c}`]=change(delta,unit);facts[`direction_${c}`]=compare(delta,'0')>0?'rose':compare(delta,'0')<0?'fell':'was unchanged';
   Object.assign(notes,{[`before_${c}`]:`${name} in the earlier period`,[`after_${c}`]:`${name} in the later period`,[`shift_${c}`]:`later minus earlier ${name}`,[`direction_${c}`]:`direction of ${name} from the earlier to the later period`});
   // Unsigned sizes read naturally after the direction word ("fell by 0.69 percentage points").
-  const size=delta.replace(/^-/,'');facts[`size_${c}`]=change(size,units[j]).replace(/^\+/,'');notes[`size_${c}`]=`size of the change in ${name}, unsigned`;
-  if(units[j]!=='percent'&&units[j]!=='points'&&compare(before,'0')>0){const pct=quotient(delta,before,1,100n);facts[`shift_pct_${c}`]=signed(pct)+'%';facts[`size_pct_${c}`]=exactNumber(pct.replace(/^-/,''))+'%';Object.assign(notes,{[`shift_pct_${c}`]:`percent change of ${name} from the earlier to the later period, rounded to 1 dp`,[`size_pct_${c}`]:`size of that percent change, unsigned`});}
+  facts[`size_${c}`]=change(delta.replace(/^-/,''),unit).replace(/^\+/,'');notes[`size_${c}`]=`size of the change in ${name}, unsigned`;
+  if(unit!=='percent'&&unit!=='points'&&compare(before,'0')>0){const pct=quotient(delta,before,1,100n);facts[`shift_pct_${c}`]=signed(pct)+'%';facts[`size_pct_${c}`]=exactNumber(pct.replace(/^-/,''))+'%';Object.assign(notes,{[`shift_pct_${c}`]:`percent change of ${name} from the earlier to the later period, rounded to 1 dp`,[`size_pct_${c}`]:`size of that percent change, unsigned`});}
+  return true;
+ };
+ if(rows.length===1)for(const pair of comparisonPairs(columns)){
+  const [i,j]=[pair.from,pair.to];
+  if(units[i]!==units[j]||i>=MAX_FACT_COLUMNS||j>=MAX_FACT_COLUMNS)continue;
+  if(shift(letter(j),readableLabel(pair.stem,units[j]),units[j],[rows[0],i],[rows[0],j]))shifts.push({column:j,name:readableLabel(pair.stem,units[j])});
  }
- return {facts,notes,units,label,pairs:rows.length===1?comparisonPairs(columns).filter(pair=>facts[`shift_${letter(pair.to)}`]):[],columns:shown.map((column,j)=>({letter:letter(j),label:column.label,type:column.type,unit:units[j]||'unlabelled'}))};
+ const periods=periodRows(rows,label);
+ if(periods)for(const j of numeric)if(shift(letter(j),readableLabel(columns[j].label,units[j]),units[j],[rows[periods.earlier],j],[rows[periods.later],j]))shifts.push({column:j,name:readableLabel(columns[j].label,units[j])});
+ // Shares lead: a share change is usually the answer to a comparison question.
+ shifts.sort((a,b)=>(['percent','points'].includes(units[b.column])?1:0)-(['percent','points'].includes(units[a.column])?1:0));
+ return {facts,notes,units,label,shifts,columns:shown.map((column,j)=>({letter:letter(j),label:column.label,type:column.type,unit:units[j]||'unlabelled'}))};
 }
 
 // Deterministic finding from the same facts, used whenever the model finding
@@ -282,11 +304,11 @@ function researchTemplate(result,evidence){
  const {columns,rows}=result,total=rows.length;
  const measures=columns.map((column,j)=>j).filter(j=>columns[j].type==='number'&&j<MAX_FACT_COLUMNS).slice(0,3);
  const list=items=>items.length<3?items.join(' and '):items.slice(0,-1).join(', ')+' and '+items.at(-1);
- const pairs=(evidence.pairs||[]).slice(0,2);
+ const pairs=(evidence.shifts||[]).slice(0,2);
  if(pairs.length){
   const dated=facts.earlier_window&&facts.later_window;
   const [first,...rest]=pairs.map((pair,i)=>{
-   const c=letter(pair.to),name=readableLabel(pair.stem,units[pair.to]),moved=facts[`direction_${c}`];
+   const c=letter(pair.column),name=pair.name,moved=facts[`direction_${c}`];
    const from=facts[`before_${c}`]+(dated&&!i?` (${facts.earlier_window})`:''),to=facts[`after_${c}`]+(dated&&!i?` (${facts.later_window})`:'');
    const by=moved==='was unchanged'?'':`, ${moved==='rose'?'up':'down'} ${facts[`size_pct_${c}`]||facts[`size_${c}`]}`;
    return moved==='was unchanged'?`${name} was unchanged at ${to}`:`${name} ${moved} from ${from} to ${to}${by}`;
@@ -306,7 +328,7 @@ function researchTemplate(result,evidence){
  const name=label>=0?` is ${facts[`row_a_${letter(label)}`]}`:'';
  const values=measures.length?(name?', with ':' has ')+list(measures.map(j=>phrase('a',j))):'';
  const ranked=measures.find(j=>facts[`ratio_${letter(j)}`]);
- const ratio=ranked!==undefined?`, ${facts[`ratio_${letter(ranked)}`]} the next row`:'';
+ const ratio=ranked!==undefined?`, ${facts[`ratio_${letter(ranked)}`]} the next row`+(measures.length===1?'':` by ${readableLabel(columns[ranked].label,units[ranked])}`):'';
  const shareColumn=measures.find(j=>facts[`top_three_share_${letter(j)}`]);
  const share=ranked===undefined||shareColumn===undefined?'':shareColumn===ranked?`; the top three rows account for ${facts[`top_three_share_${letter(ranked)}`]} of all returned ${readableLabel(columns[ranked].label,units[ranked])}`:`; the top three rows account for ${facts[`top_three_share_${letter(shareColumn)}`]} of the total by ${readableLabel(columns[shareColumn].label,units[shareColumn])}`;
  const sentences=[`${scope}${name}${values}${ratio}${share}.`];
@@ -336,21 +358,25 @@ const sentencesOf=text=>text.split(/(?<=[.!?。！？]["'”’)]*)\s+/).filter(
 // calendar names, masked-numeral glyphs or two numeric facts fused into one
 // figure; a unit claimed for a value ("{{x}} ZEC", "in ZEC ... {{x}}") is that
 // fact's own unit.
-function checkedCaption(summary,facts,numeric,locale='en'){
+function checkedCaption(summary,facts,numeric,locale='en',reject=()=>{}){
+ const no=reason=>{reject(reason);return null;};
  const template=String(summary||'').replace(/[ \t]{2,}/g,' ').trim(),masked=template.replace(/\{\{[a-z_]+\}\}/g,'F');
- if(!/\{\{[a-z_]+\}\}/.test(template)||/[|\r\n]/.test(template)||calendarWord.test(masked))return null;
- if(/[*#_]{3,}|\.{4,}|(?:^|\s)\p{M}/u.test(masked)||/^en(?:-|$)/.test(locale)&&/[ɯ\u{1104D}]/u.test(masked))return null;
- if([...template.matchAll(/\{\{([a-z_]+)\}\}\s*\{\{([a-z_]+)\}\}/g)].some(([,left,right])=>numeric.has(left)&&numeric.has(right)))return null;
+ if(!/\{\{[a-z_]+\}\}/.test(template))return no('no_fact');
+ if(/[|\r\n]/.test(template))return no('table_or_newline');
+ if(calendarWord.test(masked))return no('calendar_word');
+ if(/[*#_]{3,}|\.{4,}|(?:^|\s)\p{M}/u.test(masked)||/^en(?:-|$)/.test(locale)&&/[ɯ\u{1104D}]/u.test(masked))return no('artifact');
+ if([...template.matchAll(/\{\{([a-z_]+)\}\}\s*\{\{([a-z_]+)\}\}/g)].some(([,left,right])=>numeric.has(left)&&numeric.has(right)))return no('fused_facts');
  for(const match of template.matchAll(/\{\{([a-z_]+)\}\}/g)){
   if(!numeric.has(match[1]))continue;
   const after=template.slice(match.index+match[0].length),suffix=unitAfter.exec(after);
   let claimed=suffix&&!(/^zec$/i.test(suffix[1])&&assetNoun.test(after.slice(suffix[0].length)))?suffix[1]:null;
   claimed??=unitBefore.exec(template.slice(0,match.index))?.[1];
-  if(claimed&&unitNames[claimed.toLowerCase().replace(/\s+/g,' ')]!==factUnit(facts[match[1]]||''))return null;
+  if(claimed&&unitNames[claimed.toLowerCase().replace(/\s+/g,' ')]!==factUnit(facts[match[1]]||''))return no('unit_conflict');
  }
  const sentences=sentencesOf(template);
- if(!sentences.length)return null;
- try{return renderExplanation({summary:sentences.join(' '),observations:[],limitation:''},facts).summary;}catch{return null;}
+ if(!sentences.length)return no('no_sentence');
+ // Reason codes name the failed check only; prose never reaches the logs.
+ try{return renderExplanation({summary:sentences.join(' '),observations:[],limitation:''},facts).summary;}catch(error){const message=String(error?.message||'');return no(/Unknown evidence/.test(message)?'unknown_fact':/unit/i.test(message)?'unit_conflict':/numerical/.test(message)?'unchecked_number':'render');}
 }
 
 // Catalogue caveats for the datasets a query reads. A sentence matching a
@@ -418,7 +444,9 @@ async function researchReply(raw,input,run,locale){
  const applied=caveats.filter(caveat=>caveat.applies(result));
  const generated=await run({question:input.question,history:input.history,locale,documents:records,evidence:{sql:result.query.sql,columns:evidence.columns,facts,notes:evidence.notes,caveats:applied.map(caveat=>caveat.text),truncated:result.truncated,coverage:result.coverage}},captionTask(facts));
  const vocabulary=new Set([question,...Object.values(facts),...result.columns.map(c=>c.label),...applied.map(c=>c.text)].join(' ').toLowerCase().split(/[^\p{L}]+/u).filter(Boolean));
- const finding=checkedCaption(generated?.finding,facts,numeric,locale)||researchTemplate(result,evidence);
+ let rejected=generated?.finding?null:'no_finding';
+ const finding=checkedCaption(generated?.finding,facts,numeric,locale,reason=>{rejected=reason;})||researchTemplate(result,evidence);
+ if(rejected)console.warn(JSON.stringify({event:'ask_research_caption_fallback',reason:rejected}));
  const interpretation=checkedInterpretation(generated?.interpretation,{vocabulary,applied});
  return reply(interpretation?`${finding} ${interpretation}`:finding);
 }

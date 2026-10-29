@@ -12,7 +12,7 @@ const caption=summary=>async()=>({finding:summary});
 const payout=research("WITH recent AS (SELECT miner FROM blocks ORDER BY height DESC LIMIT 1000) SELECT miner,count(*) AS blocks,round(100.0*count(*)/sum(count(*)) OVER(),2) AS share_pct FROM recent GROUP BY miner ORDER BY blocks DESC",
  [['miner','text'],['blocks','number'],['share_pct','number']],
  [['t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7','285','28.50'],['t1SqwRAAdSig6dE4EBPLonAait219VmkUjP','172','17.20'],['t1PEp2GJLSdhDfCKqc2J211WKDUS1NfoQNy','145','14.50'],[null,'51','5.10']]);
-const payoutTemplate='The first of 4 returned rows is t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7, with 285 blocks and share 28.5%, 1.66× the next row; the top three rows account for 60.2% of the total by share. Next are t1SqwRAAdSig6dE4EBPLonAait219VmkUjP (172 blocks) and t1PEp2GJLSdhDfCKqc2J211WKDUS1NfoQNy (145 blocks).';
+const payoutTemplate='The first of 4 returned rows is t1MKn34KBa8Xh4g8qU8psibBXvURafphVn7, with 285 blocks and share 28.5%, 1.66× the next row by blocks; the top three rows account for 60.2% of the total by share. Next are t1SqwRAAdSig6dE4EBPLonAait219VmkUjP (172 blocks) and t1PEp2GJLSdhDfCKqc2J211WKDUS1NfoQNy (145 blocks).';
 
 test('payout share regression: a failed caption falls back to a readable fact template, never a bare receipt',async()=>{
  const before=structuredClone(payout);let calls=0;
@@ -242,4 +242,23 @@ test('earlier-versus-later comparisons read as plain from-to changes over the qu
   assert.equal(checkedCaption("Orchard's share fell {{shift_d}} percent.", evidence.facts, numeric), null);
   // Inclusive or open-ended date filters give no window fact rather than a guess.
   assert.deepEqual(windowFacts(await parse("SELECT 1 FROM t WHERE d <= '2026-10-29' AND d >= '2026-10-01'"), 'en').facts, {});
+});
+
+test('two rows labelled previous and last period compare as periods, not as a ranking', async () => {
+  const { parse } = require('pgsql-parser');
+  const { windowFacts, checkedCaption } = require('../../v1/lib/ask-research-reply');
+  // Staging 2026-10-29: the template said "1.62× the next row", the ratio of all transactions, beside the share.
+  const sql = "WITH period_totals AS (SELECT CASE WHEN timestamp >= CAST(EXTRACT(EPOCH FROM '2026-10-22'::date) AS bigint) THEN 'last_7_days' ELSE 'previous_7_days' END AS period, count(*) FILTER (WHERE orchard) AS orchard_transactions, count(*) AS all_transactions FROM transactions WHERE timestamp >= CAST(EXTRACT(EPOCH FROM '2026-10-15'::date) AS bigint) AND timestamp < CAST(EXTRACT(EPOCH FROM '2026-10-29'::date) AS bigint) GROUP BY 1) SELECT period, orchard_transactions, all_transactions, round(100.0 * orchard_transactions / NULLIF(all_transactions, 0), 2) AS orchard_share_percent FROM period_totals ORDER BY period";
+  const columns = [{ key: 'c0', label: 'period', type: 'text' }, ...['orchard_transactions', 'all_transactions', 'orchard_share_percent'].map((label, i) => ({ key: 'c' + (i + 1), label, type: 'number' }))];
+  const result = { query: { version: 3, sql, limit: 100 }, columns, rows: [['last_7_days', '343', '74339', '0.46'], ['previous_7_days', '526', '45876', '1.15']], truncated: false, datasets: ['transactions'], fingerprint: 'a'.repeat(64), retrievedAt: '2026-10-29T13:00:00.000Z', indexedThrough: '2026-10-29T13:00:00.000Z', coverage: 'verified canonical records', units: 'x' };
+  const evidence = researchFacts(result, [], 'en', {});
+  Object.assign(evidence.facts, windowFacts(await parse(sql), 'en').facts);
+  assert.equal(evidence.facts.ratio_c, undefined);
+  assert.equal(evidence.facts.shift_d, '-0.69 percentage points');
+  assert.equal(evidence.facts.size_pct_c, '62%');
+  assert.equal(researchTemplate(result, evidence), 'Orchard share fell from 1.15% (Oct 15 – Oct 21, 2026) to 0.46% (Oct 22 – Oct 28, 2026), down 0.69 percentage points. Over the same periods, orchard transactions fell from 526 to 343, down 34.8%.');
+  const reasons = [];
+  assert.equal(checkedCaption('Orchard share fell over the last 7 days.', evidence.facts, new Set(), 'en', reason => reasons.push(reason)), null);
+  assert.equal(checkedCaption('Orchard share fell over the last {{row_count}} weeks in 7 days.', evidence.facts, new Set(['row_count']), 'en', reason => reasons.push(reason)), null);
+  assert.deepEqual(reasons, ['no_fact', 'unchecked_number']);
 });
