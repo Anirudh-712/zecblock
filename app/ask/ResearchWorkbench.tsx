@@ -377,13 +377,14 @@ export function ResearchDashboard({ tools, busy, onOpen, refresh }: { tools: Too
         <button className={styles.button} onClick={() => tools.setBoardId(null)}>Close</button>
       </div>
     </div>
-    <p className={styles.caption}>{docs.length} {docs.length === 1 ? 'analysis' : 'analyses'} · {refresh?.available ? `saved results; Refresh all runs ${docs.length === 1 ? 'its query' : `all ${docs.length} queries`} again, one SQL run each` : 'saved results'}</p>
+    <p className={styles.caption}>{docs.length} {docs.length === 1 ? 'analysis' : 'analyses'} · {refresh?.available ? `saved results; Refresh all runs ${docs.length === 1 ? 'its query again (one SQL run)' : `all ${docs.length} queries again (one SQL run each)`}` : 'saved results'}</p>
     {refresh?.status ? <p className={styles.caption} role="status">{refresh.status}</p> : null}
     {refresh?.challenge}
     <ShareLinkField tools={tools} /><ResearchStatus tools={tools} />
     {docs.length ? <div className={styles.dashboard}>{docs.map(doc => <article key={doc.id} className={`${askStyles.analysis} ${styles.dashboardCard}`} data-wide={doc.chart.view === 'table' && (doc.result?.columns.length ?? 0) > 3 ? 'true' : undefined}>
       <div className={styles.panelBody}>
         <div className={styles.cardHeader}><button className={styles.cardTitle} disabled={busy} onClick={() => onOpen(doc)}>{doc.title} <span aria-hidden="true">→</span></button>{refresh?.available && !refresh.running ? <button type="button" className={styles.iconButton} disabled={busy} aria-label={`Refresh ${doc.title}`} title="Run this query again (one SQL run)" onClick={() => refresh.run([doc])}>↻</button> : null}<button type="button" className={styles.iconButton} aria-label={`Remove ${doc.title} from this dashboard`} title="Remove from dashboard" onClick={() => tools.removeFromDashboard(board.id, doc.id)}>×</button></div>
+        {doc.result ? <p className={styles.caption}>Data as of {new Date(doc.result.retrievedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</p> : null}
         {doc.result ? <ResearchData result={doc.result} chart={doc.chart} savedSnapshot /> : <p className={styles.caption}>{refresh?.available ? 'No results yet. Use ↻ to run this query.' : 'Run this query to add its results.'}</p>}
       </div>
     </article>)}</div> : <p className={styles.emptyBoard}>This dashboard is empty. Open a saved analysis and choose Add to dashboard.</p>}

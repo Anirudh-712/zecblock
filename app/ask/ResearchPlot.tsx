@@ -1,6 +1,6 @@
 'use client';
 import {ResponsiveContainer,BarChart,Bar,Cell,LineChart,Line,XAxis,YAxis} from 'recharts';
-import {shortLabel,supportsLine,chartLabel,chartSeries,chartValues,axisFor,SERIES_COLORS} from '@/lib/ask/research-display';
+import {shortLabel,supportsLine,chartLabel,chartSeries,chartValues,axisFor,dateFormatter,SERIES_COLORS} from '@/lib/ask/research-display';
 import {ChartTooltip} from '@/components/charts/ChartTooltip';
 import type {ResearchResult,ResearchChart} from '@/lib/ask/research-contract';
 const compact=(value:unknown)=>new Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:2}).format(Number(value));
@@ -18,9 +18,12 @@ export default function ResearchPlot({result,chart}:{result:ResearchResult;chart
  const data=result.rows.map(row=>({x:chart.view==='bar'?chartLabel(result,row,chart.x,series?.column):row[chart.x]??'Unavailable',...Object.fromEntries(values.map(i=>[`v${i}`,row[i]===null?null:Number(row[i])])),fill:series?series.colorFor(row[series.column]):SERIES_COLORS[0]}));
  if(data.some(d=>values.some(i=>{const v=(d as Record<string,unknown>)[`v${i}`];return v!==null&&!Number.isFinite(v);})))return <p className="text-sm text-secondary">Choose a numeric value column to draw this chart.</p>;
  const name=(i:number,k:number)=>`${result.columns[i].label.replaceAll('_',' ')}${axes[k]==='right'?' (right axis)':''}`;
+ // Line labels are raw values; dates read as "Oct 2025" on the axis, exact in the tooltip.
+ const dates=chart.view==='line'?dateFormatter(result,chart.x):null;
+ const xLabel=(value:unknown)=>shortLabel(dates&&typeof value==='string'?dates(value):value);
  // Long or many bar labels are angled so every bar keeps a readable label.
  const crowded=chart.view==='bar'&&(data.length>6||data.some(d=>String(d.x).length>12));
- const children=<><XAxis dataKey="x" tick={tick} interval={chart.view==='bar'?0:'preserveStartEnd'} minTickGap={24} tickFormatter={shortLabel} angle={crowded?-30:0} textAnchor={crowded?'end':'middle'} height={crowded?72:45}/><YAxis yAxisId="left" tick={tick} width={70} tickFormatter={compact}/>{right?<YAxis yAxisId="right" orientation="right" tick={tick} width={70} tickFormatter={compact}/>:null}<ChartTooltip contentStyle={{maxWidth:'min(420px,80vw)',overflowWrap:'anywhere'}}/></>;
+ const children=<><XAxis dataKey="x" tick={tick} interval={chart.view==='bar'?0:'preserveStartEnd'} minTickGap={24} tickFormatter={xLabel} angle={crowded?-30:0} textAnchor={crowded?'end':'middle'} height={crowded?72:45}/><YAxis yAxisId="left" tick={tick} width={70} tickFormatter={compact}/>{right?<YAxis yAxisId="right" orientation="right" tick={tick} width={70} tickFormatter={compact}/>:null}<ChartTooltip contentStyle={{maxWidth:'min(420px,80vw)',overflowWrap:'anywhere'}}/></>;
  const legend=series?series.legend.map(item=>({value:item.value,color:item.color})):many?values.map((i,k)=>({value:name(i,k),color:SERIES_COLORS[k]})):[];
  const label=values.map(i=>result.columns[i].label).join(', ');
  return <div role="img" aria-label={`${chart.view} chart of ${label} by ${result.columns[chart.x]?.label}; exact values in the table`}>
