@@ -46,4 +46,53 @@ function futureWindowDiagnostics(tree, question, now = new Date()) {
   return late.length ? [`The time window ends on ${late.sort().at(-1)}, after today (${today}). "Last N days" means the N most recent completed UTC days: timestamp >= today minus N days AND timestamp < today at 00:00 UTC. Do not include today's partial day unless the question asks about today.`] : [];
 }
 
-module.exports = { poolQuestionDiagnostics, futureWindowDiagnostics };
+// A column that no source of its SELECT can provide fails in PostgreSQL with
+// 42703 after the draft has been spent (observed: orchard read from a daily
+// summary). Only SELECTs whose sources are all catalogue datasets are checked;
+// CTEs, subselects and correlated subqueries are left to the database.
+const { researchCatalogue } = require('../../../../lib/ask/research-catalogue');
+const datasetColumns = new Map(researchCatalogue.flatMap(d => { const cols = new Set(d.columns.split(', ')); return [[d.id, { id: d.id, cols }], [`${d.id}_query`, { id: d.id, cols }]]; }));
+function sources(from, out) {
+  for (const item of from || []) {
+    if (item.RangeVar) { const ds = datasetColumns.get(item.RangeVar.relname); if (!ds || item.RangeVar.schemaname && item.RangeVar.schemaname !== 'analytics_public' || item.RangeVar.alias?.colnames) return false; out.set(item.RangeVar.alias?.aliasname || item.RangeVar.relname, ds); }
+    else if (item.JoinExpr) { if (item.JoinExpr.usingClause || !sources([item.JoinExpr.larg, item.JoinExpr.rarg], out)) return false; }
+    else return false;
+  }
+  return true;
+}
+function refs(node, out) {
+  if (!node || typeof node !== 'object') return out;
+  if (Array.isArray(node)) { for (const item of node) refs(item, out); return out; }
+  if (node.SubLink || node.SelectStmt) return out;
+  if (node.ColumnRef) { const path = (node.ColumnRef.fields || []).map(f => f.String?.sval); if (path.every(Boolean)) out.push(path); return out; }
+  for (const value of Object.values(node)) refs(value, out);
+  return out;
+}
+function columnDiagnostics(tree) {
+  const issues = [], ctes = new Set();
+  const visit = node => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { for (const item of node) visit(item); return; }
+    const s = node.SelectStmt;
+    if (s) {
+      for (const item of s.withClause?.ctes || []) ctes.add(item.CommonTableExpr?.ctename);
+      const scope = new Map();
+      if (s.fromClause?.length && sources(s.fromClause, scope) && ![...scope.keys()].some(name => ctes.has(name) && !datasetColumns.has(name))) {
+        const aliases = new Set((s.targetList || []).map(t => t.ResTarget?.name).filter(Boolean));
+        const all = [...scope.values()];
+        const parts = [s.targetList, s.whereClause, s.havingClause, s.windowClause].map(part => refs(part, [])).flat().concat([s.groupClause, s.sortClause].map(part => refs(part, [])).flat().filter(path => path.length > 1 || !aliases.has(path[0])));
+        for (const path of parts) {
+          const [qualifier, name] = path.length === 2 ? path : [null, path[0]];
+          if (path.length > 2 || qualifier && !scope.has(qualifier)) continue;
+          const owners = qualifier ? [scope.get(qualifier)] : all;
+          if (!owners.some(ds => ds.cols.has(name))) issues.push(`Column ${name} does not exist in ${owners.map(ds => `${ds.id}(${[...ds.cols].join(', ')})`).join(' or ')}. Use only those columns${name === 'orchard' || name === 'sapling' || name === 'ironwood' ? `; per-pool transaction counts need count(*) FILTER (WHERE ${name}) on transactions` : ''}.`);
+        }
+      }
+    }
+    for (const value of Object.values(node)) visit(value);
+  };
+  visit(tree.stmts?.[0]?.stmt);
+  return [...new Set(issues)];
+}
+
+module.exports = { poolQuestionDiagnostics, futureWindowDiagnostics, columnDiagnostics };

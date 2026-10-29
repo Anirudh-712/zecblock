@@ -7,7 +7,7 @@ const broken=base.replace('FILTER_HERE',"WHERE date>=DATE '2026-09-01' AND date<
 test('a required full baseline cannot fit after same-level output filtering',async()=>{
  assert.match((await draftDiagnostics(broken))[0],/lookback dates/);assert.deepEqual(await draftDiagnostics(fixed),[]);
  assert.deepEqual(await draftDiagnostics(broken.replace('WHERE prior_days=30','')),[],'partial windows are valid when a full count is not required');
- assert.deepEqual(await draftDiagnostics(broken.replace('activity_daily','transactions')),[],'unknown one-row-per-date lineage is not guessed');
+ assert.ok(!(await draftDiagnostics(broken.replace('activity_daily','transactions'))).some(issue=>/lookback dates/.test(issue)),'unknown one-row-per-date lineage is not guessed');
 });
 test('published direction checks resolve direct dataset aliases without inspecting unrelated text',async()=>{
  for(const sql of ["SELECT * FROM swaps WHERE direction='out'","SELECT * FROM swaps s WHERE s.direction='in'","SELECT * FROM flow_daily WHERE direction='outflow'"])assert.match((await draftDiagnostics(sql))[0],/published direction/);

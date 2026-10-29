@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
 const { parse } = require('pgsql-parser');
-const { poolQuestionDiagnostics, futureWindowDiagnostics } = require('../../v1/lib/ask-research-question-scope');
+const { poolQuestionDiagnostics, futureWindowDiagnostics, columnDiagnostics } = require('../../v1/lib/ask-research-question-scope');
 const { compileResearchSQL } = require('../../v1/lib/ask-research-sql');
 const labels = require('../../../../lib/ask/address-labels.json');
 
@@ -42,4 +42,18 @@ test('labels is reserved and only available with the extended catalogue', async 
   await assert.rejects(compileResearchSQL({ version: 3, sql: 'SELECT * FROM labels AS l(a, b, c, d)' }, { extended: true }), /Invalid alias/);
   const scoped = await compileResearchSQL({ version: 3, sql: 'WITH x AS (SELECT height FROM blocks) SELECT * FROM x' }, { extended: true });
   assert.deepEqual(scoped.datasets, ['blocks']);
+});
+
+test('columns no catalogue source provides are sent back before execution', async () => {
+  const [issue] = columnDiagnostics(await parse("SELECT count(*) FILTER (WHERE orchard) FROM activity_daily WHERE date >= DATE '2026-10-22'"));
+  assert.match(issue, /Column orchard does not exist in activity_daily/);
+  assert.match(issue, /FILTER \(WHERE orchard\) on transactions/);
+  assert.equal(columnDiagnostics(await parse('SELECT t.bogus FROM transactions t')).length, 1);
+  for (const sql of [
+    'SELECT count(*) FILTER (WHERE t.orchard) AS o, b.height FROM transactions t JOIN blocks b ON b.height = t.height GROUP BY b.height ORDER BY o',
+    'WITH x AS (SELECT orchard FROM transactions) SELECT orchard FROM x',
+    'SELECT a.balance, l.label FROM addresses a LEFT JOIN labels l ON l.address = a.address WHERE l.address IS NULL',
+    'SELECT date, (SELECT count(*) FROM transactions t WHERE t.timestamp >= extract(epoch FROM d.date)) FROM daily d',
+    "SELECT to_char(to_timestamp(timestamp), 'YYYY-MM') AS month, count(*) FROM transactions GROUP BY month ORDER BY month",
+  ]) assert.deepEqual(columnDiagnostics(await parse(sql)), [], sql);
 });
