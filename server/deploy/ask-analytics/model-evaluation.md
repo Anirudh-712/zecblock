@@ -41,6 +41,12 @@ and handwritten ROUND expressions remain available.
 These diagnostics use the existing single SQL repair, not additional retries;
 unknown shapes and direct SQL retain their existing acceptance and limits.
 
+Source-proven activity_daily month buckets render as month/year facts, rather
+than falsely describing a full-month aggregate as activity on its first day.
+This proof requires exact output-column binding and strict first-of-month values;
+an arbitrary alias named month does not change an actual observation date.
+Raw SQL, table cells and source timestamps remain unchanged.
+
 Strict valid UTC-midnight date facts render as readable dates; nonmidnight,
 nonzero-offset and arbitrary labels retain their original value. Unsupported
 historical address-balance requests explain that current summaries cannot
