@@ -1,4 +1,5 @@
 'use strict';
+const { sqlFeedbackSchema } = require('../../../../lib/ask/sql-feedback');
 
 // Fixed public categories only. Never forward an upstream message or body.
 const failures = {
@@ -47,12 +48,16 @@ function classifyFailure(error) {
     return {...failures.quota, code:'ask-quota-'+error.askLimit, retryAfter:error.retryAfter, detail:error.askLimit === 'day' ? 'The previous shared daily allowance for your connection has been reached. Ask and SQL share this legacy allowance; it resets at midnight UTC.' : 'The previous shared per-minute allowance for your connection has been reached. Ask and SQL share this legacy allowance.'};
   }
   const kind = error?.quota ? 'quota' : ['TimeoutError', 'AbortError'].includes(error?.name) ? 'timeout' : Object.hasOwn(failures, error?.askKind) ? error.askKind : 'unavailable';
-  return failures[kind];
+  // Only schema-checked feedback about the visitor's own SQL is attached.
+  const sql = ['query','resource'].includes(kind) ? sqlFeedbackSchema.safeParse(error?.sqlFeedback) : null;
+  return sql?.success ? { ...failures[kind], sql: sql.data } : failures[kind];
 }
+// Problem-document members for a classified failure.
+function failureExtra(failure) { return { code: failure.code, ...(failure.sql ? { sql: failure.sql } : {}) }; }
 async function askStage(kind, operation) {
   try { return await operation(); } catch (error) {
     if (error?.quota || error?.askKind || ['TimeoutError', 'AbortError'].includes(error?.name)) throw error;
     throw askError(kind);
   }
 }
-module.exports = { askError, askStage, classifyFailure };
+module.exports = { askError, askStage, classifyFailure, failureExtra };

@@ -89,7 +89,7 @@ const forbidden = [
   {
     name: 'private relation through a scalar subquery inside a CTE window join',
     sql: 'WITH candidates AS (SELECT height FROM blocks), totals AS (SELECT height,(SELECT subconninfo FROM pg_subscription LIMIT 1) AS private_value FROM transactions) SELECT b.height,row_number() OVER(ORDER BY b.height) AS position FROM candidates b JOIN totals t ON t.height=b.height',
-    reason: /Dataset is not admitted/,
+    reason: /Dataset pg_subscription is not admitted/,
   },
 ];
 

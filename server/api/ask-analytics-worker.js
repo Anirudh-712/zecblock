@@ -11,6 +11,7 @@ const {jobTicketSchema}=require('../../lib/ask/research-job-contract');
 const {compileResearchSQL}=require('./v1/lib/ask-research-sql');
 const {createMemoryPressure}=require('./v1/lib/ask-memory-pressure');
 const {sqlQuotaDetails}=require('./v1/lib/ask-sql-quota');
+const {sqlFeedbackSchema}=require('../../lib/ask/sql-feedback');
 
 function createWorker(env, { analytics, redis, memoryPressure=createMemoryPressure(env) } = {}) {
   if (!env.ASK_ANALYTICS_SERVICE_KEY || env.ASK_ANALYTICS_SERVICE_KEY.length < 32 || !analytics || !redis) throw new Error('Analytics worker not configured');
@@ -42,7 +43,10 @@ function createWorker(env, { analytics, redis, memoryPressure=createMemoryPressu
       if (!controller.signal.aborted) res.json({ rows: evidence.result.plan.version === 2 ? evidence.result.rows.map(row => Object.fromEntries(Object.entries(row).flatMap(([key,cell]) => [[key,cell.value], ...(/^m[0-3]$/.test(key) ? [['u'+key.slice(1),String(cell.missing)]] : [])]))) : evidence.result.rows.map(row => ({bucket:row.date,value:row.value,observed_days:row.observedDays,observed_through:row.observedThrough})), consistency:env.ASK_ANALYTICS_STORE==='logical_public_core'?'verified-canonical-core':null, observedDays:evidence.result.coverage.observedDays, indexedThrough:evidence.result.coverage.indexedThrough, retrievedAt:evidence.result.retrievedAt });
     } catch (error) {
       const quota=sqlQuotaDetails(error);if(quota)res.set('Retry-After',String(quota.retryAfter));
-      if (!controller.signal.aborted) res.status(error?.askKind==='dataset'?425:error?.quota?429:error?.code==='57014'?504:error?.askKind==='resource'||error?.code==='53400'?422:['42601','42703','42883','42804','22012','22003','42P01'].includes(error?.code)?400:503).json({error:error?.askKind==='dataset'?'dataset-warming':error?.quota?'allowance':error?.code==='57014'?'timeout':error?.askKind==='resource'||error?.code==='53400'?'resource':['42601','42703','42883','42804','22012','22003','42P01'].includes(error?.code)?'invalid-query':'unavailable',...(quota?{quota}:{})});
+      const invalid=error?.askKind==='query'||['42601','42703','42883','42804','22012','22003','42P01'].includes(error?.code);
+      // sqlFeedback is built from allowlisted visitor-caused errors only.
+      const sql=sqlFeedbackSchema.safeParse(error?.sqlFeedback);
+      if (!controller.signal.aborted) res.status(error?.askKind==='dataset'?425:error?.quota?429:error?.code==='57014'?504:error?.askKind==='resource'||error?.code==='53400'?422:invalid?400:503).json({error:error?.askKind==='dataset'?'dataset-warming':error?.quota?'allowance':error?.code==='57014'?'timeout':error?.askKind==='resource'||error?.code==='53400'?'resource':invalid?'invalid-query':'unavailable',...(quota?{quota}:{}),...(sql.success?{sql:sql.data}:{})});
     } finally { res.off('close', abort); }
   });
   app.use((req,res) => res.status(404).json({error:'not-found'}));

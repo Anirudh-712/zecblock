@@ -9,6 +9,7 @@ const {jobTicketSchema,jobStatusSchema}=require('../../../../lib/ask/research-jo
 const { askError } = require('./ask-errors');
 const { sqlQuotaSchema } = require('../../../../lib/ask/quota-contract');
 const { sqlQuotaError } = require('./ask-sql-quota');
+const { sqlFeedbackSchema } = require('../../../../lib/ask/sql-feedback');
 
 async function workerQuotaError(response) {
   // Even authenticated private failures are bounded and reduced to fixed codes.
@@ -19,6 +20,18 @@ async function workerQuotaError(response) {
   }catch{/* Unknown/legacy failure remains generic; no raw body escapes. */}
   finally{await reader?.cancel();}
   return Object.assign(askError('quota'),{quota:true});
+}
+
+// Visitor-SQL feedback from the worker, re-validated here; anything else in
+// the body is discarded.
+async function workerSQLFeedback(response) {
+  const reader=response.body?.getReader();const chunks=[];let bytes=0;
+  try {
+    if(reader)while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>2048)return null;chunks.push(Buffer.from(value));}
+    const sql=sqlFeedbackSchema.safeParse(JSON.parse(Buffer.concat(chunks).toString('utf8'))?.sql);
+    return sql.success?sql.data:null;
+  }catch{return null;}
+  finally{await reader?.cancel();}
 }
 
 function createAnalyticsClient(env, fetchImpl) {
@@ -59,8 +72,12 @@ function createAnalyticsClient(env, fetchImpl) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.ASK_ANALYTICS_SERVICE_KEY}` }, body: JSON.stringify(research?compiled.request:compiled.plan) });
       if (!response.ok) {
         if (response.status === 429) throw await workerQuotaError(response);
+        if(research&&[400,422].includes(response.status)){
+          const error=askError(response.status===400?'query':'resource');
+          const sql=await workerSQLFeedback(response);if(sql)error.sqlFeedback=sql;
+          throw error;
+        }
         await response.body?.cancel();
-        if(research&&response.status===400)throw askError('query');
         if(response.status===425)throw askError('dataset');
         if(response.status===422)throw askError('resource');
         if(response.status===504)throw askError('timeout');

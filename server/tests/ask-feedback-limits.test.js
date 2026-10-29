@@ -105,7 +105,7 @@ async function workspaceFixture(t,scope) {
     '@/lib/ask/client':{peekAskHandoff:()=>null,clearAskHandoff(){},askChat:async question=>{calls.push(question);return{answer:'A block contains confirmed transactions.',sources:[],spec:null,locale:'en',mode:'ai'};}},
     '@/lib/ask/composer':require('../../lib/ask/composer'),
     '@/components/ask/AskFeedback':{AskFeedback:()=>null,AskFailureFeedback:()=>null,useAskFeedback:()=>feedback},
-    '@/lib/ask/data':require('../../lib/ask/data'),'@/lib/ask/research-share':require('../../lib/ask/research-share'),'@/lib/ask/follow-ups':require('../../lib/ask/follow-ups'),
+    '@/lib/ask/data':require('../../lib/ask/data'),'@/lib/ask/research-share':require('../../lib/ask/research-share'),'@/lib/ask/follow-ups':require('../../lib/ask/follow-ups'),...require('./ask-sql-test-imports'),
     './AskAnalysis':{AskAnalysis:()=>null},
   };
   const {AskWorkspace}=load('app/ask/AskWorkspace.tsx',imports);
@@ -128,7 +128,8 @@ test('SQL bucket still disables raw SQL without erasing the Ask draft',async t=>
   const fixture=await workspaceFixture(t,'sql'),question='How does a Zcash block work?';
   fixture.elements.find(item=>item.type==='textarea').props.onChange({target:{value:question}});fixture.render();
   fixture.elements.find(item=>item.type==='button'&&item.props.children==='SQL').props.onClick();fixture.render();
-  fixture.elements.find(item=>item.type==='textarea').props.onChange({target:{value:'SELECT height FROM blocks LIMIT 1'}});fixture.render();
+  // SQL mode renders the editor component; it reports plain strings.
+  fixture.elements.find(item=>item.props?.datasets&&typeof item.props.onRun==='function').props.onChange('SELECT height FROM blocks LIMIT 1');fixture.render();
   assert.equal(fixture.elements.find(item=>item.type==='button'&&item.props['aria-label']==='Run SQL').props.disabled,true);
   fixture.elements.find(item=>item.type==='form').props.onSubmit({preventDefault(){}});assert.deepEqual(fixture.calls,[]);
   fixture.elements.find(item=>item.type==='button'&&item.props.children==='Ask').props.onClick();fixture.render();

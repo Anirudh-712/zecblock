@@ -26,6 +26,7 @@ function workspace(handoff) {
     '@/lib/ask/data': require('../../lib/ask/data'),
     '@/lib/ask/research-share': require('../../lib/ask/research-share'),
     '@/lib/ask/follow-ups': require('../../lib/ask/follow-ups'),
+    ...require('./ask-sql-test-imports'),
     './AskAnalysis': {AskAnalysis:({spec}) => React.createElement('article', {'data-record':'preset', 'data-period':spec.period}, spec.metric)},
   };
   return renderToStaticMarkup(React.createElement(loadComponent('app/ask/AskWorkspace.tsx', imports).AskWorkspace));

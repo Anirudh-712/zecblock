@@ -6,14 +6,27 @@ const {parse,deparse}=require('pgsql-parser');
 const {z}=require('zod');
 const {createHash}=require('node:crypto');
 const tables=Object.freeze({blocks:'blocks_query',transactions:'transactions_query',flows:'flows_query',daily:'daily_query',swaps:'swaps_query',addresses:'addresses_query',address_activity:'address_activity_query',activity_daily:'activity_daily_query',flow_daily:'flow_daily_query'});
-const functions=new Set('count sum avg min max round abs ceil ceiling floor trunc sqrt mod greatest least coalesce nullif date_trunc date_part extract to_timestamp to_char lower upper length substring substr left right trim btrim ltrim rtrim row_number rank dense_rank lag lead first_value last_value nth_value ntile percent_rank cume_dist stddev_samp stddev_pop variance var_samp var_pop'.split(' '));
+const functions=new Set(require('../../../../lib/ask/sql-functions').functions);
 const types=new Set('bool boolean int2 int4 int8 smallint integer bigint numeric decimal real float4 float8 text varchar bpchar date timestamp timestamptz time timetz interval'.split(' '));
 const operators=new Set(['+','-','*','/','%','=','<>','!=','<','>','<=','>=','~~','!~~','~~*','!~~*']);
 const nodes=new Set('SelectStmt ResTarget RangeVar RangeSubselect JoinExpr ColumnRef String A_Star A_Const Integer Float Boolean TypeCast TypeName FuncCall A_Expr BoolExpr NullTest BooleanTest CaseExpr CaseWhen CoalesceExpr MinMaxExpr SubLink WithClause CommonTableExpr SortBy WindowDef GroupingSet GroupingFunc SQLValueFunction List'.split(' '));
 const sqlRequestSchema=z.object({version:z.literal(3),sql:z.string().trim().min(1).max(8192),limit:z.number().int().min(1).max(200).default(100)}).strict();
 const identifier=value=>typeof value==='string'&&/^[a-zA-Z_][a-zA-Z_0-9]{0,62}$/.test(value);
 const names=value=>{if(!Array.isArray(value)||value.some(n=>!n.String||typeof n.String.sval!=='string'))throw Error('Invalid SQL name');return value.map(n=>n.String.sval);};
-async function compileResearchSQL(input,{extended=false}={}){
+// Policy failures carry the visitor-facing reason and the last parser location
+// seen, so the workbench can point at the rejected construct.
+function policyError(message,position,hint){const error=Error(message);error.sqlPolicy={message,position,hint};return error;}
+const shown=value=>String(value).replace(/[^A-Za-z0-9_.]/g,'').slice(0,64);
+async function compileResearchSQL(input,options={}){
+ const trace={};
+ try{return await compileUnchecked(input,options,trace);}
+ catch(error){
+  if(error instanceof z.ZodError)throw error;
+  if(error&&typeof error==='object'&&!error.sqlDetails&&!error.sqlPolicy)error.sqlPolicy={message:error.message,position:trace.at};
+  throw error;
+ }
+}
+async function compileUnchecked(input,{extended=false}={},trace={}){
  const request=sqlRequestSchema.parse(input);
  if(Buffer.byteLength(request.sql)>8192||request.sql.includes('\0'))throw Error('SQL is too large');
  const tree=await parse(request.sql);
@@ -24,7 +37,8 @@ async function compileResearchSQL(input,{extended=false}={}){
   if(value===null||value===undefined||typeof value!=='object')return;
   if(Array.isArray(value)){for(const item of value)walk(item,scope,depth+1);return;}
   const tags=Object.keys(value).filter(k=>/^[A-Z]/.test(k));
-  if(tags.length){if(tags.length!==1||!nodes.has(tags[0]))throw Error('Unsupported SQL construct');const tag=tags[0],n=value[tag];
+  if(tags.length){if(Number.isInteger(value[tags[0]]?.location)&&value[tags[0]].location>=0)trace.at=value[tags[0]].location;
+   if(tags.length!==1||!nodes.has(tags[0]))throw policyError(`${shown(tags[0]).replace(/Stmt$/,' statement')} is not supported in research SQL`,trace.at,'Use one SELECT with joins, CTEs, windows and the catalogue functions.');const tag=tags[0],n=value[tag];
    if(tag==='SelectStmt'){
     if(n.withClause)features.add('cte');if(n.groupClause?.length)features.add('group');
     if(n.targetList?.length>24)throw Error('Too many result columns');
@@ -41,7 +55,7 @@ async function compileResearchSQL(input,{extended=false}={}){
     if(++relations>16||n.catalogname||n.schemaname&&n.schemaname!=='analytics_public'||!identifier(n.relname)||n.relpersistence&&n.relpersistence!=='p')throw Error('Invalid relation');
     if(!n.schemaname&&scope.has(n.relname))return;
     const key=Object.keys(tables).find(k=>n.relname===k||n.relname===tables[k]);
-    if(!key||!extended&&!['blocks','transactions','flows'].includes(key))throw Error('Dataset is not admitted');
+    if(!key||!extended&&!['blocks','transactions','flows'].includes(key))throw policyError(`Dataset ${shown(n.relname)} is not admitted`,trace.at,'Use a table from the data catalogue.');
     used.add(key);if(!n.alias)n.alias={aliasname:n.relname};n.relname=tables[key];n.schemaname='analytics_public';
    }
    if(tag==='JoinExpr')features.add('join');
@@ -49,7 +63,7 @@ async function compileResearchSQL(input,{extended=false}={}){
     if(n.over)features.add('window');
     if(++called>128)throw Error('Too many functions');
     const path=names(n.funcname),name=path.at(-1);
-    if(path.length>2||path.length===2&&path[0]!=='pg_catalog'||!functions.has(name))throw Error('Function is not allowed');
+    if(path.length>2||path.length===2&&path[0]!=='pg_catalog'||!functions.has(name))throw policyError(`Function ${shown(path.join('.'))}() is not allowed`,trace.at,'See the supported functions in the data catalogue.');
     n.funcname=[{String:{sval:'pg_catalog'}},{String:{sval:name}}];
    }
    if(tag==='TypeCast'){if(!n.typeName)throw Error('Invalid cast');walk({TypeName:n.typeName},scope,depth+1);}
@@ -57,7 +71,7 @@ async function compileResearchSQL(input,{extended=false}={}){
    if(tag==='FuncCall'&&n.over&&(++windows>16||n.over.frameOptions>0x7ffff))throw Error('Invalid window frame');
    if(tag==='TypeName'){
     const path=names(n.names);
-    if(path.length>2||path.length===2&&path[0]!=='pg_catalog'||!types.has(path.at(-1))||n.setof||n.pct_type||n.arrayBounds?.length)throw Error('Type is not allowed');
+    if(path.length>2||path.length===2&&path[0]!=='pg_catalog'||!types.has(path.at(-1))||n.setof||n.pct_type||n.arrayBounds?.length)throw policyError(`Type ${shown(path.at(-1))} is not allowed`,trace.at,'Cast to numeric, bigint, integer, text, boolean, date, timestamp, timestamptz or interval.');
    }
    if(tag==='A_Expr'){
     const op=names(n.name);

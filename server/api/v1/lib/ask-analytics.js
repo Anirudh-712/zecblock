@@ -10,6 +10,26 @@ const { queryEvidence } = require('./ask-query-evidence');
 const {compileResearchSQL,researchEvidence}=require('./ask-research-sql');
 const { askError } = require('./ask-errors');
 const { sqlQuotaError } = require('./ask-sql-quota');
+const { databaseFeedback, costFeedback } = require('../../../../lib/ask/sql-feedback');
+
+// Planner cost ceilings for visitor SQL, checked with EXPLAIN (no execution)
+// before a query uses a database slot for seconds. Defaults stop runaway joins
+// and full cross products; tune per host with ASK_RESEARCH_MAX_COST(_BACKGROUND).
+const COST_DEFAULTS = { interactive: 50000000, background: 250000000 };
+function researchCostBudget(env, background) {
+  const raw = background ? env.ASK_RESEARCH_MAX_COST_BACKGROUND : env.ASK_RESEARCH_MAX_COST;
+  if (raw === undefined || raw === '') return background ? COST_DEFAULTS.background : COST_DEFAULTS.interactive;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 1000) throw new Error('Invalid research cost budget');
+  return value;
+}
+async function checkResearchCost(client, compiled, budget) {
+  const explained = await client.query({ text: 'EXPLAIN (FORMAT JSON) ' + compiled.text, values: compiled.values });
+  const estimate = Number(explained.rows[0]?.['QUERY PLAN']?.[0]?.Plan?.['Total Cost']);
+  if (!Number.isFinite(estimate) || estimate < 0) throw askError('source');
+  if (estimate > budget) { const error = askError('resource'); error.sqlFeedback = costFeedback(estimate, budget); throw error; }
+  return estimate;
+}
 
 // Separate connection and credentials. Never import the explorer's read router:
 // it can fall back to primary, which is forbidden for this service.
@@ -182,6 +202,7 @@ function createAnalytics(env, dependencies = {}) {
         const key=research&&env.ASK_RESEARCH_CACHE_ENABLED==='true'?cacheKey(compiled,checkpoint):null;
         const cached=key?await bounded(readCached(redis,key,compiled),deadline):null;
         if(cached){await client.query('ROLLBACK');client.release();released=true;return {result:cached};}
+        if (research) await checkResearchCost(client, compiled, researchCostBudget(env, background));
         const raw = research ? await client.query({text:compiled.text,values:compiled.values,rowMode:'array',types:{getTypeParser:()=>value=>value}}) : await client.query(compiled.text, compiled.values);
         const rows=raw.rows;
         deadline.throwIfAborted();
@@ -197,10 +218,12 @@ function createAnalytics(env, dependencies = {}) {
         destroy();
         if (deadline.aborted) throw deadline.reason;
         if (error?.quota || error?.askKind) throw error;
-        // Fixed categories only: never forward PostgreSQL messages, SQL or connection details.
+        // Fixed categories only, plus sanitized messages for allowlisted
+        // SQLSTATEs caused by the visitor's own SQL text (see sql-feedback).
         if(research&&error?.code==='53400'){const safe=askError('resource');safe.code='53400';throw safe;}
         if(research&&error?.code==='57014'){const safe=askError('timeout');safe.code='57014';throw safe;}
-        if(research&&['42601','42703','42883','42804','22012','22003','42P01'].includes(error?.code)){const safe=askError('query');safe.code=error.code;throw safe;}
+        const feedback=research?databaseFeedback(error):null;
+        if(feedback){const safe=askError('query');safe.code=error.code;safe.sqlFeedback=feedback;throw safe;}
         throw askError('source');
       } finally {
         deadline.removeEventListener('abort', destroy);
@@ -212,4 +235,4 @@ function createAnalytics(env, dependencies = {}) {
     catalogue:config.profile==='logical_public_core'?coreCatalogue:catalogue,
   };
 }
-module.exports = { createAnalytics, analyticsConfig, checkGuard, evidenceFor, ADMIT_QUERY, GUARD, CORE_GUARD, checkCoreGuard };
+module.exports = { createAnalytics, researchCostBudget, checkResearchCost, analyticsConfig, checkGuard, evidenceFor, ADMIT_QUERY, GUARD, CORE_GUARD, checkCoreGuard };

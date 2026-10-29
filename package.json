@@ -73,6 +73,14 @@
     "braces": "$braces"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-sql": "6.10.0",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.14",
+    "@lezer/highlight": "1.2.5",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
     "@tailwindcss/postcss": "^4.3.0",
@@ -120,9 +128,9 @@
   "devDependencies": {
     "@tailwindcss/node": "4.3.3",
     "@types/d3-force": "^3.0.10",
+    "braces": "file:vendor/braces",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.8",
-    "playwright": "1.63.0",
-    "braces": "file:vendor/braces"
+    "playwright": "1.63.0"
   }
 }

@@ -1,7 +1,8 @@
 'use strict';
 
 const express = require('express');
-const { askError, askStage, classifyFailure } = require('../lib/ask-errors');
+const { askError, askStage, classifyFailure, failureExtra } = require('../lib/ask-errors');
+const { policyFeedback } = require('../../../../lib/ask/sql-feedback');
 const { z } = require('zod');
 const { createHash, randomUUID } = require('node:crypto');
 const { RESERVE, budgetConfig, reserve, admit, admitWork } = require('../lib/ask-budget');
@@ -159,11 +160,13 @@ function createAskRouter(env = process.env, dependencies = {}) {
         if (failure.status === 429) res.set('Retry-After', String(failure.retryAfter || 60));
         // Code-only diagnostics: no question, path, history, raw errors or provider bodies.
         console.warn(JSON.stringify({ event: 'ask_failure', code: failure.code }));
-        sendProblem(res, failure.type, { status: failure.status, detail: failure.detail, extra: { code: failure.code } });
+        sendProblem(res, failure.type, { status: failure.status, detail: failure.detail, extra: failureExtra(failure) });
       }
     }
   }
-  const jobFailure=(res,error)=>{const failure=classifyFailure(error);if(failure.status===429)res.set('Retry-After',String(failure.retryAfter||60));return sendProblem(res,failure.type,{status:failure.status,detail:failure.detail,extra:{code:failure.code}});};
+  const jobFailure=(res,error)=>{const failure=classifyFailure(error);if(failure.status===429)res.set('Retry-After',String(failure.retryAfter||60));return sendProblem(res,failure.type,{status:failure.status,detail:failure.detail,extra:failureExtra(failure)});};
+  // Rejected before admission: no quota is used and the visitor sees why.
+  const policyProblem=(res,error,sql)=>{const feedback=policyFeedback(error,sql);return sendProblem(res,'validation-error',{detail:'Use one SELECT over the published catalogue with supported functions, joins, CTEs and windows.',extra:{code:'ask-sql-policy',...(feedback?{sql:feedback}:{})}});};
   for(const operation of ['status','cancel'])router.post('/research/jobs/'+operation,pollingLimiter,async(req,res)=>{
     if(!researchConfig||!analytics.jobsEnabled||!redisFor(req)?.isReady)return jobFailure(res,askError('source'));
     const parsed=jobTicketSchema.safeParse(req.body);if(!parsed.success)return sendProblem(res,'validation-error');
@@ -173,7 +176,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
     const parsed=sqlQuerySchema.extend({challenge:researchChallenge}).strict().safeParse(req.body);
     if(!parsed.success)return sendProblem(res,'validation-error');
     if(!researchConfig||!analytics.jobsEnabled)return jobFailure(res,askError('source'));
-    let query;try{const {challenge,...input}=parsed.data;void challenge;query=(await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request;}catch{return sendProblem(res,'validation-error');}
+    let query;try{const {challenge,...input}=parsed.data;void challenge;query=(await compileResearchSQL(input,{extended:env.ASK_RESEARCH_EXTENDED==='true'})).request;}catch(error){return policyProblem(res,error,parsed.data.sql);}
     return limited(req,res,async(signal,run,requestAnalytics)=>({job:await requestAnalytics.submit(query,{signal})}),true);
   });
   // Completion reuses the already-admitted job capability. Polling and an AI
@@ -228,7 +231,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
     const parsed=sqlQuerySchema.extend({challenge:researchChallenge}).strict().safeParse(req.body);
     if(!parsed.success)return sendProblem(res,'validation-error');
     const query={version:parsed.data.version,sql:parsed.data.sql,limit:parsed.data.limit};
-    try{await compileResearchSQL(query,{extended:env.ASK_RESEARCH_EXTENDED==='true'});}catch{return sendProblem(res,'validation-error',{detail:'Use one SELECT over the published catalogue with supported functions, joins, CTEs and windows.'});}
+    try{await compileResearchSQL(query,{extended:env.ASK_RESEARCH_EXTENDED==='true'});}catch(error){return policyProblem(res,error,query.sql);}
     return limited(req,res,async(signal,run,requestAnalytics)=>requestAnalytics.execute(query,{signal}),true);
   });
   router.post('/chat', limiter, async (req, res) => {

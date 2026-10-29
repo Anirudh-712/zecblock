@@ -182,6 +182,7 @@ test('server-owned background profile changes time only; SQL cannot request a bu
    if(statement===CORE_GUARD)return {rows:[Object.fromEntries(['dedicated','identity','restricted','disk_bounded','no_memberships','no_create','only_public_view','no_sequences','no_definers'].map(key=>[key,true]))]};
    if(statement==='SELECT * FROM analytics_public.coverage')return{rows:[{schema_version:1,authority:'logical_public_core',network:'mainnet',ready:true}]};
    if(typeof statement==='string'&&statement.startsWith('SELECT NULL::int'))return{rows:[{indexed_through:'2026-10-06T00:00:00Z'}]};
+   if(typeof statement==='object'&&statement.text.startsWith('EXPLAIN'))return{rows:[{'QUERY PLAN':[{Plan:{'Total Cost':10}}]}]};
    if(typeof statement==='object'){records++;return{rows:[['1',null]],fields:[{name:'height',dataTypeID:20},{name:'fees',dataTypeID:1700}]};}
    return{rows:[]};
   }};
@@ -238,6 +239,7 @@ test('cached SQL still checks current admission and consumes query allowance; st
   if(statement===CORE_GUARD)return {rows:[Object.fromEntries(['dedicated','identity','restricted','disk_bounded','no_memberships','no_create','only_public_view','no_sequences','no_definers'].map(k=>[k,true]))]};
   if(statement==='SELECT * FROM analytics_public.coverage')return{rows:[{...checkpoint,ready}]};
   if(typeof statement==='string'&&statement.startsWith('SELECT NULL::int'))return{rows:[{indexed_through:'2026-10-06T00:00:00Z'}]};
+  if(typeof statement==='object'&&statement.text.startsWith('EXPLAIN'))return{rows:[{'QUERY PLAN':[{Plan:{'Total Cost':10}}]}]};
   if(typeof statement==='object'){rawQueries++;return{rows:[['9007199254740993',null]],fields:[{name:'height',dataTypeID:20},{name:'fees',dataTypeID:1700}]};}return{rows:[]};
  }};
  const {ADMIT_QUERY}=require('../../v1/lib/ask-analytics'),{SAVE}=require('../../v1/lib/ask-research-cache');

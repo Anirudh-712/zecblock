@@ -11,6 +11,7 @@ import { queryShare, dashboardShare, researchLink, sharedLibrary, type ResearchS
 import styles from './research.module.css';
 import askStyles from './ask.module.css';
 import {catalogueFor} from '../../lib/ask/research-catalogue';
+import {displaySQL} from '../../lib/ask/sql-display';
 
 const Plot = dynamic(() => import('./ResearchPlot'), { loading: () => <p className={styles.caption}>Loading chart…</p> });
 const initialSQL = 'SELECT height, transactions, bytes, fees::numeric / 100000000 AS fees_zec\nFROM blocks\nORDER BY height DESC\nLIMIT 10';
@@ -180,7 +181,7 @@ export function ResearchData({ result, chart, sources, showDetails = true, saved
       <p>{result.coverage}. This describes source admission, not a certification of your SQL calculations.</p><p>{result.units}</p>
       <p>Charts use approximate plotting numbers; the table preserves exact decimals. Rows follow query order; repeated labels are separate records. Full identifiers remain in the results and downloads.</p>
       <p>Retrieved {utcDate(result.retrievedAt)}. Query fingerprint: <span className={styles.fingerprint}>{result.fingerprint}</span></p>
-      {result.query?.sql ? <><p className={styles.detailLabel}>SQL query</p><pre className={styles.shareSQL} translate="no" tabIndex={0} aria-label="SQL behind this result">{result.query.sql}</pre></> : null}
+      {result.query?.sql ? <><p className={styles.detailLabel}>SQL query</p><pre className={styles.shareSQL} translate="no" tabIndex={0} aria-label="SQL behind this result">{displaySQL(result.query.sql)}</pre></> : null}
     </div></details> : null}
   </>;
 }
