@@ -100,7 +100,7 @@ async function workspaceFixture(t,scope) {
     '@/lib/ask/api-base':{getAskApiUrl:()=>'/v1/ask',isAuthenticatedAskStaging:()=>true},
     '@/lib/api-client':{readApiResponse:async()=>({data:{mode:'ai',provider:'OpenAI',researchEnabled:true},meta:{network:'mainnet'}})},
     './ResearchWorkbench':{useResearchTools:()=>({library:{documents:[]},importing:false,title:'Analysis'}),ResearchLibrary:()=>null,ResearchEditor:()=>null,ResearchDashboard:()=>null,ResearchPanel:()=>null,ResearchData:()=>null},
-    '@/lib/ask/research-job-contract':{},'@/lib/ask/research-client':{},'@/lib/ask/research-contract':{},
+    '@/lib/ask/research-job-contract':{},'@/lib/ask/research-client':{},'@/lib/ask/research-display': require('../../lib/ask/research-display'), '@/lib/ask/research-contract':{},
     '@/components/ask/AskChallenge':{AskChallenge:()=>null},'@/components/ask/AskTransactions':{AskTransactions:()=>null},'@/components/ask/AskBlocks':{AskBlocks:()=>null},'@/components/ask/AskTransfers':{AskTransfers:()=>null},'@/components/ask/AskAnalytics':{AskAnalytics:()=>null},'@/components/ask/AskSources':{AskSources:()=>null},
     '@/lib/ask/client':{peekAskHandoff:()=>null,clearAskHandoff(){},askChat:async question=>{calls.push(question);return{answer:'A block contains confirmed transactions.',sources:[],spec:null,locale:'en',mode:'ai'};}},
     '@/lib/ask/composer':require('../../lib/ask/composer'),

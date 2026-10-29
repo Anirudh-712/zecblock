@@ -13,6 +13,7 @@ import type {ResearchJobStatus,ResearchJobTicket} from '@/lib/ask/research-job-c
 import {jobTicketSchema} from '@/lib/ask/research-job-contract';
 import { runResearch, submitResearch, waitResearch, explainResearch } from '@/lib/ask/research-client';
 import { researchResultSchema } from '@/lib/ask/research-contract';
+import { suggestResearchChart } from '@/lib/ask/research-display';
 import { AskChallenge } from '@/components/ask/AskChallenge';
 import { AskTransactions } from '@/components/ask/AskTransactions';
 import { AskBlocks } from '@/components/ask/AskBlocks';
@@ -245,7 +246,7 @@ export function AskWorkspace() {
           // The checked data is usable while the separate explanation is pending.
           completedResearch = result;
           setSessions(all => all.map(item => item.id === activeId ? { ...item, spec: null, messages: item.messages.map(message => message.id === id ? { ...message, research: result } : message) } : item));
-          tools.accept(result,analysisTitle(trimmed));
+          tools.accept(result,analysisTitle(trimmed),true,undefined,suggestResearchChart(result));
           setPhase('explaining');
           try{reply=await explainResearch(ticket,trimmed,reply.locale,controller.signal);}
           catch(cause){if(controller.signal.aborted)throw cause;reply={answer:'Your query is complete. The results are below; an AI explanation is temporarily unavailable.',sources:[],spec:null,locale:reply.locale,mode:'ai',research:result};}
@@ -257,8 +258,9 @@ export function AskWorkspace() {
         // Preserve any chart changes made while the explanation was being written.
         if (shownResearch) {
           const narrative = narrativeFor({ question: trimmed, answer: reply.answer, research: shownResearch, locale: reply.locale });
-          if (!completedResearch) tools.accept(shownResearch, analysisTitle(trimmed), true, narrative);
+          if (!completedResearch) tools.accept(shownResearch, analysisTitle(trimmed), true, narrative, suggestResearchChart(shownResearch));
           else if (narrative) tools.annotate(narrative);
+          if (reply.chart) tools.suggest(reply.chart);
         }
       } else {
         append(`Opened ${describeMetric(next.metric).title.toLowerCase()} for ${next.period === '1y' ? 'the past year' : `the past ${next.period.slice(0, -1)} days`}${next.pool === 'all' ? '' : `, filtered to ${next.pool}`}. The analysis shows the source observations and updates as you change the controls.`, next);
@@ -471,7 +473,7 @@ export function AskWorkspace() {
   }
   function renderRecords(message: Message, expandedView = false) {
     const sources = message.sources?.length || message.dataContext ? <AskSources inline sources={message.sources || []} dataContext={message.dataContext} /> : undefined;
-    if (message.research) return message.id === latestRecords?.id ? <ResearchPanel embedded={!expandedView} actions={expandedView ? undefined : explainAction(message)} trailing={expandedView ? undefined : <button className={styles.expandAction} aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button>} editAction={editAction(message)} onSaved={markSaved} sources={sources} saved={message.savedSnapshot} tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} sources={sources} savedSnapshot={message.savedSnapshot} chart={{view:'table',x:0,y:0}}/></div>;
+    if (message.research) return message.id === latestRecords?.id ? <ResearchPanel embedded={!expandedView} actions={expandedView ? undefined : explainAction(message)} trailing={expandedView ? undefined : <button className={styles.expandAction} aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button>} editAction={editAction(message)} onSaved={markSaved} sources={sources} saved={message.savedSnapshot} tools={tools} result={message.research} busy={busy} titleId={expandedView ? 'expanded-analysis-title' : undefined}/> : <div className="p-5"><ResearchData result={message.research} sources={sources} savedSnapshot={message.savedSnapshot} chart={message.sql ? {view:'table',x:0,y:0} : suggestResearchChart(message.research)}/></div>;
     return <div className="p-4 sm:p-5"><AskAnalytics result={message.analytics}/><AskBlocks result={message.blocks} expanded/><AskTransactions result={message.transactions} expanded/>{message.transfers ? <AskTransfers result={message.transfers}/> : null}</div>;
   }
   const sqlMode = inputMode === 'sql';

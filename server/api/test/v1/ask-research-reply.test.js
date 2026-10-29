@@ -262,3 +262,18 @@ test('two rows labelled previous and last period compare as periods, not as a ra
   assert.equal(checkedCaption('Orchard share fell over the last {{row_count}} weeks in 7 days.', evidence.facts, new Set(['row_count']), 'en', reason => reasons.push(reason)), null);
   assert.deepEqual(reasons, ['no_fact', 'unchecked_number']);
 });
+
+test('the caption call proposes a chart that is checked against the result; a malformed proposal keeps the finding',async()=>{
+ const daily=research("SELECT date, round(orchard::numeric/100000000,2) AS orchard_zec, round(sapling::numeric/100000000,2) AS sapling_zec FROM daily WHERE date >= DATE '2026-10-01' ORDER BY date",
+  [['date','text'],['orchard_zec','number'],['sapling_zec','number']],[['2026-10-01','377567.18','5000.00'],['2026-10-02','377450.63','5001.00'],['2026-10-03','377352.25','5002.00']],{datasets:['daily']});
+ let task;
+ const chosen=await researchReply(daily,{question:'How did Orchard change?'},async(input,t)=>{task=t;return {finding:'Orchard ended at {{last_b}}.',interpretation:'',chart:{view:'line',value:'b',extra:['c'],stacked:true,highlight:'change'}};},'en');
+ assert.deepEqual(Object.keys(task.schema.properties),['finding','interpretation','chart']);
+ assert.deepEqual(task.schema.properties.chart.properties.value.enum,['b','c']);
+ // Lines are never stacked; the label column is chosen by the server.
+ assert.deepEqual(chosen.chart,{view:'line',x:0,y:1,series:[2],highlight:'change'});
+ for(const chart of [{view:'pie',value:'b',extra:[],stacked:false,highlight:'none'},{view:'bar',value:'a',extra:[],stacked:false,highlight:'none'},'draw it nicely',undefined]){
+  const reply=await researchReply(daily,{question:'How did Orchard change?'},async()=>({finding:'Orchard ended at {{last_b}}.',interpretation:'',chart}),'en');
+  assert.match(reply.answer,/^Orchard ended at /);assert.deepEqual(reply.chart,{view:'area',x:0,y:1,highlight:'latest'});
+ }
+});
