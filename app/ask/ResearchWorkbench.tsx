@@ -9,6 +9,7 @@ import { researchDocumentSchema, researchNarrativeSchema } from '@/lib/ask/resea
 import { emptyLibrary, readLibrary, writeLibrary, readPortable, mergePortable, markdownReport, csvReport, MAX_BYTES } from '@/lib/ask/research-library';
 import { queryShare, dashboardShare, compactResearchLink, sharedLibrary, type ResearchShare } from '@/lib/ask/research-share';
 import styles from './research.module.css';
+import { CopyButton } from '../../lib/ask/copy-button';
 import askStyles from './ask.module.css';
 import {catalogueFor} from '../../lib/ask/research-catalogue';
 import {displaySQL} from '../../lib/ask/sql-display';
@@ -184,7 +185,7 @@ export function ResearchData({ result, chart, sources, showDetails = true, saved
         <div><dt>Units</dt><dd>{result.units}{chart.view !== 'table' ? ' Charts are approximate; the table is exact.' : ''}</dd></div>
         <div><dt>Query fingerprint</dt><dd><span className={styles.fingerprint} title={result.fingerprint}>{result.fingerprint.slice(0, 16)}…</span></dd></div>
       </dl>
-      {result.query?.sql ? <details className={styles.sqlDetails}><summary>SQL query</summary><pre className={styles.shareSQL} translate="no" tabIndex={0} aria-label="SQL behind this result">{displaySQL(result.query.sql)}</pre></details> : null}
+      {result.query?.sql ? <details className={styles.sqlDetails}><summary>SQL query</summary><div className={styles.codeBlock}><pre className={styles.shareSQL} translate="no" tabIndex={0} aria-label="SQL behind this result">{displaySQL(result.query.sql)}</pre><span className={styles.codeCopy}><CopyButton text={displaySQL(result.query.sql)} label="SQL" className={styles.copyButton} /></span></div></details> : null}
     </div></details> : null}
   </>;
 }
@@ -211,13 +212,11 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
   return <div className={`${styles.panelBody} ${embedded ? styles.embeddedPanel : ''}`}>
     {!embedded ? <h2 className={styles.resultTitle}>{tools.title}</h2> : null}
     <div className={`${styles.resultToolbar} ${embedded ? styles.embeddedToolbar : ''}`}>
-      <label className={styles.viewPicker}>Result view<select className={styles.viewSelect} value={tools.chart.view} onChange={event => tools.setChart({ ...tools.chart, view: event.target.value as ResearchChart['view'] })}>
-        <option value="table">Table</option><option value="bar" disabled={!numeric}>Bar chart</option><option value="line" disabled={!lineAllowed}>Line chart</option>
-      </select></label>
+      <div className={styles.viewSwitch} role="group" aria-label="Result view">{([['table', 'Table', true], ['bar', 'Bar', numeric], ['line', 'Line', lineAllowed]] as const).map(([view, label, allowed]) => <button type="button" key={view} aria-pressed={tools.chart.view === view} disabled={!allowed} onClick={() => tools.setChart({ ...tools.chart, view })}>{label}</button>)}</div>
       <div className={styles.resultActions}>
+        {actions}
         <button className={styles.button} disabled={!tools.ready || disabled} onClick={tools.save}>{hasSave ? 'Save changes' : 'Save'}</button>
         <button className={styles.button} disabled={disabled} onClick={() => void tools.copyLink()}>Share query</button>
-        {actions}
       </div>
       <details ref={more} className={styles.moreOptions}><summary>More</summary><div className={styles.moreBody}>
         {editAction ? <div className={styles.optionGroup}><p className={styles.optionHeading}>Query</p><div className={styles.actions}>{editAction}</div></div> : null}
@@ -226,7 +225,7 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
           <label className={styles.field}>Research notes<textarea name="notes" autoComplete="off" className={styles.input} maxLength={4000} value={tools.notes} onChange={event => tools.setNotes(event.target.value)} rows={3} /></label>
         </fieldset>
         <fieldset className={styles.optionGroup}><legend>Chart settings</legend>
-          <div className={styles.columns}>{(['x', 'y'] as const).map(axis => <label className={styles.field} key={axis}>{axis === 'x' ? 'Labels' : 'Values'}<select className={styles.input} disabled={axis === 'y' && !numeric} value={tools.chart[axis]} onChange={event => { const index = Number(event.target.value); tools.setChart({ ...tools.chart, [axis]: index, view: axis === 'x' && tools.chart.view === 'line' && !supportsLine(result,index) ? 'bar' : tools.chart.view }); }}>{result.columns.map((column, index) => axis === 'y' && column.type !== 'number' ? null : <option key={column.key} value={index}>{column.label.replaceAll('_', ' ')}</option>)}</select></label>)}</div>
+          <div className={styles.columns}>{(['x', 'y'] as const).map(axis => <label className={styles.field} key={axis}>{axis === 'x' ? 'Labels' : 'Values'}<span className={styles.selectWrap}><select className={styles.input} disabled={axis === 'y' && !numeric} value={tools.chart[axis]} onChange={event => { const index = Number(event.target.value); tools.setChart({ ...tools.chart, [axis]: index, view: axis === 'x' && tools.chart.view === 'line' && !supportsLine(result,index) ? 'bar' : tools.chart.view }); }}>{result.columns.map((column, index) => axis === 'y' && column.type !== 'number' ? null : <option key={column.key} value={index}>{column.label.replaceAll('_', ' ')}</option>)}</select></span></label>)}</div>
           <p className={styles.caption}>Charts follow query order. Line charts need an ordered date or numeric label column.</p>
         </fieldset>
         <fieldset className={styles.optionGroup}><legend>Download</legend>
@@ -253,10 +252,7 @@ export function ResearchDashboard({ tools, busy, onOpen }: { tools: Tools; busy:
 }
 
 function ShareLinkField({ tools }: { tools: Tools }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => setCopied(false), [tools.shareURL]);
-  async function copy() { try { await navigator.clipboard.writeText(tools.shareURL); setCopied(true); } catch { setCopied(false); } }
-  return tools.shareURL ? <div className={styles.field}><label htmlFor="research-link">Research link</label><div className={styles.shareRow}><input id="research-link" readOnly name="research-link" type="url" autoComplete="off" spellCheck={false} className={`${styles.input} ${styles.shareInput}`} value={tools.shareURL} onFocus={event => event.currentTarget.select()} /><button type="button" className={styles.button} onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button></div></div> : null;
+  return tools.shareURL ? <div className={styles.field}><label htmlFor="research-link">Research link</label><div className={styles.shareRow}><input id="research-link" readOnly name="research-link" type="url" autoComplete="off" spellCheck={false} className={`${styles.input} ${styles.shareInput}`} value={tools.shareURL} onFocus={event => event.currentTarget.select()} /><CopyButton text={tools.shareURL} label="link" className={styles.copyButton} /></div></div> : null;
 }
 export function SharedResearchDraft({ share, tools, busy, enabled, onOpen, onDismiss }: { share: ResearchShare; tools: Tools; busy: boolean; enabled: boolean; onOpen: (doc: ResearchDocument) => void; onDismiss: () => void }) {
   return <section className={styles.sharedDraft} aria-label="Shared research draft">

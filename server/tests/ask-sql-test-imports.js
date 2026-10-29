@@ -11,5 +11,6 @@ module.exports = {
   '@/lib/ask/research-catalogue': require('../../lib/ask/research-catalogue'),
   '@/lib/ask/sql-examples': require('../../lib/ask/sql-examples'),
   '@/lib/ask/sql-display': require('../../lib/ask/sql-display'),
+  '@/lib/ask/copy-button': require('../../lib/ask/copy-button'),
   '@/components/ask/AskSQLTools': { SQLProblem: () => null, SQLStarters: () => null, SQLTables: () => null, editorPosition: () => null, sqlFeedbackFrom: () => null },
 };

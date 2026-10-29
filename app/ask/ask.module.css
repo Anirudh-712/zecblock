@@ -104,3 +104,17 @@
 
 .savedHeading {display:flex;align-items:center;gap:6px;}
 .countPill {margin-left:auto;min-width:18px;padding:0 6px;border:1px solid var(--color-border);border-radius:999px;font-size:12px;line-height:18px;text-align:center;color:var(--color-text-secondary);}
+
+.selectWrap {position:relative;display:inline-block;}
+.selectWrap > select {appearance:none;-webkit-appearance:none;padding-right:26px !important;cursor:pointer;}
+.selectWrap::after {content:'';position:absolute;right:10px;top:50%;width:5px;height:5px;margin-top:-4px;border-right:1.5px solid var(--color-text-muted);border-bottom:1.5px solid var(--color-text-muted);transform:rotate(45deg);pointer-events:none;}
+.sentCode {position:relative;}
+.sentCode > pre {padding-right:44px;}
+.sentCopy {position:absolute;top:6px;right:6px;}
+.explainAction {min-height:32px;padding:6px 10px;border:1px solid rgb(var(--color-gold-rgb) / 0.45);border-radius:6px;font-size:12px;color:var(--color-gold);}
+.explainAction:hover:not(:disabled) {background:rgb(var(--color-gold-rgb) / 0.1);}
+.explainAction:disabled {opacity:.5;}
+
+.copyButton {display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;border:1px solid var(--color-border);border-radius:6px;color:var(--color-text-secondary);background:var(--color-surface);cursor:pointer;}
+.copyButton:hover {background:var(--color-hover);color:var(--color-text-primary);}
+.copyButton:focus-visible {outline:2px solid var(--color-gold);outline-offset:2px;}

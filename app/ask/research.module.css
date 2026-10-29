@@ -130,3 +130,23 @@
 
 .shareRow {display:flex;gap:8px;align-items:center;min-width:0;}
 .shareRow .shareInput {flex:1;}
+
+/* Segmented Table / Bar / Line switch (replaces the native select). */
+.viewSwitch {display:inline-flex;padding:2px;border:1px solid var(--color-border);border-radius:7px;background:var(--color-surface);}
+.viewSwitch > button {min-height:28px;padding:4px 12px;border-radius:5px;font-size:12px;color:var(--color-text-muted);}
+.viewSwitch > button[aria-pressed="true"] {background:var(--color-hover);color:var(--color-text-primary);}
+.viewSwitch > button:hover:not(:disabled) {color:var(--color-text-primary);}
+.viewSwitch > button:disabled {opacity:.4;cursor:default;}
+.viewSwitch > button:focus-visible {outline:2px solid var(--color-gold);outline-offset:1px;}
+/* Selects draw their own chevron with even padding instead of the browser arrow. */
+.selectWrap {position:relative;display:block;}
+.selectWrap > select {appearance:none;-webkit-appearance:none;padding-right:32px;cursor:pointer;}
+.selectWrap::after {content:'';position:absolute;right:13px;top:50%;width:6px;height:6px;margin-top:-5px;border-right:1.5px solid var(--color-text-muted);border-bottom:1.5px solid var(--color-text-muted);transform:rotate(45deg);pointer-events:none;}
+/* SQL blocks carry a copy control in their corner. */
+.codeBlock {position:relative;}
+.codeBlock > .shareSQL {padding-right:48px;}
+.codeCopy {position:absolute;top:8px;right:8px;}
+
+.copyButton {display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;border:1px solid var(--color-border);border-radius:6px;color:var(--color-text-secondary);background:var(--color-surface);cursor:pointer;}
+.copyButton:hover {background:var(--color-hover);color:var(--color-text-primary);}
+.copyButton:focus-visible {outline:2px solid var(--color-gold);outline-offset:2px;}

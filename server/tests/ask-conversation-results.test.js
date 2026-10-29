@@ -108,10 +108,10 @@ test('embedded results retain exact data, editable labelled title, save and char
   title.props.onChange({target:{value:'Renamed fee analysis'}});
   const save = elements.find(item => item.type === 'button' && item.props.children === 'Save');
   assert.equal(save.props.disabled,false); save.props.onClick();
-  const bar = elements.find(item => item.type === 'option' && item.props.children === 'Bar chart');
+  // The view switch is a group of pressed-state buttons (Table / Bar / Line).
+  const bar = elements.find(item => item.type === 'button' && item.props.children === 'Bar' && 'aria-pressed' in item.props);
   assert.equal(bar.props.disabled,false);
-  const picker = elements.find(item => item.type === 'select' && item.props.value === 'table');
-  picker.props.onChange({target:{value:'bar'}});
+  bar.props.onClick();
   assert.deepEqual(calls,[['title','Renamed fee analysis'],['save'],['chart',{view:'bar',x:0,y:0}]]);
   assert.match(html, /aria-haspopup="dialog">Expand results ↗/);
   assert.match(html, /<summary>More<\/summary>/);

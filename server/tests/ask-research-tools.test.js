@@ -27,11 +27,11 @@ function panel(overrides={},panelProps={}){
 }
 
 test('one native view selector and primary actions keep advanced research controls under More',()=>{
- const {html,capture,calls}=panel();assert.equal(capture.filter(e=>e.type==='select'&&e.props.className==='viewSelect').length,1);
- assert.match(html,/>Result view<select/);assert.match(html,/<summary>More<\/summary>/);assert.match(html,/>Share query<\/button>/);assert.match(html,/>Expand results<\/button>/);assert.match(html,/>Edit SQL<\/button>/);
+ const {html,capture,calls}=panel();assert.equal(capture.filter(e=>e.type==='div'&&e.props['aria-label']==='Result view').length,1,'one view switch');
+ assert.match(html,/aria-label="Result view"><button[^>]*aria-pressed="true"[^>]*>Table<\/button>/);assert.match(html,/<summary>More<\/summary>/);assert.match(html,/>Share query<\/button>/);assert.match(html,/>Expand results<\/button>/);assert.match(html,/>Edit SQL<\/button>/);
  for(const label of ['Name &amp; notes','Chart settings','CSV results','Research file','Markdown report','Local library','Add to dashboard'])assert.ok(html.includes(label),label);
  assert.doesNotMatch(html,/role="(?:menu|menuitem)"|<summary>Exact data<\/summary>|<summary>Notes &amp; downloads<\/summary>/);
- const selector=capture.find(e=>e.type==='select'&&e.props.className==='viewSelect');selector.props.onChange({target:{value:'bar'}});
+ capture.find(e=>e.type==='button'&&e.props.children==='Bar'&&'aria-pressed' in e.props).props.onClick();
  capture.find(e=>e.type==='button'&&e.props.children==='Save').props.onClick();capture.find(e=>e.type==='button'&&e.props.children==='Share query').props.onClick();
  assert.deepEqual(calls,[['chart',{view:'bar',x:0,y:0}],['save'],['share']]);
 });

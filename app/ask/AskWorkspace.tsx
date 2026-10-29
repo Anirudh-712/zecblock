@@ -32,6 +32,7 @@ import { examplesFor } from '@/lib/ask/sql-examples';
 import { displaySQL } from '@/lib/ask/sql-display';
 import type { SQLFeedback } from '@/lib/ask/sql-feedback';
 import { SQLProblem, SQLStarters, SQLTables, editorPosition, sqlFeedbackFrom } from '@/components/ask/AskSQLTools';
+import { CopyButton } from '@/lib/ask/copy-button';
 
 // CodeMirror loads only in the browser, and only once SQL mode is opened.
 const SQLEditor = dynamic(() => import('@/components/ask/SQLEditor').then(module => module.SQLEditor), { ssr: false, loading: () => <div className="min-h-[140px]" /> });
@@ -354,8 +355,12 @@ export function AskWorkspace() {
   function editAction(message: Message) {
     return message.research ? <button disabled={busy} onClick={() => editQuery(message)}>Edit SQL</button> : null;
   }
+  // Explain sits in the result toolbar with the other result actions.
+  function explainAction(message: Message) {
+    return message.sql && message.ticket && message.research && message.state === 'complete' && capability.mode === 'ai' ? <button type="button" className={styles.explainAction} disabled={busy || aiBlocked} aria-busy={explainingId === message.id} onClick={() => void explainSQL(message)} aria-describedby={`explain-note-${message.id}`}>{explainingId === message.id ? 'Explaining…' : 'Explain results'}<span id={`explain-note-${message.id}`} className="sr-only">Writes a short summary using only numbers from these results. Uses your AI allowance.</span></button> : null;
+  }
   function resultActions(message: Message, includeEdit = true) {
-    return <>{includeEdit ? editAction(message) : null}<button aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button></>;
+    return <>{explainAction(message)}{includeEdit ? editAction(message) : null}<button aria-haspopup="dialog" onClick={() => setExpanded(message)}>Expand results ↗</button></>;
   }
   function renderRecords(message: Message, expandedView = false) {
     const sources = <AskSources inline sources={message.sources || []} dataContext={message.dataContext} />;
@@ -381,7 +386,7 @@ export function AskWorkspace() {
     <div className={styles.composerActions}><div className={styles.composerModes} role="group" aria-label="Input mode">
       <button type="button" aria-pressed={!sqlMode} disabled={busy} onClick={() => changeMode('ask')}>Ask</button>
       {capability.researchEnabled ? <button type="button" aria-pressed={sqlMode} disabled={busy} onClick={() => changeMode('sql')}>SQL</button> : null}
-    </div>{sqlMode ? <label className={styles.rowLimit}>Rows<select aria-label="Maximum rows" disabled={busy} value={sqlLimit} onChange={event => setSQLLimit(Number(event.target.value))}>{[10,50,100,200].map(value => <option key={value}>{value}</option>)}</select></label> : null}
+    </div>{sqlMode ? <label className={styles.rowLimit}>Rows<span className={styles.selectWrap}><select aria-label="Maximum rows" disabled={busy} value={sqlLimit} onChange={event => setSQLLimit(Number(event.target.value))}>{[10,50,100,200].map(value => <option key={value}>{value}</option>)}</select></span></label> : null}
       {busy ? <button type="button" className={styles.submit} onClick={() => request.current?.abort()} aria-label="Stop request">■</button>
         : <button type="submit" className={sqlMode ? styles.runSQL : styles.submit} disabled={!canSend} aria-label={sqlMode ? 'Run SQL' : 'Send question'}>{sqlMode ? 'Run SQL' : '↑'}</button>}
     </div>
@@ -427,9 +432,8 @@ export function AskWorkspace() {
         <section className={styles.conversation} aria-label="Conversation">
           <div className={`${styles.transcript} ${styles.threadTranscript}`} ref={transcript}>
             {session.messages.map(message => <div key={message.id} ref={message.id === session.messages.at(-1)?.id ? latestTurn : undefined} className="mb-7">
-              <div className={styles.sentMessage}>{message.sql ? <><span className={styles.sqlPreview}>{message.sql.split('\n').slice(0,3).join('\n')}</span><details className={styles.sentSQL}><summary>View submitted SQL</summary><pre translate="no">{message.sql}</pre></details></> : message.question}</div>
+              <div className={styles.sentMessage}>{message.sql ? <><span className={styles.sqlPreview}>{message.sql.split('\n').slice(0,3).join('\n')}</span><details className={styles.sentSQL}><summary>View submitted SQL</summary><div className={styles.sentCode}><pre translate="no">{message.sql}</pre><span className={styles.sentCopy}><CopyButton text={message.sql} label="SQL" className={styles.copyButton} /></span></div></details></> : message.question}</div>
               <article className={styles.assistantReply} aria-label="ZecBlock response"><AskMark small /><div className={styles.replyBody}><p className="text-caption font-mono text-muted mb-2">ZecBlock</p>{message.state === 'pending' ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : null}<p dir="auto" lang={message.locale} className="text-sm text-secondary leading-relaxed whitespace-pre-wrap">{message.answer}</p>{message.scope ? <p className="mt-2 text-caption text-muted">{message.scope}</p> : null}
-              {message.sql && message.ticket && message.research && message.state === 'complete' && capability.mode === 'ai' ? <button type="button" className={`${styles.followup} mt-3`} disabled={busy || aiBlocked} aria-busy={explainingId === message.id} onClick={() => void explainSQL(message)} aria-describedby={`explain-note-${message.id}`}>{explainingId === message.id ? 'Explaining…' : 'Explain results'}<span id={`explain-note-${message.id}`} className="sr-only">Writes a short summary using only numbers from these results. Uses your AI allowance.</span></button> : null}
               {message.spec ? <AskAnalysis spec={message.viewSpec || message.spec} changed={!!message.viewSpec && analysisScopeKey(message.viewSpec) !== analysisScopeKey(message.spec)} onChange={next => {
                 const previous = message.viewSpec || message.spec!;
                 const validated = analysisSchema.parse(next.period !== previous.period || next.pool !== previous.pool || next.metric !== previous.metric ? {...next, start:null, end:null} : next);
