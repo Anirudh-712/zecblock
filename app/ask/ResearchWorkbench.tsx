@@ -333,7 +333,7 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
           <label className={styles.field}>Notes<textarea id={analysisTitleId + '-notes'} name="notes" autoComplete="off" className={styles.input} maxLength={4000} defaultValue={tools.notes} key={tools.id + tools.notes} rows={3} onBlur={event => { if (event.target.value !== tools.notes) tools.updateNotes(tools.id!, event.target.value); }} placeholder="Optional" /></label>
           <button type="button" data-close data-tone="danger" className={styles.menuItem} onClick={() => tools.removeDocument(tools.id!)}>Remove from saved</button>
         </Menu> : <button className={styles.button} disabled={!tools.ready || disabled} onClick={saveNow}>{tools.id ? 'Save changes' : 'Save'}</button>}
-        <Menu label="Add to dashboard" disabled={!tools.ready || disabled}>
+        <Menu label={<><span className={styles.wideOnly}>Add to dashboard</span><span className={styles.narrowOnly}>Dashboard</span></>} ariaLabel="Add to dashboard" disabled={!tools.ready || disabled}>
           <p className={styles.menuHeading}>Dashboards</p>
           {tools.library.dashboards.length ? <div className={styles.checkList}>{tools.library.dashboards.map(board => <label key={board.id} className={styles.checkRow}><input type="checkbox" checked={Boolean(tools.id && board.items.includes(tools.id))} onChange={() => { const savedId = tools.toggleDashboard(board.id); if (savedId) onSaved?.(savedId); }} /><span>{board.title}</span><span className={styles.checkCount}>{board.items.length}</span></label>)}</div> : <p className={styles.caption}>No dashboards yet.</p>}
           <form className={styles.newBoard} onSubmit={event => { event.preventDefault(); const savedId = tools.createDashboard(newBoard); if (savedId) { setNewBoard(''); onSaved?.(savedId); } }}>
@@ -371,13 +371,12 @@ export function ResearchDashboard({ tools, busy, onOpen, refresh }: { tools: Too
       {renaming ? <RenameField value={board.title} label="Dashboard name" onDone={next => { if (next !== null && next.trim() && next.trim() !== board.title) tools.renameDashboard(board.id, next); setRenaming(false); }} /> : <h2 className={styles.resultTitle}>{board.title}</h2>}
       <div className={styles.actions}>
         {refresh?.available && docs.length ? refresh.running ? <button className={styles.button} onClick={refresh.stop}>Stop refresh</button> : <button className={styles.button} disabled={busy} onClick={() => refresh.run(docs)} title={`Runs ${docs.length} saved ${docs.length === 1 ? 'query' : 'queries'} again; each uses one of your SQL runs`}>Refresh all</button> : null}
-        {!renaming ? <button className={styles.button} onClick={() => setRenaming(true)}>Rename</button> : null}
         <Menu label="Share"><button type="button" data-close className={styles.menuItem} onClick={() => void tools.copyLink(true)}>Copy dashboard link</button><p className={styles.menuNote}>Shares each query, name and chart setting, not results. Nothing runs automatically.</p><button type="button" data-close className={styles.menuItem} onClick={tools.downloadLibrary}>Download all saved research</button></Menu>
-        <button className={styles.button} onClick={() => tools.deleteDashboard(board.id)}>Delete</button>
+        <Menu label="⋯" ariaLabel="Dashboard options" className={styles.iconMenu}><button type="button" data-close className={styles.menuItem} onClick={() => setRenaming(true)}>Rename</button><button type="button" data-close data-tone="danger" className={styles.menuItem} onClick={() => tools.deleteDashboard(board.id)}>Delete dashboard</button></Menu>
         <button className={styles.button} onClick={() => tools.setBoardId(null)}>Close</button>
       </div>
     </div>
-    <p className={styles.caption}>{docs.length} {docs.length === 1 ? 'analysis' : 'analyses'} · {refresh?.available ? `saved results; Refresh all runs ${docs.length === 1 ? 'its query again (one SQL run)' : `all ${docs.length} queries again (one SQL run each)`}` : 'saved results'}</p>
+    <p className={styles.caption}>{docs.length} {docs.length === 1 ? 'analysis' : 'analyses'} · {refresh?.available ? `Refresh all runs ${docs.length === 1 ? 'its query' : 'each query'} again (one SQL run each)` : 'saved results'}</p>
     {refresh?.status ? <p className={styles.caption} role="status">{refresh.status}</p> : null}
     {refresh?.challenge}
     <ShareLinkField tools={tools} /><ResearchStatus tools={tools} />

@@ -113,7 +113,7 @@ test('embedded results keep exact data and one clear control per action: save, d
   assert.deepEqual(calls,[['save'],['chart',{view:'bar',x:0,y:0}],['toggle','board-1']]);
   assert.match(html, /aria-haspopup="dialog">Expand results ↗/);
   assert.doesNotMatch(html, /<summary>More<\/summary>|Local library|Chart settings/);
-  for (const label of ['<summary>Add to dashboard</summary>', '<summary>Share</summary>', 'Fee watch', 'New dashboard name', 'Copy query link', 'Results as CSV', 'Report (Markdown)', 'Research file (JSON)', 'Adding also saves this analysis', 'Sources &amp; details']) assert.ok(html.includes(label), label+' stays available');
+  for (const label of ['aria-label="Add to dashboard"', '>Add to dashboard</span>', '<summary>Share</summary>', 'Fee watch', 'New dashboard name', 'Copy query link', 'Results as CSV', 'Report (Markdown)', 'Research file (JSON)', 'Adding also saves this analysis', 'Sources &amp; details']) assert.ok(html.includes(label), label+' stays available');
   for (const state of [{ready:false},{importing:true},{busy:true}]) {
     const fixture = panelFixture(state);
     assert.equal(fixture.elements.find(item => item.type === 'button' && item.props.children === 'Save').props.disabled,true);

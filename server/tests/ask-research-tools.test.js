@@ -28,7 +28,7 @@ function panel(overrides={},panelProps={}){
 
 test('one view switch and direct actions: Edit SQL, Save, Add to dashboard, Share, Expand',()=>{
  const {html,capture,calls}=panel();assert.equal(capture.filter(e=>e.type==='div'&&e.props['aria-label']==='Result view').length,1,'one view switch');
- assert.match(html,/aria-label="Result view"><button[^>]*aria-pressed="true"[^>]*>Table<\/button>/);assert.doesNotMatch(html,/<summary>More<\/summary>/);assert.match(html,/<summary>Share<\/summary>/);assert.match(html,/<summary>Add to dashboard<\/summary>/);assert.match(html,/>Expand results<\/button>/);assert.match(html,/>Edit SQL<\/button>/);
+ assert.match(html,/aria-label="Result view"><button[^>]*aria-pressed="true"[^>]*>Table<\/button>/);assert.doesNotMatch(html,/<summary>More<\/summary>/);assert.match(html,/<summary>Share<\/summary>/);assert.match(html,/<summary aria-label="Add to dashboard"><span class="wideOnly">Add to dashboard<\/span>/);assert.match(html,/>Expand results<\/button>/);assert.match(html,/>Edit SQL<\/button>/);
  for(const label of ['Copy query link','Results as CSV','Report (Markdown)','Research file (JSON)','No dashboards yet.','New dashboard name'])assert.ok(html.includes(label),label);
  assert.doesNotMatch(html,/role="(?:menu|menuitem)"|<summary>Exact data<\/summary>|<summary>Notes &amp; downloads<\/summary>/);
  capture.find(e=>e.type==='button'&&e.props.children==='Bar'&&'aria-pressed' in e.props).props.onClick();

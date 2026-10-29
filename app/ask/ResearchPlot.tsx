@@ -23,7 +23,7 @@ export default function ResearchPlot({result,chart}:{result:ResearchResult;chart
  const xLabel=(value:unknown)=>shortLabel(dates&&typeof value==='string'?dates(value):value);
  // Long or many bar labels are angled so every bar keeps a readable label.
  const crowded=chart.view==='bar'&&(data.length>6||data.some(d=>String(d.x).length>12));
- const children=<><XAxis dataKey="x" tick={tick} interval={chart.view==='bar'?0:'preserveStartEnd'} minTickGap={24} tickFormatter={xLabel} angle={crowded?-30:0} textAnchor={crowded?'end':'middle'} height={crowded?72:45}/><YAxis yAxisId="left" tick={tick} width={70} tickFormatter={compact}/>{right?<YAxis yAxisId="right" orientation="right" tick={tick} width={70} tickFormatter={compact}/>:null}<ChartTooltip contentStyle={{maxWidth:'min(420px,80vw)',overflowWrap:'anywhere'}}/></>;
+ const children=<><XAxis dataKey="x" tick={tick} interval={chart.view==='bar'?0:'preserveStartEnd'} minTickGap={24} tickFormatter={xLabel} angle={crowded?-30:0} textAnchor={crowded?'end':'middle'} height={crowded?72:45}/><YAxis yAxisId="left" tick={tick} width={48} tickFormatter={compact}/>{right?<YAxis yAxisId="right" orientation="right" tick={tick} width={48} tickFormatter={compact}/>:null}<ChartTooltip contentStyle={{maxWidth:'min(420px,80vw)',overflowWrap:'anywhere'}}/></>;
  const legend=series?series.legend.map(item=>({value:item.value,color:item.color})):many?values.map((i,k)=>({value:name(i,k),color:SERIES_COLORS[k]})):[];
  const label=values.map(i=>result.columns[i].label).join(', ');
  return <div role="img" aria-label={`${chart.view} chart of ${label} by ${result.columns[chart.x]?.label}; exact values in the table`}>

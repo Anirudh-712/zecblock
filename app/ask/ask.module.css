@@ -122,3 +122,5 @@
 .copyButton {display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;border:1px solid var(--color-border);border-radius:6px;color:var(--color-text-secondary);background:var(--color-surface);cursor:pointer;}
 .copyButton:hover {background:var(--color-hover);color:var(--color-text-primary);}
 .copyButton:focus-visible {outline:2px solid var(--color-gold);outline-offset:2px;}
+/* Phones: replies use the full width (the Zift label stays); Expand adds nothing on a small screen. */
+@media(max-width:640px){.assistantReply{grid-template-columns:minmax(0,1fr);gap:0}.assistantReply > [aria-hidden="true"]:first-child{display:none}.expandAction{display:none}}

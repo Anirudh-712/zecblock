@@ -147,6 +147,9 @@
 .rowMenu > summary {min-height:24px;padding:0 6px;border-color:transparent;background:var(--color-surface);font-size:14px;line-height:1;}
 .rowMenu > summary::after {display:none;}
 .rowMenu > .menuBody {width:190px;}
+.iconMenu > summary {padding:6px 12px;font-size:14px;}
+.iconMenu > summary::after {display:none;}
+.iconMenu > .menuBody {width:220px;}
 .renameInput {padding:6px 8px;font-size:12px;line-height:1.4;}
 .libraryRow > .renameInput {margin:2px 0;}
 @media(hover:none){.rowMenu{opacity:1}}
@@ -203,3 +206,8 @@
 .provRows dd a:hover {color:var(--color-gold);}
 .provRows dd > .inlineCopy {display:inline-flex;vertical-align:middle;margin-left:8px;}
 .inlineCopy .copyButton {width:26px;height:26px;}
+.narrowOnly {display:none;}
+/* Phones: chart settings share one row, labels above their controls. */
+@media(max-width:640px){.wideOnly{display:none}.narrowOnly{display:inline}.chartColumns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.chartColumns .inlineField{flex-direction:column;align-items:stretch;gap:4px;min-width:0}.chartColumns .inlineField .input,.chartColumns .menu,.chartColumns .menu > summary{min-width:0;width:100%}.chartColumns .valueText{max-width:none;flex:1}.resultToolbar > .resultActions{gap:6px}.resultToolbar .resultActions > button,.resultToolbar .resultActions > .button,.resultToolbar .resultActions .menu > summary{padding:6px 9px;font-size:12px}}
+/* Phones: menus open as a bottom sheet so none runs off either edge. */
+@media(max-width:640px){.menuBody,.menu[data-align="left"] > .menuBody{position:fixed;left:12px;right:12px;top:auto;bottom:calc(12px + env(safe-area-inset-bottom));width:auto;max-height:70dvh;overflow-y:auto;z-index:60}.rowMenu > .menuBody,.iconMenu > .menuBody{width:auto}}
