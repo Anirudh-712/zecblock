@@ -2,6 +2,7 @@
 
 const express = require('express');
 const { mainnetOnly } = require('../lib/network-features');
+const { setDataHeader } = require('../lib/data-headers');
 const { createVenueClient } = require('../../lib/crosschain/venue-providers');
 const { readAnalytics, readSwaps } = require('../../lib/crosschain/analytics');
 
@@ -68,7 +69,7 @@ function createCrosschainVenuesRouter({ createClient = createVenueClient, now = 
     const send = (snapshot, status) => {
       const ageSeconds = Math.max(0, Math.floor((now() - snapshot.at) / 1000));
       res.set('Cache-Control', status === 'stale' ? 'no-store' : 'public, max-age=0, s-maxage=30');
-      res.set('X-CipherScan-Cache', status);
+      setDataHeader(res, 'Cache', status);
       return res.json({ success: true, ...snapshot.data, freshness: { status: status === 'stale' ? 'stale' : 'fresh', ageSeconds },
         ...(status === 'stale' ? { warning: 'Provider refresh failed; this is the last observed page.' } : {}) });
     };
