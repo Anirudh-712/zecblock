@@ -35,8 +35,10 @@ export default function ResearchPlot({result,chart}:{result:ResearchResult;chart
  const xLabel=(value:unknown)=>shortLabel(dates&&typeof value==='string'?dates(value):value);
  const labelDates=dateFormatter(result,chart.x);
  const pointLabel=(value:string|null)=>value===null?'Unavailable':labelDates?labelDates(value):value;
- // Long or many bar labels are angled so every bar keeps a readable label.
- const crowded=chart.view==='bar'&&(data.length>6||data.some(d=>String(d.x).length>12));
+ // Up to sixteen bars each keep a label, angled when long or many. Denser bars
+ // (a month of days) label evenly spaced bars instead; every bar keeps its tooltip.
+ const dense=chart.view==='bar'&&data.length>16;
+ const crowded=chart.view==='bar'&&!dense&&(data.length>6||data.some(d=>String(d.x).length>12));
  const mark=chartHighlight(result,chart);
  const animate=!still,motion={isAnimationActive:animate,animationDuration:700,animationEasing:'ease-out' as const};
  const legend=series?series.legend.map(item=>({value:item.value,color:item.color})):many?values.map((i,k)=>({value:name(i,k),color:SERIES_COLORS[k]})):[];
@@ -57,7 +59,7 @@ export default function ResearchPlot({result,chart}:{result:ResearchResult;chart
    <ComposedChart data={data} margin={{top:12,right:right?4:28,bottom:0,left:0}} barCategoryGap={data.length>20?'12%':'22%'}>
     <defs>{values.map((i,k)=><linearGradient key={i} id={`${gradient}-${k}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" style={{stopColor:SERIES_COLORS[k],stopOpacity:stacked?0.5:0.32}}/><stop offset="100%" style={{stopColor:SERIES_COLORS[k],stopOpacity:stacked?0.18:0}}/></linearGradient>)}</defs>
     <CartesianGrid vertical={false} strokeDasharray="2 6" stroke="var(--color-border)"/>
-    <XAxis dataKey="x" tick={tick} tickLine={false} axisLine={{stroke:'var(--color-border)'}} interval={chart.view==='bar'?0:'preserveStartEnd'} minTickGap={24} tickFormatter={xLabel} angle={crowded?-30:0} textAnchor={crowded?'end':'middle'} height={crowded?72:36}/>
+    <XAxis dataKey="x" tick={tick} tickLine={false} axisLine={{stroke:'var(--color-border)'}} interval={chart.view==='bar'&&!dense?0:'preserveStartEnd'} minTickGap={dense?16:24} tickFormatter={xLabel} angle={crowded?-30:0} textAnchor={crowded?'end':'middle'} height={crowded?72:36}/>
     {/* Bars start at zero; a level over time reads best on its own range. */}
     <YAxis yAxisId="left" tick={tick} tickLine={false} axisLine={false} width={52} tickFormatter={compact} domain={ordered&&!stacked?['auto','auto']:[0,'auto']}/>
     {right?<YAxis yAxisId="right" orientation="right" tick={tick} tickLine={false} axisLine={false} width={52} tickFormatter={compact} domain={ordered?['auto','auto']:[0,'auto']}/>:null}
