@@ -12,8 +12,8 @@ import { getApiUrl } from '@/lib/api-config';
 // The first block of the Ironwood upgrade, from the deployment ZIP heights.
 const IRONWOOD_ACTIVATION = HISTORICAL_UPGRADES.find((upgrade) => upgrade.id === 'nu63')!.heights;
 const EXAMPLE_BLOCK = isCrosslink
-  ? { height: 6, label: 'Block #6' }
-  : { height: isMainnet ? IRONWOOD_ACTIVATION.mainnet : IRONWOOD_ACTIVATION.testnet, label: 'Ironwood activation' };
+  ? { height: 6, title: undefined }
+  : { height: isMainnet ? IRONWOOD_ACTIVATION.mainnet : IRONWOOD_ACTIVATION.testnet, title: 'Ironwood activation block' };
 
 // Shortened ids as the explorer displays them: a bare prefix, or
 // "5b34c8b44d...ec9e77". The API applies the authoritative limits.
@@ -508,9 +508,10 @@ export function SearchBar({ compact = false, subtitle, onNavigate }: SearchBarPr
         <button
           type="button"
           onClick={() => setQuery(String(EXAMPLE_BLOCK.height))}
+          title={EXAMPLE_BLOCK.title}
           className="example-tag example-tag-default"
         >
-          {EXAMPLE_BLOCK.label}
+          Block #{EXAMPLE_BLOCK.height}
         </button>
         <button
           type="button"
