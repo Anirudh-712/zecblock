@@ -44,3 +44,9 @@ CREATE TABLE IF NOT EXISTS crosschain_venue_sync (
   PRIMARY KEY (venue,mode)
 );
 COMMIT;
+-- Transaction-page lookups match one Zcash txid inside the leg hash arrays.
+-- CONCURRENTLY keeps writes flowing; it must run outside a transaction block.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS crosschain_venue_source_hashes ON crosschain_venue_actions
+  USING gin (source_tx_hashes);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS crosschain_venue_dest_hashes ON crosschain_venue_actions
+  USING gin (dest_tx_hashes);
