@@ -157,3 +157,7 @@
 
 /* Trailing actions (Expand) follow More directly at the far right. */
 .resultToolbar > .moreOptions + .resultActions {margin-left:0;}
+.provRows dd a {color:var(--color-text-secondary);}
+.provRows dd a:hover {color:var(--color-gold);}
+.provRows dd > .inlineCopy {display:inline-flex;vertical-align:middle;margin-left:8px;}
+.inlineCopy .copyButton {width:26px;height:26px;}

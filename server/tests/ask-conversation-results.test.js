@@ -139,7 +139,7 @@ test('guided charts keep filters and exports under closed secondary controls wit
   const capture = fn => (type,props,...rest) => { elements.push({type,props}); return fn(type,props,...rest); };
   const evidence = {key:'flows:1y:all', points:[{date:'2026-10-01',values:{shield:123}}],series:[{key:'shield',label:'Shielding',color:'gold'}],unit:'ZEC',csvUnit:'zatoshis',source:'/pools',sourceLabel:'Public pool flows',receivedAt:'2026-10-29T00:00:00Z',note:'Boundary days may be partial.',meta:{freshness:{status:'stale'},source:{observedAt:'2026-10-28T23:58:00Z'}}};
   let stateIndex = 0;
-  const values = [evidence,false,'',false,0,0,false];
+  const values = [evidence,false,'',0,0,false];
   const changes = [], imports = {
     react:{...React,useState:initial => [stateIndex < values.length ? values[stateIndex++] : initial,()=>{}],useEffect:()=>{},useId:()=> 'guided-test',useRef:()=>({current:null})},
     'react/jsx-runtime':{...runtime,jsx:capture(runtime.jsx),jsxs:capture(runtime.jsxs)},
@@ -158,6 +158,10 @@ test('guided charts keep filters and exports under closed secondary controls wit
   assert.match(html,/>Refresh data<\/button>/);assert.match(html,/>Export CSV<\/button>/);
   assert.equal((html.match(/<summary>Sources &amp; details<\/summary>/g)||[]).length,1);
   assert.ok(html.indexOf('Reading a block guide')>html.indexOf('<summary>Sources &amp; details'));
+  // Sources use the same labelled rows as SQL results, with an icon copy button.
+  assert.match(html,/<dt>Data<\/dt><dd><a href="\/pools">Public pool flows · Indexed public data<\/a>/);
+  assert.match(html,/aria-label="Copy source link"/);assert.doesNotMatch(html,/>Copy source link</);
+  assert.match(html,/<dt>Guide<\/dt><dd><a href="\/learn\/blocks">/);
   assert.ok(html.indexOf('Source marked stale')<html.indexOf('<summary>Sources &amp; details'));
   const period = elements.find(item=>item.type==='select' && item.props.value==='1y');
   period.props.onChange({target:{value:'90d'}});assert.equal(changes[0].period,'90d');

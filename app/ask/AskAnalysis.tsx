@@ -9,6 +9,8 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getChartColors } from '@/lib/chart-theme';
 import { describeMetric, formatChain } from '@/lib/ask/data';
 import styles from './ask.module.css';
+import research from './research.module.css';
+import { CopyButton } from '../../lib/ask/copy-button';
 
 const AskChart = dynamic(() => import('./AskChart'), { ssr: false, loading: () => <div className="h-80 grid place-items-center text-sm text-muted" role="status">Loading chart…</div> });
 
@@ -17,7 +19,6 @@ export function AskAnalysis({ spec, changed, onChange, onExplain, canExplain, bu
   const [fetchedEvidence, setEvidence] = useState<Evidence | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [tablePage, setTablePage] = useState(0);
   const [expanded, setExpanded] = useState(false);
@@ -74,11 +75,15 @@ export function AskAnalysis({ spec, changed, onChange, onExplain, canExplain, bu
 
               </>}
               <p className="mt-4 text-caption text-muted">{evidence.meta.freshness?.status === 'stale' ? <span role="status" className="text-warning">Source marked stale · </span> : null}{ranking ? `Retrieved ${new Date(evidence.receivedAt).toISOString().slice(0, 16).replace('T', ' ')} UTC` : `Observations through ${summary.end} UTC`}</p>
-              <details className={styles.viewCustomization}><summary>Sources &amp; details</summary><div className="pt-4 text-xs text-muted leading-relaxed">
-                {sources}
-                <Link href={evidence.source} className="text-secondary hover:text-cipher-gold">{evidence.sourceLabel} · Indexed public data ↗</Link>
-                <p className="text-xs text-muted leading-relaxed mb-3">{evidence.note}</p><p className="text-sm text-secondary leading-relaxed">{ranking ? `Showing ${summary.points.length} chains ranked by tracked swap volume. Bar chart shows the top 10; the table and CSV include every returned chain.` : spec.metric === 'migration_share' ? `Latest observed share: ${summary.end}. Percentages compare pool balances on each returned day.` : spec.metric === 'balances' ? `Showing ${summary.points.length} daily snapshots. Headline balances are from ${summary.end}; changes compare the first and last returned observations.` : `Totals cover ${summary.points.length} returned daily buckets. Boundary days may be partial; absent days are not assumed to be zero.`}</p>
-                <p className="mt-3">Retrieved {evidence.receivedAt.replace('T', ' ').slice(0, 19)} UTC. Source observation time: {evidence.meta.source?.observedAt ?? 'unavailable'}. CSV exports use {evidence.csvUnit}. ZEC values retain exact zatoshis; USD valuations remain approximate.</p><button className="mt-3 text-cipher-gold hover:underline" onClick={async () => { try { await navigator.clipboard.writeText(`https://zecblock.com${evidence.source}`); setCopied(true); } catch { setCopied(false); } }}>{copied ? 'Source link copied' : 'Copy source link'}</button>
+              <details className={research.disclosure}><summary>Sources &amp; details</summary><div className={research.provenance}>
+                <dl className={research.provRows}>
+                  <div><dt>Data</dt><dd><Link href={evidence.source}>{evidence.sourceLabel} · Indexed public data</Link> <span className={research.inlineCopy}><CopyButton text={`https://zecblock.com${evidence.source}`} label="source link" className={research.copyButton} /></span></dd></div>
+                  {sources ? <div><dt>Guide</dt><dd>{sources}</dd></div> : null}
+                  <div><dt>Retrieved</dt><dd>{evidence.receivedAt.replace('T', ' ').slice(0, 19)} UTC · Source observed {evidence.meta.source?.observedAt ?? 'unavailable'}</dd></div>
+                  <div><dt>Coverage</dt><dd>{ranking ? `${summary.points.length} chains ranked by tracked swap volume. The bar chart shows the top 10; the table and CSV include every chain.` : spec.metric === 'migration_share' ? `Latest observed share ${summary.end}. Percentages compare pool balances on each returned day.` : spec.metric === 'balances' ? `${summary.points.length} daily snapshots. Headline balances are from ${summary.end}; changes compare the first and last observations.` : `${summary.points.length} daily buckets. Boundary days may be partial; absent days are not assumed to be zero.`}</dd></div>
+                  {evidence.note ? <div><dt>Notes</dt><dd>{evidence.note}</dd></div> : null}
+                  <div><dt>Units</dt><dd>CSV exports use {evidence.csvUnit}. ZEC values retain exact zatoshis; USD valuations are approximate.</dd></div>
+                </dl>
               </div></details>
             </> : null}
   </div>;

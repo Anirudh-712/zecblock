@@ -5,7 +5,7 @@ const {catalogueFor}=require('../../../../lib/ask/research-catalogue');
 const {metricFields,recordMetrics}=require('../../v1/lib/ask-research-metrics');
 const {cacheKey}=require('../../v1/lib/ask-research-cache');
 test('extended schemas remain explicit opt-in at every compiler boundary',async()=>{
- for(const d of catalogueFor(true).slice(3)){const q={version:3,sql:'SELECT * FROM '+d.id,limit:10};await assert.rejects(compileResearchSQL(q));const c=await compileResearchSQL(q,{extended:true});assert.deepEqual(c.datasets,[d.id]);assert.match(c.text,new RegExp('analytics_public.'+d.id+'_query'));}
+ for(const d of catalogueFor(true).slice(3)){const q={version:3,sql:'SELECT * FROM '+d.id,limit:10};await assert.rejects(compileResearchSQL(q));const c=await compileResearchSQL(q,{extended:true});assert.deepEqual(c.datasets,[d.id]);assert.match(c.text,d.id==='labels'?/FROM \( VALUES/:new RegExp('analytics_public.'+d.id+'_query'));}
  assert.match(instructionsFor(true),/Prefer activity_daily/);assert.match(instructionsFor(true),/Never pass a date or timestamp into to_timestamp/);assert.match(instructionsFor(true),/array_agg, arrays and subscripting are not enabled/);assert.match(instructionsFor(true),/unfinished\/stale dataset fails/);assert.doesNotMatch(instructionsFor(false),/Additional published schemas/);
 });
 test('extension never permits dangerous constructs or raw/metadata access',async()=>{
