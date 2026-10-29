@@ -7,6 +7,7 @@ const policy = require('./editorial-policy');
 const { fetchSpotPrice } = require('./spot-price');
 const { readPoolActivity } = require('./pool-activity-source');
 const { poolMilestoneStories } = require('./pool-activity-milestones');
+const { insightCandidates } = require('./editorial-insights');
 
 // Flows already represent net movement across pools. Never subtract an
 // unrelated Orchard withdrawal from an Ironwood deposit as a "migration".
@@ -240,4 +241,4 @@ async function poolActivityCandidates(pool, now, options) {
   return poolMilestoneStories(await readPoolActivity(pool, now), target, options);
 }
 
-module.exports = { VALID_FLOWS, VALID_SWAPS, snapshot, assertMainnetFresh, liveCandidates, activityCandidates, hashrateCandidate, signalCandidates, crosschainDaily, reorgCandidates, milestoneCandidates, poolActivityCandidates, eventContext };
+module.exports = { VALID_FLOWS, VALID_SWAPS, snapshot, assertMainnetFresh, liveCandidates, activityCandidates, hashrateCandidate, signalCandidates, crosschainDaily, reorgCandidates, milestoneCandidates, poolActivityCandidates, insightCandidates, eventContext };

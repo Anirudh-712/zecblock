@@ -127,24 +127,42 @@ function firstCrossingStories(activity, target) {
   const compose = extra => `🟨 ${headline}\n\n${detail}${extra}\n\n${window}. Coinbase excluded.\nhttps://zecblock.com/pools`;
   const withAge = compose(lead.kind === 'volume' ? '' : ` ${ageText}`);
   const content = withAge.length <= 280 ? withAge : compose('');
-  const chartRows = days.slice(-30);
+  const chartRows = days.slice(Math.max(launchIndex, days.length - 30));
   const cumulative = lead.kind === 'volume';
   const values = chartRows.map((row, offset) => cumulative
     ? prefixes[days.length - chartRows.length + offset + 1].ironwood : row.ironwood);
   let visual = { kind: 'series', values,
     label: cumulative ? 'Ironwood transactions since launch' : 'Ironwood transactions per UTC day',
-    start: chartRows[0].date, end: target };
-  if (lead.kind === 'leadership' || lead.kind === 'parity') {
+    unit: 'transactions', start: chartRows[0].date, end: target };
+  if (lead.kind === 'share') {
+    // The headline concerns a seven-day share. Plot that same weighted ratio,
+    // including transparent transactions in its denominator, at each endpoint.
+    // Earlier zero-denominator windows are unavailable, never a fabricated 0%.
+    let startIndex = Math.max(launchIndex + 7, days.length - 30);
+    for (let index = startIndex; index < days.length; index++) {
+      if (sum(index, 7).totalTransactions === 0) startIndex = index + 1;
+    }
+    const indices = Array.from({ length: days.length - startIndex }, (_, i) => startIndex + i);
+    const totals = indices.map(index => sum(index, 7));
+    visual = { kind: 'series', label: 'Ironwood involvement · rolling 7 days', unit: '%',
+      values: totals.map(total => 100 * total.ironwood / total.totalTransactions),
+      numerators: totals.map(total => total.ironwood), denominators: totals.map(total => total.totalTransactions),
+      reference: lead.level, referenceLabel: 'Milestone threshold', scale: { min: 0, max: 100 },
+      start: days[startIndex].date, end: target };
+  } else if (lead.kind === 'leadership' || lead.kind === 'parity') {
     // Plot the same rolling count as the claim, for both pools on every date.
     // One pre-launch endpoint supplies a real zero baseline for launch-day events.
     const startIndex = Math.max(launchIndex - 1, days.length - 90);
     const indices = Array.from({ length: days.length - startIndex }, (_, i) => startIndex + i);
-    visual = { kind: 'comparison', label: `Transactions · rolling ${lead.periodDays} days`, unit: 'transactions',
+    visual = { kind: 'comparison', label: `Transactions · rolling ${lead.periodDays} days`, unit: 'transactions', periodDays: lead.periodDays,
       start: days[startIndex].date, end: target,
       series: ['ironwood', 'orchard'].map(key => ({ key, label: key === 'ironwood' ? 'Ironwood' : 'Orchard', tone: key,
         values: indices.map(index => sum(index, lead.periodDays)[key]) })) };
   }
-  const card = { kicker: 'Milestone · Ironwood activity', hero, tone: 'ironwood', line, qualifier,
+  const comparisonTitle = lead.kind === 'leadership' ? 'Ironwood overtakes Orchard'
+    : lead.kind === 'parity' ? lead.level === 100 ? 'Ironwood catches up with Orchard'
+      : `Ironwood reaches ${lead.level}% of Orchard` : null;
+  const card = { kicker: 'Milestone · Ironwood activity', title: comparisonTitle || headline, hero, tone: 'ironwood', line, qualifier,
     source: 'zecblock.com/pools', date: range,
     visual };
   return [candidate('milestone', `milestone:pool_activity:${lead.id}`, content, {
