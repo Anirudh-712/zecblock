@@ -1,0 +1,540 @@
+{
+  "network": "testnet",
+  "source": "https://api.testnet.zecblock.com/api/blocks/list?cursor=4508003&limit=100",
+  "capturedDate": "2026-10-16",
+  "note": "Public canonical indexed header timestamps; same-second heights 4507966/4507967 do not imply missing blocks. Values normalized only to JSON integers for height/timestamp.",
+  "rows": [
+    {
+      "height": 4508002,
+      "timestamp": 1792147560,
+      "difficulty": "10962.9501822337",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4508001,
+      "timestamp": 1792147525,
+      "difficulty": "10899.3311667693",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4508000,
+      "timestamp": 1792147522,
+      "difficulty": "10890.8739984247",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507999,
+      "timestamp": 1792147496,
+      "difficulty": "10882.4264976306",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507998,
+      "timestamp": 1792147476,
+      "difficulty": "10857.6427605598",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507997,
+      "timestamp": 1792147406,
+      "difficulty": "10870.3523603221",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507996,
+      "timestamp": 1792147334,
+      "difficulty": "10858.4799917328",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507995,
+      "timestamp": 1792147331,
+      "difficulty": "10838.6886929256",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507994,
+      "timestamp": 1792147316,
+      "difficulty": "10823.539605838",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507993,
+      "timestamp": 1792147309,
+      "difficulty": "10816.7623736786",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507992,
+      "timestamp": 1792147303,
+      "difficulty": "10842.5809602339",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507991,
+      "timestamp": 1792147260,
+      "difficulty": "10867.8974346647",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507990,
+      "timestamp": 1792147240,
+      "difficulty": "10851.8748662058",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507989,
+      "timestamp": 1792147230,
+      "difficulty": "10852.7420591979",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507988,
+      "timestamp": 1792147206,
+      "difficulty": "10870.0153440775",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507987,
+      "timestamp": 1792147205,
+      "difficulty": "10862.8535343971",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507986,
+      "timestamp": 1792147182,
+      "difficulty": "10908.9547089923",
+      "transaction_count": 3,
+      "total_fees": "40000"
+    },
+    {
+      "height": 4507985,
+      "timestamp": 1792147150,
+      "difficulty": "10868.6846779821",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507984,
+      "timestamp": 1792147134,
+      "difficulty": "10902.7273997097",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507983,
+      "timestamp": 1792147099,
+      "difficulty": "10866.6703875985",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507982,
+      "timestamp": 1792147066,
+      "difficulty": "10875.9505728287",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507981,
+      "timestamp": 1792147032,
+      "difficulty": "10852.3615740622",
+      "transaction_count": 2,
+      "total_fees": "20000"
+    },
+    {
+      "height": 4507980,
+      "timestamp": 1792146987,
+      "difficulty": "10902.5751810476",
+      "transaction_count": 5,
+      "total_fees": "70000"
+    },
+    {
+      "height": 4507979,
+      "timestamp": 1792146966,
+      "difficulty": "10906.7731299753",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507978,
+      "timestamp": 1792146931,
+      "difficulty": "10935.4420325348",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507977,
+      "timestamp": 1792146917,
+      "difficulty": "10938.6379330489",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507976,
+      "timestamp": 1792146901,
+      "difficulty": "10945.628072554",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507975,
+      "timestamp": 1792146892,
+      "difficulty": "11069.7247336604",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507974,
+      "timestamp": 1792146814,
+      "difficulty": "11066.950804423",
+      "transaction_count": 7,
+      "total_fees": "130000"
+    },
+    {
+      "height": 4507973,
+      "timestamp": 1792146801,
+      "difficulty": "11072.5285990411",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507972,
+      "timestamp": 1792146775,
+      "difficulty": "11036.0717993883",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507971,
+      "timestamp": 1792146771,
+      "difficulty": "11041.8030163434",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507970,
+      "timestamp": 1792146766,
+      "difficulty": "11034.1509040479",
+      "transaction_count": 3,
+      "total_fees": "40000"
+    },
+    {
+      "height": 4507969,
+      "timestamp": 1792146650,
+      "difficulty": "11005.3399570993",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507968,
+      "timestamp": 1792146639,
+      "difficulty": "10997.7629236148",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507967,
+      "timestamp": 1792146633,
+      "difficulty": "11065.7104736852",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507966,
+      "timestamp": 1792146633,
+      "difficulty": "11112.4247315253",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507965,
+      "timestamp": 1792146624,
+      "difficulty": "11103.6445352163",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507964,
+      "timestamp": 1792146622,
+      "difficulty": "11116.1277046886",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507963,
+      "timestamp": 1792146612,
+      "difficulty": "11141.3265542234",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507962,
+      "timestamp": 1792146601,
+      "difficulty": "11153.4999899371",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507961,
+      "timestamp": 1792146537,
+      "difficulty": "11156.8137680809",
+      "transaction_count": 2,
+      "total_fees": "20000"
+    },
+    {
+      "height": 4507960,
+      "timestamp": 1792146464,
+      "difficulty": "11125.8498539961",
+      "transaction_count": 2,
+      "total_fees": "20000"
+    },
+    {
+      "height": 4507959,
+      "timestamp": 1792146436,
+      "difficulty": "11137.8667190501",
+      "transaction_count": 3,
+      "total_fees": "40000"
+    },
+    {
+      "height": 4507958,
+      "timestamp": 1792146405,
+      "difficulty": "11141.1350875492",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507957,
+      "timestamp": 1792146368,
+      "difficulty": "11187.2729661989",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507956,
+      "timestamp": 1792146351,
+      "difficulty": "11207.5217774072",
+      "transaction_count": 3,
+      "total_fees": "40000"
+    },
+    {
+      "height": 4507955,
+      "timestamp": 1792146315,
+      "difficulty": "11232.0135151568",
+      "transaction_count": 2,
+      "total_fees": "20000"
+    },
+    {
+      "height": 4507954,
+      "timestamp": 1792146313,
+      "difficulty": "11221.1851304165",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507953,
+      "timestamp": 1792146299,
+      "difficulty": "11181.0295665553",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507952,
+      "timestamp": 1792146288,
+      "difficulty": "11179.8144614685",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507951,
+      "timestamp": 1792146242,
+      "difficulty": "11190.6760952376",
+      "transaction_count": 2,
+      "total_fees": "20000"
+    },
+    {
+      "height": 4507950,
+      "timestamp": 1792146192,
+      "difficulty": "11205.6430642573",
+      "transaction_count": 3,
+      "total_fees": "40000"
+    },
+    {
+      "height": 4507949,
+      "timestamp": 1792146164,
+      "difficulty": "11299.0116006702",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507948,
+      "timestamp": 1792146158,
+      "difficulty": "11308.19665523",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507947,
+      "timestamp": 1792146101,
+      "difficulty": "11263.9744873138",
+      "transaction_count": 3,
+      "total_fees": "40000"
+    },
+    {
+      "height": 4507946,
+      "timestamp": 1792146087,
+      "difficulty": "11246.6127544218",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507945,
+      "timestamp": 1792146064,
+      "difficulty": "11255.7238429687",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507944,
+      "timestamp": 1792146045,
+      "difficulty": "11230.0274811456",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507943,
+      "timestamp": 1792145953,
+      "difficulty": "11196.4814923918",
+      "transaction_count": 3,
+      "total_fees": "85000"
+    },
+    {
+      "height": 4507942,
+      "timestamp": 1792145939,
+      "difficulty": "11180.2073408066",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507941,
+      "timestamp": 1792145933,
+      "difficulty": "11164.2887627244",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507940,
+      "timestamp": 1792145932,
+      "difficulty": "11161.3693506399",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507939,
+      "timestamp": 1792145919,
+      "difficulty": "11188.5734895363",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507938,
+      "timestamp": 1792145906,
+      "difficulty": "11176.436111552",
+      "transaction_count": 3,
+      "total_fees": "40000"
+    },
+    {
+      "height": 4507937,
+      "timestamp": 1792145882,
+      "difficulty": "11164.2887627244",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507936,
+      "timestamp": 1792145871,
+      "difficulty": "11139.672210403",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507935,
+      "timestamp": 1792145857,
+      "difficulty": "11184.4034131635",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507934,
+      "timestamp": 1792145842,
+      "difficulty": "11189.9289784468",
+      "transaction_count": 4,
+      "total_fees": "105000"
+    },
+    {
+      "height": 4507933,
+      "timestamp": 1792145799,
+      "difficulty": "11235.0508253558",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507932,
+      "timestamp": 1792145797,
+      "difficulty": "11227.1029393986",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507931,
+      "timestamp": 1792145796,
+      "difficulty": "11210.7616610487",
+      "transaction_count": 1,
+      "total_fees": "0"
+    },
+    {
+      "height": 4507930,
+      "timestamp": 1792145777,
+      "difficulty": "11225.1956528415",
+      "transaction_count": 2,
+      "total_fees": "20000"
+    },
+    {
+      "height": 4507929,
+      "timestamp": 1792145721,
+      "difficulty": "11301.4161217091",
+      "transaction_count": 2,
+      "total_fees": "20000"
+    },
+    {
+      "height": 4507928,
+      "timestamp": 1792145670,
+      "difficulty": "11275.3962446929",
+      "transaction_count": 4,
+      "total_fees": "55000"
+    },
+    {
+      "height": 4507927,
+      "timestamp": 1792145580,
+      "difficulty": "11293.9086374572",
+      "transaction_count": 1,
+      "total_fees": "0"
+    }
+  ]
+}

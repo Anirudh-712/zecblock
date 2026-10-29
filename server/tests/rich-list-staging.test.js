@@ -10,7 +10,7 @@ function load(file,imports={}){
  m._compile(/\.tsx?$/.test(file)?ts.transpileModule(source,{fileName:filename,compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText:source,filename);return m.exports;
 }
 const api=load('lib/api-client.ts');
-const server=load('lib/server-fetch.ts',{'@/lib/api-client':api});
+const server=load('lib/server-fetch.ts',{'@/lib/api-client':api,'./api-config':{getApiUrl:()=> 'https://api.invalid'}});
 const envelope=data=>Response.json({data,meta:{requestId:'fixed-test',network:'mainnet'}});
 const entry={rank:1,address:'t1fixture',balance:12,totalReceived:20,totalSent:8,txCount:3,firstSeen:null,lastSeen:null,label:null,category:null,description:null,verified:false,logoUrl:null};
 const data={addresses:[entry],concentration:{top10:12,top100:12,totalTransparent:24,totalAddressed:24,directAddressless:0,top10Pct:50,top100Pct:50},pagination:{total:1,limit:100,offset:0,totalPages:1,page:1,hasNext:false,hasPrev:false}};
@@ -81,7 +81,7 @@ const Link=({children,href})=>React.createElement('a',{href},children);
 const {PageHeader}=load('components/ui/SectionHeader.tsx',{'next/link':{__esModule:true,default:Link}});
 const Wrapper=({children})=>React.createElement('div',null,children);
 const Table=({rows,loading})=>React.createElement('table',{'aria-busy':loading},React.createElement('tbody',null,rows.map(row=>React.createElement('tr',{key:row.address},React.createElement('td',null,row.address)))));
-function client(react=React){return load('app/rich-list/RichListClient.tsx',{react,'@/lib/api-client':api,'next/link':{__esModule:true,default:Link},'@/lib/api-config':{getApiUrl:()=>'/api/staging-data'},'@/components/network/TransparentSupplyBreakdown':{TransparentSupplyBreakdown:()=>null},'@/components/ui':{PageHeader,DataTable:Table,HashLink:()=>null},'@/components/ui/Card':{Card:Wrapper,CardBody:Wrapper},'@/components/ui/Badge':{Badge:Wrapper},'@/components/Pagination':{Pagination:()=>null}}).default;}
+function client(react=React){return load('app/rich-list/RichListClient.tsx',{react,'@/lib/api-client':api,'next/link':{__esModule:true,default:Link},'@/lib/api-config':{getApiUrl:()=>'/api/staging-data'},'@/components/network/TransparentSupplyBreakdown':{TransparentSupplyBreakdown:()=>null},'@/components/ui':{PageHeader,DataTable:Table,HashLink:()=>null},'@/components/ui/Card':{Card:Wrapper,CardBody:Wrapper},'@/components/ui/Badge':{Badge:Wrapper},'@/components/Pagination':{Pagination:()=>null},'@/components/ExportButton':{ExportButton:()=>null}}).default;}
 test('unavailable raw SSR markup has one H1, an alert/retry, and no fabricated ranking or concentration',()=>{
  const html=renderToStaticMarkup(React.createElement(client(),{initialUnavailable:true}));
  assert.equal((html.match(/<h1\b/g)||[]).length,1);assert.match(html,/Top Addresses/);assert.match(html,/role="alert"/);assert.match(html,/Rich List Unavailable/);assert.match(html,/>Retry</);

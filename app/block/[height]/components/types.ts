@@ -60,6 +60,8 @@ export interface BlockPageSummary {
   hash: string;
   firstSeenAt?: string | null;
   isOrphaned: boolean;
+  /** Present only when the API identifies a different canonical block at this height. */
+  canonicalReplacementHeight?: number | null;
   /**
    * Extra fields already available from the server-side block resolution
    * (`getBlockResolution` in lib/seo.ts) used for SEO metadata. Threading

@@ -8,19 +8,20 @@ import { getApiUrl } from '@/lib/api-config';
 
 interface CrosslinkData {
   tipHeight: number;
-  finalizedHeight: number;
-  finalityGap: number;
+  finalizedHeight: number | null;
+  finalityGap: number | null;
+  crosslinkActive?: boolean;
   finalizerCount: number;
   totalStakeZec: number;
   peerCount: number;
 }
 
 const STAT_TOOLTIPS: Record<string, string> = {
-  'PoW Tip': 'Latest block mined by Proof-of-Work miners. This is the chain tip before finalization.',
+  'PoW Tip': 'Latest block on the live PoW chain. Block lists follow the node’s saved state and may trail this tip.',
   'Finalized': 'Highest block confirmed as final by the validator network. Finalized blocks can never be reversed.',
   'Finality Gap': 'Blocks between the PoW tip and the last finalized block. A smaller gap means faster finalization.',
-  'Finalizers': 'Validator nodes that vote on blocks to confirm them as final. More finalizers means stronger security.',
-  'Total Stake': 'Total cTAZ locked in delegation bonds across all finalizers. Stake determines voting power.',
+  'Finalizers': 'Finalizers selected for the next voting roster, capped at 12 on this v14 network. Other delegated candidates remain visible in the roster.',
+  'Total Stake': 'Delegated cTAZ across all roster candidates, including candidates outside the active voting slots. Observation percentages use active voting stake separately.',
   'Peers': 'Number of network peers connected to the ZecBlock node. More peers means better network visibility.',
 };
 
@@ -58,6 +59,7 @@ export function CrosslinkStats() {
           tipHeight: data.tipHeight,
           finalizedHeight: data.finalizedHeight,
           finalityGap: data.finalityGap,
+          crosslinkActive: data.crosslinkActive,
           finalizerCount: data.finalizerCount,
           totalStakeZec: data.totalStakeZec,
           peerCount: data.peerCount ?? 0,
@@ -97,12 +99,12 @@ export function CrosslinkStats() {
         />
         <StatCard
           label="Finalized"
-          value={stats.finalizedHeight.toLocaleString()}
+          value={stats.finalizedHeight?.toLocaleString() ?? (stats.crosslinkActive === false ? 'Not active' : 'Unavailable')}
           tooltip={STAT_TOOLTIPS['Finalized']}
         />
         <StatCard
           label="Finality Gap"
-          value={stats.finalityGap.toLocaleString()}
+          value={stats.finalityGap?.toLocaleString() ?? (stats.crosslinkActive === false ? 'Not active' : 'Unavailable')}
           sub="blocks behind"
           tooltip={STAT_TOOLTIPS['Finality Gap']}
         />

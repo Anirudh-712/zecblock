@@ -74,7 +74,7 @@ const { performance } = require('node:perf_hooks');
  *                                  server.js sets the RateLimit-* family
  *                                  today; X-RateLimit-* covers older/other
  *                                  clients or future limiters).
- *   - X-CipherScan-*              → project-specific, already documented
+ *   - X-ZecBlock-* / X-CipherScan-* → project-specific, already documented
  *                                  as CORS-exposed in server.js
  *                                  (X-CipherScan-Cache today).
  * Deliberately excluded: Set-Cookie, Server, X-Powered-By, and anything
@@ -93,7 +93,7 @@ const ALLOWED_RESPONSE_HEADERS = [
   'x-ratelimit-remaining',
   'x-ratelimit-reset',
 ];
-const ALLOWED_RESPONSE_HEADER_PREFIXES = ['x-cipherscan-'];
+const ALLOWED_RESPONSE_HEADER_PREFIXES = ['x-zecblock-', 'x-cipherscan-'];
 
 function isAllowedResponseHeader(name) {
   const lower = name.toLowerCase();

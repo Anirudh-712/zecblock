@@ -23,7 +23,7 @@ export function UnifiedAddressViewer({ uaComponents, uaLoading, copiedText, onCo
         <div><TxTypeBadge category={receiver.key} /></div>
         <div className="min-w-0">
           {receiver.address ? <div className="flex items-start gap-2"><code className="min-w-0 break-all text-xs text-secondary">{receiver.address}</code><CopyButton text={receiver.address} label={receiver.key} copiedText={copiedText} onCopy={onCopy} /></div> : <p className="text-sm text-secondary">Receiver present · use the Unified Address</p>}
-          {receiver.key === 'transparent' && receiver.address ? <Link className="inline-flex mt-3 rounded border border-cipher-border px-3 py-2 text-xs font-mono text-primary hover:bg-cipher-hover" href={`/address/${receiver.address}`}>View transparent activity →</Link> : <p className="text-xs text-muted mt-2">Balance and history remain private.</p>}
+          {receiver.key === 'transparent' && receiver.address ? <Link className="inline-flex mt-3 rounded border border-cipher-border px-3 py-2 text-xs font-mono text-primary hover:bg-cipher-hover" href={`/address/${receiver.address}`} prefetch={false}>View transparent activity →</Link> : <p className="text-xs text-muted mt-2">Balance and history remain private.</p>}
         </div>
       </div>)}
       {!receivers.length && <p className="p-5 text-sm text-muted">No supported receiver details were returned by the decoder.</p>}

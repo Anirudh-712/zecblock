@@ -15,7 +15,7 @@ export function RiskyTxCard({ tx }: { tx: RiskyTransaction }) {
     <RoundTripFlow tx={tx} />
     <ScoreEvidence rows={[{ label: 'Amount similarity', value: tx.scoreBreakdown.amountSimilarity }, { label: 'Time proximity', value: tx.scoreBreakdown.timeProximity }, { label: 'Amount rarity', value: tx.scoreBreakdown.amountRarity }, { label: 'Distinctive amount', value: tx.scoreBreakdown.weirdAmount }]} ambiguity={tx.ambiguityScore} margin={tx.confidenceMargin}>
       <p className="text-xs text-muted">Amounts describe each event’s public pool flow, not a verified payment between the listed addresses.</p>
-      <div className="flex flex-wrap gap-4 text-xs text-secondary"><Link className="underline underline-offset-4" href={`/block/${tx.shieldHeight}`}>Shielding block {tx.shieldHeight.toLocaleString()}</Link><Link className="underline underline-offset-4" href={`/block/${tx.deshieldHeight}`}>Deshielding block {tx.deshieldHeight.toLocaleString()}</Link></div>
+      <div className="flex flex-wrap gap-4 text-xs text-secondary"><Link className="underline underline-offset-4" href={`/block/${tx.shieldHeight}`} prefetch={false}>Shielding block {tx.shieldHeight.toLocaleString()}</Link><Link className="underline underline-offset-4" href={`/block/${tx.deshieldHeight}`} prefetch={false}>Deshielding block {tx.deshieldHeight.toLocaleString()}</Link></div>
     </ScoreEvidence>
   </article>;
 }

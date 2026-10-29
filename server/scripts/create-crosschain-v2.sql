@@ -26,6 +26,7 @@ CREATE INDEX IF NOT EXISTS crosschain_v2_created ON crosschain_swaps_v2 (swap_cr
 CREATE INDEX IF NOT EXISTS crosschain_v2_unsettled ON crosschain_swaps_v2 (last_checked_at)
   WHERE status IN ('PROCESSING','PENDING_DEPOSIT','INCOMPLETE_DEPOSIT');
 CREATE TABLE IF NOT EXISTS crosschain_sync_v2 (
+  scope text NOT NULL DEFAULT 'all-statuses-v1',
   mode text NOT NULL CHECK (mode IN ('sync','backfill','reconcile')),
   direction text NOT NULL CHECK (direction IN ('inflow','outflow')),
   cursor_address text,
@@ -37,14 +38,15 @@ CREATE TABLE IF NOT EXISTS crosschain_sync_v2 (
   pages bigint NOT NULL DEFAULT 0,
   records bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (mode, direction)
+  PRIMARY KEY (scope, mode, direction)
 );
 CREATE TABLE IF NOT EXISTS crosschain_coverage_v2 (
+  scope text NOT NULL DEFAULT 'all-statuses-v1',
   direction text NOT NULL CHECK (direction IN ('inflow','outflow')),
   window_start timestamptz,
   window_end timestamptz NOT NULL,
   completed_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (direction, window_end),
+  PRIMARY KEY (scope, direction, window_end),
   CHECK (window_start IS NULL OR window_start < window_end)
 );
 COMMIT;

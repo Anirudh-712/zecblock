@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { readApiData } from '@/lib/api-client';
 import { getApiUrl } from '@/lib/api-config';
+import { CURRENCY } from '@/lib/config';
 import { AddressGraphSkeleton } from './AddressLoadingSkeleton';
 import { AddressBubbleMap } from './AddressBubbleMap';
 import { connectionNodes, type ConnectionsResponse } from './address-connections';
@@ -72,15 +73,15 @@ export function AddressGraph({ address }: { address: string }) {
           <p className="mt-3 text-xs text-muted">{mode === 'cluster' ? 'Inferred co-spend cluster member' : 'Appears in the recent transaction sample'}{mode === 'recent' && (selected.peer || cp?.sameEntity) ? ' · Also in the inferred cluster' : ''}</p>
           <dl className="mt-4 space-y-3 border-t border-cipher-border pt-4 text-xs">
             {mode === 'recent' && cp ? <>
-              <div><dt className="text-muted">Associated input value</dt><dd className="mt-1 text-secondary font-mono">{amount(cp.receivedZec)} ZEC</dd></div>
-              <div><dt className="text-muted">Associated output value</dt><dd className="mt-1 text-secondary font-mono">{amount(cp.sentZec)} ZEC</dd></div>
+              <div><dt className="text-muted">Associated input value</dt><dd className="mt-1 text-secondary font-mono">{amount(cp.receivedZec)} {CURRENCY}</dd></div>
+              <div><dt className="text-muted">Associated output value</dt><dd className="mt-1 text-secondary font-mono">{amount(cp.sentZec)} {CURRENCY}</dd></div>
               <div><dt className="text-muted">Transactions in sample</dt><dd className="mt-1 text-secondary font-mono">{cp.txCount.toLocaleString('en-US')}</dd></div>
             </> : selected.peer ? <>
-              <div><dt className="text-muted">Public balance</dt><dd className="mt-1 text-secondary font-mono">{amount(selected.peer.balanceZec)} ZEC</dd></div>
+              <div><dt className="text-muted">Public balance</dt><dd className="mt-1 text-secondary font-mono">{amount(selected.peer.balanceZec)} {CURRENCY}</dd></div>
               <div><dt className="text-muted">Indexed transactions</dt><dd className="mt-1 text-secondary font-mono">{selected.peer.txCount.toLocaleString('en-US')}</dd></div>
             </> : null}
           </dl>
-          <Link href={`/address/${selected.id}`} className="mt-5 inline-flex rounded border border-cipher-border px-3 py-2 text-xs font-mono text-primary hover:bg-cipher-hover">Open address →</Link>
+          <Link href={`/address/${selected.id}`} prefetch={false} className="mt-5 inline-flex rounded border border-cipher-border px-3 py-2 text-xs font-mono text-primary hover:bg-cipher-hover">Open address →</Link>
         </div> : <div><h3 className="text-sm font-semibold text-primary">Inspect a connection</h3><p className="mt-2 text-xs leading-relaxed text-muted">Select a node or choose an address below. Its details stay open while you explore.</p></div>}
         <div className="mt-5 border-t border-cipher-border pt-4">
           <label htmlFor="connection-search" className="text-xs text-muted">Find a displayed address or label</label>

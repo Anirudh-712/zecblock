@@ -1,5 +1,6 @@
 import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 import { readApiData } from '@/lib/api-client';
+import { getApiUrl } from './api-config';
 
 export const SERVER_RENDER_FETCH_TIMEOUT_MS = 1_000;
 export const SERVER_RENDER_BUILD_FETCH_TIMEOUT_MS = 10_000;
@@ -40,13 +41,31 @@ export function isServerRenderDeadlineError(error: unknown): boolean {
 
 const SERVICE_API_KEY = process.env.SERVICE_API_KEY || '';
 
-/** Merge the service-key header into the request so server-side fetches
- *  bypass the per-IP rate limiter on the API server. */
-function withServiceHeaders(init: NextFetchRequestInit): NextFetchRequestInit {
-  if (!SERVICE_API_KEY) return init;
-  const headers = new Headers(init.headers);
-  if (!headers.has('x-service-key')) headers.set('x-service-key', SERVICE_API_KEY);
-  return { ...init, headers };
+function getHttpOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    return url.origin;
+  } catch { return null; }
+}
+
+/** Limit the service credential to this deployment's configured API origin. */
+function withServiceHeaders(inputUrl: string, requestHeaders: Headers | undefined, init: NextFetchRequestInit): NextFetchRequestInit {
+  // RequestInit headers replace Request headers; otherwise retain the caller's
+  // native Request headers without mutating either input collection.
+  const headers = new Headers(init.headers === undefined ? requestHeaders : init.headers);
+  let trusted = false;
+  try {
+    const apiOrigin = getHttpOrigin(getApiUrl());
+    trusted = apiOrigin !== null && getHttpOrigin(inputUrl) === apiOrigin;
+  } catch { trusted = false; }
+
+  if (!trusted) headers.delete('x-service-key');
+  else if (SERVICE_API_KEY && !headers.has('x-service-key')) headers.set('x-service-key', SERVICE_API_KEY);
+
+  // Custom headers can survive cross-origin redirects in server fetch. Refuse
+  // redirects whenever a service credential is present, including caller keys.
+  return { ...init, headers, ...(headers.has('x-service-key') ? { redirect: 'error' as const } : {}) };
 }
 
 /**
@@ -55,8 +74,8 @@ function withServiceHeaders(init: NextFetchRequestInit): NextFetchRequestInit {
  * Callers either return an unavailable state or throw an availability error,
  * so a slow API cannot hold the page response open until the platform timeout.
  *
- * Automatically injects the SERVICE_API_KEY header so ISR revalidation
- * bypasses the API server's per-IP rate limiter.
+ * Only the configured API origin receives the service-key header used by ISR
+ * revalidation. Other origins have any caller-provided service key removed.
  */
 async function fetchAndConsumeWithDeadline<T>(
   input: RequestInfo | URL,
@@ -65,7 +84,13 @@ async function fetchAndConsumeWithDeadline<T>(
   fetchImpl: FetchImplementation,
   consume: (response: Response, signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  const mergedInit = withServiceHeaders(init);
+  // Snapshot URL inputs before checking and dispatching. Read native Request
+  // properties so an own `url`/`headers` property cannot spoof its destination.
+  const request = input instanceof Request ? input : undefined;
+  const fetchInput = request ?? String(input);
+  const inputUrl = request ? Reflect.get(Request.prototype, 'url', request) as string : fetchInput as string;
+  const requestHeaders = request ? Reflect.get(Request.prototype, 'headers', request) as Headers : undefined;
+  const mergedInit = withServiceHeaders(inputUrl, requestHeaders, init);
   const controller = new AbortController();
   let rejectAbort: () => void;
   const interrupted = new Promise<never>((_resolve, reject) => {
@@ -80,7 +105,7 @@ async function fetchAndConsumeWithDeadline<T>(
   else mergedInit.signal?.addEventListener('abort', abortFromCaller, { once: true });
   const work = async () => {
     controller.signal.throwIfAborted();
-    const response = await fetchImpl(input, { ...mergedInit, signal: controller.signal });
+    const response = await fetchImpl(fetchInput, { ...mergedInit, signal: controller.signal });
     controller.signal.throwIfAborted();
     return consume(response, controller.signal);
   };

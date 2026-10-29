@@ -6,11 +6,12 @@
     "category": "network",
     "query": [
       "before",
-      "limit"
+      "limit",
+      "period"
     ],
     "listKey": null,
     "zatoshiFields": [],
-    "note": "All Zat amounts are exact decimal strings or null. Bounded to 120 blocks by default, at most 1000; before is an exclusive height cursor. Fee removal is floor(aggregate block fees * 3 / 5) per active block, never rounded after aggregation. Reserves, supply, pools and subsidy use retained hash-matched node observations; missed/pre-collection tips remain null. NSM net change requires consecutive observations and is neither gross removals nor reissuance. Orphan observations are retained but excluded by a canonical height/hash join. Reissuance remains unavailable. Requires database migration 027 and the accounting observer.",
+    "note": "All Zat amounts are exact decimal strings or null. Bounded to 120 blocks by default, at most 1000; before is an exclusive height cursor. Fee removal is floor(aggregate block fees * 3 / 5) per active block, never rounded after aggregation. Reserves, supply and pools use retained hash-matched node observations; missed/pre-collection tips remain null. Actual miner receipts use indexed coinbase creation minus authoritative founders/funding allocations, preferring the independent hash/height/network-matched block_subsidy_allocations cache (migration 036), with validated retained subsidy observations as fallback. Historical allocation retrieval never fabricates NSM, pool or supply samples. receiptBlocks counts known actual receipts in each period point, totals, selected totals and legacy coverage; one missing receipt keeps its bucket sum null. NSM net change requires consecutive observations and is neither gross removals nor reissuance. Orphan observations are retained but excluded by a canonical height/hash join. Reissuance remains unavailable. Requires database migration 027 and the accounting observer. Optional period=1d|7d|30d|all selects NU7-only UTC block-header aggregation instead of block pagination; all means since activation. Returns at most approximately 241 time buckets, exact selected-period and since-activation fee totals (per-block rounding first), cumulative minimum removal, and net reserve growth from the preactivation hash-matched sample. Cannot combine period with limit/before. Missing fee/indexed ranges make affected totals and cumulative values null. Period nsmBalanceZat is the last recorded non-null canonical observation within its selected UTC bucket, not a bucket-end balance. nsmSampleHeight, nsmSampleHash and nsmSampleTimestamp identify that exact recorded block; the timestamp is epoch seconds from its block header, not collection time. All sample fields and balance remain null when the bucket has missing canonical blocks or no recorded NSM sample; no earlier out-of-period sample is carried forward. The latest-block reserve and preactivation-baseline reserve-growth requirements remain strict. Reserve growth is not cumulative fees. Responses are cached internally for at most 60 seconds and canonical anchors revalidated on every read.",
     "ownershipToken": false,
     "pagination": null,
     "parameters": [
@@ -37,6 +38,21 @@
           "default": 120
         },
         "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "period",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "1d",
+            "7d",
+            "30d",
+            "all"
+          ]
+        },
+        "description": "NU7-only UTC block-header periods; all means since activation. Cannot combine with limit/before. Returns aggregated buckets and exact period/since-activation totals; missing data is null."
       }
     ],
     "requestBody": null
@@ -74,6 +90,8 @@
             "pulse",
             "miner_zodl",
             "network",
+            "network_upgrades",
+            "block_speed",
             "addresses",
             "mempool",
             "nodes",
@@ -1196,8 +1214,10 @@
             "F2Pool",
             "Foundry USA",
             "Kryptex",
+            "KuPool",
             "Luxor",
             "Mining Dutch",
+            "Molepool",
             "MySoloPool",
             "NiceHash",
             "Private Miner B",
@@ -1328,6 +1348,38 @@
   },
   {
     "method": "GET",
+    "path": "/v1/search/prefix",
+    "description": "Resolve a shortened transaction id or block hash to complete identifiers.",
+    "category": "search",
+    "query": [
+      "q"
+    ],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "q is a hex prefix of 8–63 characters, or a displayed shortened id (prefix of at least 6 and suffix of at least 4 hex characters joined by ... or …). Returns at most 5 indexed transactions and 5 canonical blocks ordered by identifier; truncated is true when more matches exist. Mempool transactions and orphaned blocks are not searched. Empty results are cached for at most 5 seconds.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [
+      {
+        "name": "q",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 140,
+          "examples": [
+            "5b34c8b44d",
+            "5b34c8b44d...ec9e77"
+          ]
+        },
+        "description": "Hex prefix of 8–63 characters, or a shortened id: a prefix of at least 6 and a suffix of at least 4 hex characters joined by ... or …. Case-insensitive."
+      }
+    ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
     "path": "/v1/blocks/:hashOrHeight/archive",
     "description": "Orphaned/non-canonical block archive lookup.",
     "category": "blocks",
@@ -1380,6 +1432,20 @@
         "description": "Trailing block-header observation window."
       }
     ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
+    "path": "/v1/network/block-speed",
+    "description": "Daily block-interval history and seven-day summaries from canonical block headers, split at node-announced NU7 activation.",
+    "category": "network",
+    "query": [],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Height-bounded 30-day history; incomplete boundary days remain complete:false. The latest seven-day summary is null when scan coverage is insufficient; after activation it intentionally covers only the active era. Values use consecutive canonical block-header intervals and serving-node targets.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [],
     "requestBody": null
   },
   {
@@ -1551,7 +1617,7 @@
     "query": [],
     "listKey": null,
     "zatoshiFields": [],
-    "note": null,
+    "note": "In census v3, torNodes is an integer only when torClassificationAvailable is true; otherwise it is null. Classification requires a valid nonempty Tor exit list and a matching committed census snapshot no older than 600 seconds. torClassificationCheckedAt is an ISO timestamp or null. Missing, failed, stale or mismatched classification is unavailable, never a measured zero. This count covers known exit IPs and hidden-service destinations, not all Tor users. Crawl-mode responses use Cache-Control: no-store; other census aggregates retain their internal cache.",
     "ownershipToken": false,
     "pagination": null,
     "parameters": [],
@@ -1567,7 +1633,7 @@
     ],
     "listKey": null,
     "zatoshiFields": [],
-    "note": null,
+    "note": "In census v3, each sample exposes nullable torNodes and torClassificationAvailable. A Tor count is returned only for the exact snapshot with a fresh matching classification status; older samples have no persisted availability evidence and return null rather than an invented historical zero. Crawl-mode responses use Cache-Control: no-store.",
     "ownershipToken": false,
     "pagination": null,
     "parameters": [
@@ -1641,7 +1707,7 @@
   {
     "method": "GET",
     "path": "/v1/network/topology",
-    "description": "Peer topology graph.",
+    "description": "Observed address-advertisement graph. In mainnet crawl mode, directed links require fresh same-session Zcash checkpoint proof from the advertiser; advertised targets are not independently verified active nodes. Synthetic IDs omit endpoints. Missing or stale provenance returns topologyAvailable=false; supported empty snapshots return true with no links. observedAt records the collector snapshot and expiresAt bounds its display; truncated marks bounded partial output. Degree counts incident advertisements, while centrality and connectivity scores remain unavailable.",
     "category": "network",
     "query": [],
     "listKey": null,
@@ -1789,7 +1855,7 @@
     ],
     "listKey": null,
     "zatoshiFields": [],
-    "note": null,
+    "note": "Returns up to limit displayed points after loading window additional predecessor blocks for complete trailing windows. Window is clamped to 5–100 and limit to 20–500. Solrate uses summed difficulty × 8192 divided by the full window elapsed header time, identified by solrateMethod=difficulty-work-over-elapsed-v1; it is distinct from the target-work 24h network estimate. Equal or backwards individual timestamps do not invalidate a positive complete window. Missing heights or timestamps, invalid difficulty, incomplete history, and nonpositive total elapsed time leave solrate null. Block time is the signed mean consecutive header interval. Other metrics retain trailing averages and null for unavailable or incomplete windows, including an empty chain. Fees are ZEC (TAZ on testnet) and transaction counts include coinbase.",
     "ownershipToken": false,
     "pagination": null,
     "parameters": [
@@ -1812,6 +1878,20 @@
         "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
       }
     ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
+    "path": "/v1/mining/orphan-rates",
+    "description": "Observed orphan rates and pool breakdowns for 24h, 7d and 30d.",
+    "category": "mining",
+    "query": [],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Observed unique non-canonical blocks from indexer reorg archives and node-validated competing-block capture / (current canonical blocks + observed losses), using shared half-open UTC block-header timestamp windows and one database snapshot. External reports, explicitly invalid archives, and hashes currently canonical are excluded. Hashes are deduplicated across both sources; capture at heights not yet indexed is excluded. Method observed-block-capture-v2 adds capture startedAt, heartbeatAt, observers, healthyObservers and status; these report observer availability, never network-wide completeness. Pool labels group public payout/tag attribution; Unknown remains included. Coverage is unverified, collectionStart is null, and uptimeVerified is false: this is not a complete network-wide or true per-pool orphan rate. Rates are fractions or null when canonical history is incomplete or there are no canonical blocks; observed zero stays zero. Includes asOf and indexed tip height/hash/header timestamp. HTTP cache lifetime is 30 seconds; read failures return 503/no-store.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [],
     "requestBody": null
   },
   {
@@ -1911,7 +1991,7 @@
     ],
     "listKey": null,
     "zatoshiFields": [],
-    "note": "Supply history preserves observed decreases and gaps. circulatingZat and emissionZat are integer zatoshis; ZEC values are display conversions. Invalid or missing supply (including legacy zero sentinels) is null. supplyHistoryTable and supplyObservedAt identify the selected stored source and its latest timestamp; stored history is not live supply. The legacy dailyEmission array is signed net chain-supply change, not gross issuance; missing or nonconsecutive days have null changes. dailyEmissionEstimate extrapolates the current node subsidy at the observed recent block cadence and is null when those inputs are unavailable.",
+    "note": "Supply history defaults to all available history, preserving decreases and remaining gaps. Permanent chain_supply_daily records reconstruct completed UTC header-day boundaries from canonical node getblock chain supply; the shared serving-node ancestry checkpoint is checked by height/hash on each read. The database supplies calendar/height hints; node-canonical blocks override stale indexed fork hints. Idle days retain the actual unchanged chain state. Recent chain_snapshots provide newer observations. Legacy privacy trends are a fallback when snapshots are sparse and the permanent archive is absent. circulatingZat and emissionZat are integer zatoshis; ZEC values are display conversions. Invalid or missing supply (including legacy zero sentinels) is null. supplyHistoryTable and supplyObservedAt identify the selected stored source and its latest timestamp; stored history is not live supply. The legacy dailyEmission array is signed net chain-supply change, not gross issuance; missing or nonconsecutive days have null changes. dailyEmissionEstimate extrapolates the current node subsidy at the observed recent block cadence and is null when those inputs are unavailable. Complete cadence windows may end up to 12 indexed blocks behind the node; cadence.lagBlocks and endHeight disclose this lag, and larger backlogs remain unavailable. Optional projection starts at a height-tagged supply snapshot and adds exact scheduled subsidies using the node activation schedule; future removals and NSM reissuance are excluded. Projection dates extrapolate observed cadence across scheduled target-spacing eras, or use consensus target spacing when measured cadence is unavailable; dateBasis identifies the basis. Missing baseline or schedule yields null projection.",
     "ownershipToken": false,
     "pagination": null,
     "parameters": [
@@ -1975,6 +2055,357 @@
           "type": "string"
         },
         "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      }
+    ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
+    "path": "/v1/crosschain/venues/analytics",
+    "description": "Indexed Maya or THORChain native-ZEC analytics: history, volume, routes, outcomes and explicit traversal coverage.",
+    "category": "crosschain",
+    "query": [
+      "granularity",
+      "period",
+      "venue"
+    ],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Requires venue=maya|thorchain and explicit reader activation. Independent additive venue tables and resumable backfill; no writes to NEAR history. Exact decimal-string amounts; USD derives from amount times provider-reported first-stream-interval asset price, with missing values counted. Retained-provider traversal is not proof of all protocol history. Venue totals are separate observations and must not be summed as a unique global total. Partial refunds are separate outcomes with no duplicate successful volume. Returns 503 when unavailable; never a successful fabricated zero.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [
+      {
+        "name": "granularity",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "hour",
+            "day"
+          ],
+          "description": "Defaults to hour for 24h/7d, day otherwise. Hour is only accepted for 24h/7d."
+        },
+        "description": "Defaults to hour for 24h/7d, day otherwise. Hour is only accepted for 24h/7d."
+      },
+      {
+        "name": "period",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "24h",
+            "7d",
+            "30d",
+            "90d",
+            "1y",
+            "all"
+          ],
+          "default": "30d",
+          "description": "Trailing UTC window; all starts at the earliest indexed record. Coverage can be incomplete."
+        },
+        "description": "Trailing UTC window; all starts at the earliest indexed record. Coverage can be incomplete."
+      },
+      {
+        "name": "venue",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "maya",
+            "thorchain"
+          ]
+        },
+        "description": "Independent indexed venue dataset."
+      }
+    ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
+    "path": "/v1/crosschain/venues/swaps",
+    "description": "Filter and paginate indexed Maya or THORChain actions, retaining exact native legs, refund details and source identity.",
+    "category": "crosschain",
+    "query": [
+      "chain",
+      "cursor",
+      "destAsset",
+      "direction",
+      "from",
+      "limit",
+      "maxUsd",
+      "minUsd",
+      "period",
+      "referral",
+      "search",
+      "sourceAsset",
+      "status",
+      "to",
+      "token",
+      "venue"
+    ],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Requires venue=maya|thorchain. data.nextCursor is bound to venue, filters and its time snapshot. Native token atomic units carry explicit decimals; ZEC amounts remain exact. Full providerRecord inputs/outputs retain affiliate and refund legs. No viewing keys, private data or unknown-as-zero conversion.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [
+      {
+        "name": "chain",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]{1,32}$"
+        },
+        "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 8192,
+          "description": "Opaque data.nextCursor. Bound to filters and the original time window; do not construct or edit."
+        },
+        "description": "Opaque data.nextCursor. Bound to filters and the original time window; do not construct or edit."
+      },
+      {
+        "name": "destAsset",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Exact upstream destinationAsset identifier."
+        },
+        "description": "Exact upstream destinationAsset identifier."
+      },
+      {
+        "name": "direction",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "inflow",
+            "outflow",
+            "internal"
+          ],
+          "description": "Native ZEC asset acquired, exchanged or ZEC-to-ZEC. Asset direction does not prove an on-chain transfer."
+        },
+        "description": "Native ZEC asset acquired, exchanged or ZEC-to-ZEC. Asset direction does not prove an on-chain transfer."
+      },
+      {
+        "name": "from",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Inclusive UTC ISO timestamp, overrides the period start."
+        },
+        "description": "Inclusive UTC ISO timestamp, overrides the period start."
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 25
+        },
+        "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "maxUsd",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000000000,
+          "description": "Inclusive source-side USD maximum (up to 8 decimal places)."
+        },
+        "description": "Inclusive source-side USD maximum (up to 8 decimal places)."
+      },
+      {
+        "name": "minUsd",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000000000,
+          "description": "Inclusive source-side USD minimum (up to 8 decimal places)."
+        },
+        "description": "Inclusive source-side USD minimum (up to 8 decimal places)."
+      },
+      {
+        "name": "period",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "24h",
+            "7d",
+            "30d",
+            "90d",
+            "1y",
+            "all"
+          ],
+          "default": "30d",
+          "description": "Trailing UTC window; all starts at the earliest indexed record. Coverage can be incomplete."
+        },
+        "description": "Trailing UTC window; all starts at the earliest indexed record. Coverage can be incomplete."
+      },
+      {
+        "name": "referral",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Exact upstream referral value."
+        },
+        "description": "Exact upstream referral value."
+      },
+      {
+        "name": "search",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Exact deposit, recipient or sender address, or source/destination transaction hash."
+        },
+        "description": "Exact deposit, recipient or sender address, or source/destination transaction hash."
+      },
+      {
+        "name": "sourceAsset",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Exact upstream originAsset identifier."
+        },
+        "description": "Exact upstream originAsset identifier."
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "SUCCESS",
+            "FAILED",
+            "REFUNDED",
+            "PROCESSING",
+            "PENDING_DEPOSIT",
+            "INCOMPLETE_DEPOSIT"
+          ]
+        },
+        "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Exclusive UTC ISO timestamp, fixes the end of the window."
+        },
+        "description": "Exclusive UTC ISO timestamp, fixes the end of the window."
+      },
+      {
+        "name": "token",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "venue",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "maya",
+            "thorchain"
+          ]
+        },
+        "description": "Independent indexed venue dataset."
+      }
+    ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
+    "path": "/v1/crosschain/venues",
+    "description": "Recent native-ZEC Maya or THORChain swaps with exact full transaction legs, provider observation time and cursor pagination.",
+    "category": "crosschain",
+    "query": [
+      "cursor",
+      "limit",
+      "venue"
+    ],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Requires venue=maya|thorchain. Read-only Midgard observations, cached for 60 seconds with an explicitly stale fallback up to five minutes; unavailable sources return 503. data.nextCursor is opaque and venue-bound. Amounts are exact decimal strings. Each coin exposes amountBaseUnits and decimals: external Midgard assets use 8 decimals; native Maya CACAO uses 10 and native MAYA uses 4. Refund actions carry refundKind=partial|full and summarize returned source assets; all associated payout legs remain visible, without recounting successful volume. Successful streaming actions can contain partial refunds; preserve observedStatus, zecAmountBasis and every leg. This recent feed is not complete historical coverage, not a combined venue total, and is never added to indexed NEAR analytics.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "description": "Opaque data.nextCursor from this venue; do not construct or edit."
+        },
+        "description": "Opaque data.nextCursor from this venue; do not construct or edit."
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 25,
+          "default": 10
+        },
+        "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      },
+      {
+        "name": "venue",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "maya",
+            "thorchain"
+          ],
+          "description": "One native-ZEC venue. Required; providers have independent observation and availability states."
+        },
+        "description": "One native-ZEC venue. Required; providers have independent observation and availability states."
       }
     ],
     "requestBody": null
@@ -3417,14 +3848,14 @@
   {
     "method": "GET",
     "path": "/v1/network/fee-distribution",
-    "description": "Fee distribution histogram.",
+    "description": "Daily observed fee percentiles.",
     "category": "network",
     "query": [
       "period"
     ],
     "listKey": null,
     "zatoshiFields": [],
-    "note": null,
+    "note": "Positive-fee non-coinbase transactions; percentile amounts are zatoshis. All-time history uses canonical completed-day summaries. When summaries are missing or empty, returns a bounded 30-day range with requestedPeriod all, period 30d and historyStatus unavailable.",
     "ownershipToken": false,
     "pagination": null,
     "parameters": [
@@ -3588,6 +4019,39 @@
           "type": "string"
         },
         "description": "Endpoint-specific filter or range; accepted values follow this endpoint’s data source."
+      }
+    ],
+    "requestBody": null
+  },
+  {
+    "method": "GET",
+    "path": "/v1/shielded-pools/activity",
+    "description": "Daily canonical non-coinbase transaction counts by shielded pool.",
+    "category": "shielded-pools",
+    "query": [
+      "period"
+    ],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": "Trailing complete UTC days, excluding today. Counts each transaction once in every pool it touches, so pool counts overlap. The percentage denominator is all canonical confirmed non-coinbase transactions, including ordinary mining-payout and ZCG activity. Missing blocks or incomplete transaction indexing produce null day counts and null period totals; zero activity is preserved. Results are cached for up to 300 seconds. No monetary values or unique-user counts.",
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [
+      {
+        "name": "period",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "7d",
+            "30d",
+            "90d",
+            "1y"
+          ],
+          "default": "30d"
+        },
+        "description": "Trailing complete UTC calendar days, excluding today. One year means 365 days."
       }
     ],
     "requestBody": null
@@ -3804,14 +4268,14 @@
   {
     "method": "GET",
     "path": "/v1/mining/miner-behavior",
-    "description": "Miner behavior heuristics.",
+    "description": "Attributed miner payout reward-date cohorts with exact earned, moved and unspent zatoshis.",
     "category": "mining",
     "query": [
       "period"
     ],
     "listKey": null,
     "zatoshiFields": [],
-    "note": null,
+    "note": "Completed UTC reward dates; spendingBasis=current_indexed_canonical_spends describes indexed canonical spending at snapshot refresh, not historical day-close holdings or proof of sales. Unattributed payouts are excluded. Available responses include decimal-string zatoshi totals and coverage (first/last date, tracked blocks/outputs, oldest refreshedAt, 48-hour freshness threshold). Missing/empty snapshots return status=unavailable, reason=snapshots_not_configured/no_snapshots_in_period, series=[], summary=null and no-store; backend failures return 503. Legacy sellRatio fields describe moved-output ratios.",
     "ownershipToken": false,
     "pagination": null,
     "parameters": [

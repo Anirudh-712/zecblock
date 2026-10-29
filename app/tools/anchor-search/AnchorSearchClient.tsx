@@ -129,7 +129,7 @@ export default function AnchorSearchClient() {
               <div className="space-y-2">
                 {result.canonical.map((block) => (
                   <div key={block.hash} className="p-3 bg-cipher-surface border border-cipher-border rounded-lg flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                    <Link href={`/block/${block.height}`} className="text-cipher-gold hover:underline font-mono text-sm">
+                    <Link href={`/block/${block.height}`} prefetch={false} className="text-cipher-gold hover:underline font-mono text-sm">
                       #{block.height.toLocaleString()}
                     </Link>
                     <span className={`text-xs px-2 py-0.5 rounded font-mono ${

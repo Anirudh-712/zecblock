@@ -1,15 +1,119 @@
 # Cross-chain data: authority, validation and staged rollout
 
-Updated: 2026-09-29. Implemented locally on `new/crosschain-data-depth`, based on
-`codex/zecblock-assay-rebrand`. **Not deployed; production schema, cron and reader
-flags have not changed.** Do not deploy this whole branch as an API hotfix: it
-also inherits the unshipped ZecBlock redesign.
+Updated: 2026-10-15. The source includes the reviewed filtered reader and maintenance
+worker already operating on mainnet. This integration preserves the reader modules
+installed October 14 and the separately pinned immutable worker; it does not enable
+readers, recreate checkpoints, change the provider budget or apply SQL automatically.
+The canonical private workspace wiki records exact serving commits and deployment
+verification. Earlier dated implementation evidence below is historical.
+
+## Existing production release and upgrade boundary
+
+The separately installed worker remains
+`/opt/cipherscan-crosschain/b72a393fc97b754880cd5752da6e436182633f6b`, reached through
+`/opt/cipherscan-crosschain/current`. The maintenance unit references that existing
+`current` link and its provider preload. Preserve the link, existing `.env` symlink,
+shared request budget and legacy cron/flock. The API reader modules match their
+existing production overlays exactly: `analytics.js` SHA256
+`25fbe48fa752d52fade346c5747a115da7ab09c7740fbdf104015566b7166396`,
+`ingest.js` SHA256 `621898e7be862fdef7a5eda7e10d72212f15f7405fac14bf183dd458c20c8c7e`.
+
+Mainnet already has scoped tables, the filtered indexes and
+`CROSSCHAIN_V2_READ_ENABLED=1`. The source release must retain those settings and
+existing `non-pending-v1` checkpoints; it requires no new schema migration, reset,
+backfill, timer change or worker replacement. Testnet and passive standby must not
+acquire a new writer. Fresh installation and old-policy migration commands below
+are explicit operator procedures, not actions for an already migrated host.
+
+## Filtered live maintenance after historical completion
+
+`maintain-crosschain-v2.js --apply --page-size=1000` requires both scoped historical
+directions complete, the writable primary mainnet database and the shared provider
+limiter. Its first live window starts one hour before each historical
+completed-through anchor, even if history took more than seven days. Later live
+windows start one hour before the prior live completed-through anchor. Unfinished
+windows resume fixed bounds/cursors. This maintenance mode supersedes the seven-day
+overlap of standalone sync.
+
+Each batch allows two live pages per direction. Only after both live windows
+finish does it advance up to four reconciliation pages per direction, interleaving
+directions and giving the least recently advanced direction the first turn. A
+completed direction stays intact for seven days before its next sweep. Finally it
+may refresh one known PROCESSING/INCOMPLETE_DEPOSIT identity, within the remaining
+budget. Older late settlements are discovered by filtered full reconciliation;
+creation-window live sync alone cannot find every later status transition.
+
+Reconciliation uses a one-day creation window ending at the durable cursor's
+stored timestamp, with a one-millisecond overlap and up to 1,000 rows. Returned
+ordering and date bounds are validated. A page containing only boundary-time ties,
+an empty bounded window or a missing cursor row falls back to the original
+100-row identity cursor. Only exhaustion of that original cursor certifies global
+completion; a short or empty calendar page cannot. Page rows and cursor updates
+commit together, preserving original snapshots and retained historical checkpoints.
+
+The maintenance service retains the legacy flock, six-second shared reservations,
+90-second systemd deadline and five-minute cadence at UTC :02/:07/etc. The worker
+has a 75-second total budget including token-catalog loading and one attempt per
+Explorer request. It yields before a new request or between committed pages when
+budget expires; real provider/cooldown/invalid-response failures remain failures.
+Live catch-up uses at most four page calls. Steady maintenance schedules at most
+eight reconciliation pages, each possibly using a date request plus cursor fallback,
+and one identity refresh, within the same deadline. This is not a request-rate or
+service-deadline increase. Keep the completed backfill timer disabled.
+
+For a fresh reader installation, explicitly apply
+`server/scripts/index-crosschain-filtered.sql` outside a transaction before reader
+acceptance. It builds concurrent partial indexes for non-pending creation-order
+reads and active unsettled refresh, preserving old rows/indexes. Verify both
+indexes valid; an interrupted build requires inspecting and removing only its
+invalid index before retry. This is application SQL, not a numbered Rust migration.
+Existing production already has these indexes; do not reapply as part of source
+reconciliation merely because the script becomes tracked in main.
+
+On sustained provider/production impact stop only maintenance, retain checkpoints,
+then verify a bounded canary before resuming. Installing source does not enable API
+readers. Coverage separately reports `historyTraversalComplete`,
+`statusReconciliationComplete`, per-direction reconciliation progress, live
+`syncedThrough`, continuous coverage and `stale`; completion flags do not certify
+upstream all-time completeness, immediate settlement discovery or sustained load.
+
+## Pending-quote exclusion — October 6
+
+The owner excluded `PENDING_DEPOSIT` from historical and future ingestion. The
+`non-pending-v1` scope requests SUCCESS, REFUNDED, FAILED, PROCESSING and
+INCOMPLETE_DEPOSIT only, in backfill, sync and reconciliation. The upsert guard
+also ignores pending quotes if returned unexpectedly. Unsettled refresh selects
+only processing/incomplete records. Existing pending rows remain stored for now,
+but the updated v2 reader excludes them and reports the five included statuses;
+outcomes are not a quote-conversion rate.
+
+When upgrading an old unscoped worker for the first time, stop its timer/service and apply
+`server/scripts/scope-crosschain-v2.sql`. It preserves old cursors/coverage under
+`all-statuses-v1`, adding scope to their primary keys. The new writer starts fresh
+filtered checkpoints at the current snapshot, never reusing an old quote cursor.
+A fresh installation uses `create-crosschain-v2.sql`; its default scope deliberately
+remains the old policy so old callers cannot certify new coverage. All new writer
+and reader operations select `non-pending-v1` explicitly. Do not restart an old
+worker after this migration: its unscoped conflict targets are incompatible.
+Rollback safely by stopping the new worker and preserving all tables/checkpoints.
+
+Keep the existing shared provider budget, six-second spacing, five-minute timer,
+one page per direction and 90-second deadline. Filtered pages contain 100 records:
+the initial 1,000-row filtered canary timed out, while a bounded 100-row probe
+returned HTTP 200 in 11.738 seconds. Request frequency remains unchanged. Verify a bounded canary advances
+both filtered checkpoints without new pending writes or legacy impact before
+resuming. Do not enable v2 readers as part of this worker change. Complete filtered
+traversal, catch-up, full status reconciliation, identical-window SUCCESS validation
+and reader performance checks first. A quote that later becomes non-pending can
+be discovered by sync within its seven-day creation window; older transitions
+require a full reconciliation sweep. Exclusion does not guarantee immediate
+capture of arbitrarily late settlements.
 
 ## What the data means
 
 The authority is the authenticated [NEAR 1Click Explorer API](https://docs.near-intents.org/api-reference/get-transactions),
 not all NEAR Intents activity. Token identities come from
-`https://1click.chaindefuser.com/v0/tokens`. Index all six documented statuses in
+`https://1click.chaindefuser.com/v0/tokens`. Index the five non-pending statuses in
 both directions involving native ZEC. Store the complete upstream JSON, retaining
 fields that are not currently visualized. Identity is `(depositAddress, depositMemo)`;
 an address alone is insufficient. Wrapped assets keep their reported chain identity.
@@ -42,8 +146,8 @@ PENDING_DEPOSIT can be an unfunded quote. Observed status counts are not a venue
 success/failure rate. In-flight amounts are unavailable, not zero. `firstSeenAt`,
 `lastSeenAt` and `statusObservedAt` are local observation times, not execution times.
 `last_checked_at` also advances for an unsuccessful refresh without claiming a new
-upstream observation. Recent pending deposits and processing/incomplete records
-are refreshed; reconciliation revisits older abandoned quotes and terminal outcomes.
+upstream observation. Processing/incomplete records are refreshed; filtered full reconciliation
+rediscovers older quotes that have transitioned and updates terminal outcomes.
 
 Timing measures swap creation to the reported Zcash transaction's block timestamp,
 using matched positive samples under 24 hours, with sample count/p50/p90. The outbound
@@ -83,7 +187,7 @@ never truncates, renames or updates legacy tables. Run with `ON_ERROR_STOP=1` ag
 of `--apply`, `NETWORK=mainnet`, `CROSSCHAIN_V2_WRITER_ENABLED=1`, and an exact database
 name of `zcash_explorer_mainnet`. Credentials are loaded by the existing job utilities.
 A PostgreSQL session advisory lock prevents competing v2 jobs. Each invocation is
-bounded to five pages per direction by default (1,000 provider records/page), with
+bounded to five pages per direction by default (100 provider records/page), with
 `--max-pages=1..100`. Provider calls are spaced at least 5.5 seconds, retry at most five
 times on transient errors, honor Retry-After, and abort resumably if cooldown exceeds
 60 seconds. Token catalog failure aborts rather than inventing chains.
@@ -108,7 +212,7 @@ times on transient errors, honor Retry-After, and abort resumably if cooldown ex
 4. Run one bounded `--apply --backfill --max-pages=1` in that coordinated window.
    Verify rows, memo identities, payloads, numeric amounts and checkpoint. Continue
    bounded backfill invocations until both directions have `completed_at`. The first
-   history snapshot is fixed; it can take multiple invocations to traverse all statuses.
+   history snapshot is fixed; it can take multiple invocations to traverse all included statuses.
 5. Run bounded `--apply` live sync invocations to completion, then schedule sufficiently
    frequently to remain within the 20-minute freshness threshold. Live windows overlap
    seven days and resume unfinished windows. Their start follows prior completed-through,
@@ -121,9 +225,9 @@ times on transient errors, honor Retry-After, and abort resumably if cooldown ex
    exclusions. Check histogram count equals valued SUCCESS external rows, native-ZEC
    sums equal the relevant token amounts, both traversal checkpoints complete, live
    freshness, continuous coverage and representative source/destination hash links.
-   Confirm failed/refunded/pending rows and missing-value behavior using real payloads.
+   Confirm failed/refunded/processing rows and pending exclusion and missing-value behavior using real payloads.
 7. Enable the reader flag only after these gates pass. Check API latency/load at the
-   resulting all-status index size, database pool headroom, errors, coverage and UI.
+   resulting filtered index size, database pool headroom, errors, coverage and UI.
    Ship the redesign on its own reviewed release path. Do not claim “complete history”
    until the provider's exposed history has actually been traversed.
 8. Roll back by unsetting `CROSSCHAIN_V2_READ_ENABLED` and restarting the API through
@@ -152,10 +256,11 @@ times on transient errors, honor Retry-After, and abort resumably if cooldown ex
 - Browser validation uses a separate localhost API and 60,000 explicitly synthetic
   records; these are not production data. No fixture is included in a production job.
 
-Run `CROSSCHAIN_TEST_POSTGRES=1 NODE_PATH=$PWD/server/api/node_modules node --test
-server/tests/crosschain-v2.test.js` with a local PostgreSQL socket at `/tmp`. The test
-creates and drops its own uniquely named test database. Without the opt-in, only the
-pure validation and rate-limit tests run. Also run frontend tests, lint, typecheck,
+Run `npm run test:crosschain-postgres` with a local PostgreSQL socket at `/tmp`.
+The tests create and drop their own uniquely named databases and cover pending
+exclusion, old-scope migration, fixed-window/cursor resume, date ties/exhaustion,
+maintenance fairness/deadlines, reconciliation/freshness metadata, numeric unknowns
+and HTTP compatibility. Without the opt-in, native PostgreSQL cases are skipped. Also run frontend tests, lint, typecheck,
 v1 contract/OpenAPI checks and a production build before release.
 
 Final local release checks: optimized webpack production build passed after replacing
@@ -376,3 +481,63 @@ worker now omits null/empty cursor memos and preserves real memo strings; matchi
 legacy/repair source fixes are included for the October 1 release. Do not infer
 that a repeated page proves history is exhausted. No checkpoint was advanced or
 coverage declared by that failed batch.
+
+
+## Pair rankings and readable swap times — October 12, 2026
+
+Prepared on `codex/zecblock-assay-rebrand`; this UI change is not a production
+release. Recent swaps reuse the shared ticking relative-time component, with
+an exact UTC tooltip, machine-readable datetime and an exact creation date in
+the expanded details. The time describes provider record creation, not settlement.
+
+Analytics adds `routeRankings: { swaps, usd, zec }`, each up to 100 successful
+external exact-asset pairs. Each ranking is computed across all matching pairs
+before its limit; a high-value pair outside the count leaders is not lost.
+SQL ranks numeric sums before serialization, puts unknown totals last and breaks
+ties deterministically. `routes` remains the count ranking for existing clients.
+USD is reported source-side value; ZEC is the Zcash-side token amount. Missing
+valuations are omitted from sums, and an entirely unknown total remains null.
+The dashboard switches both ordering and bar size/primary value with its selected
+metric. Without the additive field, volume controls are disabled; the client does
+not mislabel a re-sort of the old top-100 count subset as a global volume ranking.
+
+Five outcome cards exclude PENDING_DEPOSIT; the status filter and chain breakdown
+also exclude those quotes. A legacy SUCCESS-only response keeps other cards
+Unavailable with an adjacent explanation. A covered status with no observed rows
+is zero. V2 activation makes the five statuses available but does not guarantee
+instantaneous late-settlement updates. Publish the compatible API before this UI.
+Existing route identity, robots/canonical policy and sitemap entries are unchanged.
+
+## Maya and THORChain venue maintenance — October 29, 2026
+
+Indexed Maya/THORChain history lives in the additive `crosschain_venue_actions`
+and `crosschain_venue_sync` tables (`server/scripts/create-crosschain-venues.sql`,
+an application migration in the main database). The API serves
+`/api/crosschain/venues/{analytics,swaps}` only when
+`CROSSCHAIN_VENUES_READ_ENABLED=1`; otherwise it returns 503, never zero volume.
+Analytics marks a venue stale when its newest checkpoint is older than 20 minutes.
+
+`server/jobs/maintain-crosschain-venues.js` is the production writer. It refuses
+to write unless `NETWORK=mainnet`, `CROSSCHAIN_VENUES_WRITER_ENABLED=1` and the
+connection is the primary `zcash_explorer_mainnet` database. Each run, per venue:
+an incremental sync from the provider head (stops at the first known settled
+action), a bounded backfill until the provider history is exhausted, then a
+refresh of up to two pending actions. Pages are capped by a 150-second budget at
+10 seconds per page; one venue's provider failure does not stop the other.
+
+`cipherscan-crosschain-venues.timer` runs it every five minutes at :04/:09/…
+UTC with its own flock (`/run/cipherscan-crosschain-venues.lock`). Midgard is
+independent of NEAR, so it never takes the NEAR swap lock or provider quota.
+`server/jobs/sync-crosschain-venues.js` remains the isolated local-review writer.
+
+Initial rollout on the primary, after the API release contains this code:
+
+1. Apply `create-crosschain-venues.sql` to `zcash_explorer_mainnet`.
+2. Run the job once with a larger backfill, e.g.
+   `--backfill-pages=400 --budget-ms=3600000`, under the same flock.
+3. Add `CROSSCHAIN_VENUES_READ_ENABLED=1` to the API environment and restart
+   `zcash-api-mainnet`.
+4. Install and enable the service and timer.
+
+Rollback: disable the timer and remove the read flag; the routes return 503 and
+the tables can stay. Dropping them is a separate, deliberate operation.

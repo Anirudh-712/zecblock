@@ -5,6 +5,9 @@ const { loadEnv } = require("../lib/job-utils");
 const { logSafeError } = require("../api/lib/safe-log");
 const { getPool } = require("../lib/db-pool");
 const {
+  INGEST_SCOPE,
+  INGEST_PAGE_SIZE,
+  INGEST_STATUSES,
   loadTokens,
   explorerClient,
   traverse,
@@ -40,6 +43,9 @@ async function main() {
     console.log(
       JSON.stringify({
         mode,
+        scope: INGEST_SCOPE,
+        pageSize: INGEST_PAGE_SIZE,
+        statuses: INGEST_STATUSES,
         maxPagesPerDirection: maxPages,
         writes: false,
         action:
@@ -81,6 +87,7 @@ async function main() {
       console.log(
         JSON.stringify({
           mode,
+          scope: INGEST_SCOPE,
           direction,
           ...(await traverse(db, request, tokens, {
             mode,

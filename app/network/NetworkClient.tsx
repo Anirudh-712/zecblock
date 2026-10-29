@@ -6,13 +6,16 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { useApiQuery } from '@/hooks/useApiQuery';
 import { Card, CardBody } from '@/components/ui/Card';
 import { PageHeader, SectionHeader } from '@/components/ui/SectionHeader';
-import { isCrosslink } from '@/lib/config';
+import { isCrosslink, CURRENCY } from '@/lib/config';
 import type { HashrateSnapshot } from '@/lib/hashrate';
 import { blockAgeLabel, observationStatus } from '@/lib/network-overview';
+import type { HalvingInfo } from '@/components/network/HalvingPanel';
+import type { EmissionResponse } from '@/lib/issuance-curve';
 import { MiningIssuance } from '@/components/network/MiningIssuance';
 import { NetworkSectionNav } from '@/components/network/NetworkSectionNav';
 import { NetworkAccounting } from '@/components/network/NetworkAccounting';
-import { BlockTimeChart } from '@/components/network/BlockTimeChart';
+import { BlockSpeedPanel } from '@/components/network/BlockSpeedPanel';
+import type { SpeedStory } from '@/lib/block-speed';
 import { BlockCadenceChart } from '@/components/network/BlockCadenceChart';
 import { FeeDistributionChart, type FeeDistributionResponse } from '@/components/network/FeeDistributionChart';
 import type { NodeLocationsResponse, NodeStatsResponse } from '@/components/NodeMap';
@@ -89,6 +92,9 @@ export interface NetworkPageInitialData {
   nodeStats: NodeStatsResponse | null;
   recentBlocks: RecentBlocksResponse | null;
   feeDistribution: FeeDistributionResponse | null;
+  halving?: HalvingInfo | null;
+  emission?: EmissionResponse | null;
+  blockSpeed?: SpeedStory | null;
 }
 
 export default function NetworkClient({ initialData }: { initialData: NetworkPageInitialData }) {
@@ -140,8 +146,8 @@ export default function NetworkClient({ initialData }: { initialData: NetworkPag
           <dl id="network-protocol" className="network-section network-summary-grid network-protocol-facts border-b border-cipher-border" aria-label="Protocol parameters">
             {[
               ['Active upgrade', stats?.supply?.activeUpgrade ?? '—'],
-              ['Block subsidy', stats?.mining.blockReward != null ? `${stats.mining.blockReward} ZEC` : '—'],
-              ['Maximum supply', '21,000,000 ZEC'],
+              ['Block subsidy', stats?.mining.blockReward != null ? `${stats.mining.blockReward} ${CURRENCY}` : '—'],
+              ['Maximum supply', `21,000,000 ${CURRENCY}`],
             ].map(([label, value]) => <div key={label}>
               <dt className="type-label text-muted uppercase">{label}</dt>
               <dd className="font-mono text-sm text-secondary tabular-nums">{value}</dd>
@@ -149,8 +155,10 @@ export default function NetworkClient({ initialData }: { initialData: NetworkPag
           </dl>
           <dl id="network-overview" className="network-section network-summary-grid network-live-facts" aria-label="Current chain activity">
             {[
-              { label: 'Latest block', value: height != null ? <Link href={`/block/${height}`} className="hover:text-cipher-gold">{height.toLocaleString()}</Link> : '—', hint: stats ? `Block timestamp · ${blockAgeLabel(stats.blockchain.latestBlockTime, now)}` : 'Awaiting chain data' },
-              { label: 'Average block interval', value: stats?.mining.avgBlockTime != null ? `${stats.mining.avgBlockTime.toFixed(1)}s` : '—', hint: stats?.mining.targetBlockTime != null ? `Observed · protocol target ${stats.mining.targetBlockTime}s` : 'Observed · protocol target unavailable' },
+              { label: 'Latest block', value: height != null ? <Link href={`/block/${height}`} prefetch={false} className="hover:text-cipher-gold">{height.toLocaleString()}</Link> : '—', hint: stats ? `Block timestamp · ${blockAgeLabel(stats.blockchain.latestBlockTime, now)}` : 'Awaiting chain data' },
+              { label: 'Average block interval', value: stats?.mining.avgBlockTime != null ? `${stats.mining.avgBlockTime.toFixed(1)}s` : '—', hint: isCrosslink
+                ? (stats?.mining.targetBlockTime != null ? `Observed · protocol target ${stats.mining.targetBlockTime}s` : 'Observed · protocol target unavailable')
+                : <Link href="/network/block-speed" className="hover:text-primary underline underline-offset-4">{stats?.mining.targetBlockTime != null ? `Observed · target ${stats.mining.targetBlockTime}s · Daily speed →` : 'Observed · Daily speed →'}</Link> },
               { label: 'Transactions · 24h', value: txCount?.toLocaleString() ?? '—', hint: stats?.blockchain.tx24hExclCoinbase != null ? 'Confirmed · coinbase excluded' : 'Confirmed · includes coinbase' },
               { label: 'Estimated hashrate · 24h', value: stats?.mining.hashrateEstimate ? stats.mining.networkHashrate : '—', hint: <Link href="/mining#metrics" className="hover:text-primary underline underline-offset-4">Trailing 24-hour estimate →</Link> },
             ].map(({ label, value, hint }) => <div key={label}>
@@ -176,11 +184,13 @@ export default function NetworkClient({ initialData }: { initialData: NetworkPag
         </div>
       </section>
 
-      {!isCrosslink && <section id="network-accounting" className="network-section mb-10" aria-label="Block timing and active network accounting">
-        <BlockTimeChart />
+      {!isCrosslink && <section id="network-accounting" className="network-section mb-10" aria-label="Block speed and network sustainability accounting">
+        <div id="block-speed" className="network-section">
+          <BlockSpeedPanel story={initialData.blockSpeed ?? null} />
+        </div>
         <NetworkAccounting />
       </section>}
-      <MiningIssuance />
+      <MiningIssuance initialHalving={initialData.halving} initialEmission={initialData.emission} initialFetchedAt={initialData.fetchedAt} />
       <Card className="network-detail-panel card-static">
         <details id="network-technical" className="network-section network-detail-disclosure" open={technicalOpen} onToggle={event => setTechnicalOpen(event.currentTarget.open)}>
           <summary className="network-detail-toggle">

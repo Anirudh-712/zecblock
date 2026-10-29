@@ -74,7 +74,7 @@ export function InputsSection({ data, copiedText, onCopy }: InputsSectionProps) 
                   </div>
                 ) : input.address ? (
                   <div className="flex items-center gap-1 min-w-0">
-                    <Link href={`/address/${input.address}`} className="min-w-0 block overflow-hidden">
+                    <Link href={`/address/${input.address}`} prefetch={false} className="min-w-0 block overflow-hidden">
                       <code className="text-caption text-primary hover:underline transition-colors font-mono truncate block">
                         {input.address}
                       </code>

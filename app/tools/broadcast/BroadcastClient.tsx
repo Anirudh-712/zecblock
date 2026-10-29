@@ -264,7 +264,7 @@ export default function BroadcastClient() {
                   View in Mempool
                 </Link>
                 <Link
-                  href={`/tx/${result.txid}`}
+                  href={`/tx/${result.txid}`} prefetch={false}
                   className="btn btn-secondary px-6 text-sm inline-flex items-center gap-2 h-11"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

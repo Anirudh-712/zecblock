@@ -9,7 +9,7 @@ function signedZat(value) {
   return n >= -(1n << 63n) && n < (1n << 63n) ? n.toString() : null;
 }
 
-function blockAccounting(row, subsidy, schedule) {
+function blockAccounting(row, subsidy, schedule, allocations = {}) {
   const height = Number(row?.height);
   const fees = supplyZat(row?.fees);
   const complete = row && Number(row.tx_count) === Number(row.transaction_count) && Number(row.coinbases) === 1 && Number(row.invalid_fees) === 0;
@@ -17,9 +17,11 @@ function blockAccounting(row, subsidy, schedule) {
   const active = schedule ? schedule.nu7Height !== null && height >= schedule.nu7Height : null;
   const recycled = paid === null || active === null ? null : active ? Number(BigInt(paid) * 3n / 5n) : 0;
   const minerFees = recycled === null ? null : paid - recycled;
-  const minerSubsidy = subsidyZat(subsidy?.miner);
-  const founders = subsidyZat(subsidy?.founders);
-  const funding = subsidyZat(subsidy?.fundingstreamstotal);
+  const validAllocations = ['founders', 'funding'].every(key => supplyZat(allocations[key]) !== null);
+  const cachedMiner = validAllocations ? supplyZat(allocations.miner) : null;
+  const minerSubsidy = cachedMiner ?? subsidyZat(subsidy?.miner);
+  const founders = validAllocations ? supplyZat(allocations.founders) : subsidyZat(subsidy?.founders);
+  const funding = validAllocations ? supplyZat(allocations.funding) : subsidyZat(subsidy?.fundingstreamstotal);
   // Coinbase transparent outputs plus net shielded creation, less compulsory
   // non-miner payouts. Lockbox allocations are not spendable coinbase outputs.
   const coinbase = supplyZat(row?.coinbase_value);

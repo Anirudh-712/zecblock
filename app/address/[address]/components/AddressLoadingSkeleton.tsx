@@ -1,5 +1,6 @@
 import { SkeletonTable } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { CURRENCY } from '@/lib/config';
 import type { AddressMeta } from '@/lib/seo';
 
 export function AddressLoadingSkeleton({ initialMeta = null, address }: { initialMeta?: AddressMeta | null; address?: string } = {}) {
@@ -15,7 +16,7 @@ export function AddressLoadingSkeleton({ initialMeta = null, address }: { initia
       <div className="grid lg:grid-cols-[1.2fr_1fr]">
         <div className="p-5 sm:p-7">
           <p className="text-xs font-mono text-muted uppercase tracking-wider">Public balance</p>
-          {initialMeta && !initialMeta.isShielded ? <p className="mt-3 text-2xl sm:text-3xl font-mono text-primary">{initialMeta.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 8 })} <span className="text-base text-secondary">ZEC</span></p> : <Skeleton className="mt-3 h-9 w-full max-w-sm" />}
+          {initialMeta && !initialMeta.isShielded ? <p className="mt-3 text-2xl sm:text-3xl font-mono text-primary">{initialMeta.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 8 })} <span className="text-base text-secondary">{CURRENCY}</span></p> : <Skeleton className="mt-3 h-9 w-full max-w-sm" />}
           <Skeleton className="h-4 w-56 max-w-full mt-2" />
         </div>
         <div className="p-5 sm:p-7 border-t lg:border-t-0 lg:border-l border-cipher-border">

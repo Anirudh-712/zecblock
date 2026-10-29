@@ -31,6 +31,8 @@ export const CORE_PATHS = [
   '/network',
   '/network/nodes',
   '/network/attestations',
+  '/network/block-speed',
+  '/network/upgrades',
   '/privacy',
   '/privacy-risks',
   '/privacy/wallets',
@@ -88,6 +90,7 @@ export const CORE_PATHS = [
 ] as const;
 
 export const CONTENT_PATHS = [
+  '/docs/mcp',
   '/learn',
   '/newsletter',
   '/about',
@@ -264,7 +267,7 @@ export function getStaticSitemapEntries(
       : undefined;
     const staticEntries = CONTENT_PATHS.map((path) => ({
       url: absoluteUrl(baseUrl, path),
-      ...(path === '/learn' ? { lastModified: '2026-09-08' } : {}),
+      ...(path === '/learn' ? { lastModified: '2026-10-26' } : {}),
       ...(path === '/about' ? { lastModified: '2026-09-17' } : {}),
       ...(path === '/newsletter' && latestNewsletterDate
         ? { lastModified: latestNewsletterDate }

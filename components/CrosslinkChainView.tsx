@@ -17,8 +17,9 @@ interface BlockRow {
 
 interface CrosslinkStats {
   tipHeight: number;
-  finalizedHeight: number;
-  finalityGap: number;
+  finalizedHeight: number | null;
+  finalityGap: number | null;
+  crosslinkActive?: boolean;
   finalizerCount: number;
   totalStakeZec: number;
 }
@@ -125,6 +126,7 @@ export function CrosslinkChainView({
             tipHeight: data.tipHeight,
             finalizedHeight: data.finalizedHeight,
             finalityGap: data.finalityGap,
+          crosslinkActive: data.crosslinkActive,
             finalizerCount: data.finalizerCount,
             totalStakeZec: data.totalStakeZec,
           });
@@ -162,7 +164,7 @@ export function CrosslinkChainView({
 
   // Index into blocks[] of the first finalized block from the top (= finality frontier)
   const finalizedFrontierIndex = stats
-    ? blocks.findIndex((b) => b.height <= stats.finalizedHeight)
+    ? blocks.findIndex((b) => stats.finalizedHeight != null && b.height <= stats.finalizedHeight)
     : -1;
 
   // Index of the block BFT is currently voting on (if visible)
@@ -193,7 +195,7 @@ export function CrosslinkChainView({
 
       <div className="space-y-1.5">
         {blocks.map((b, i) => {
-          const isFinalized = stats ? b.height <= stats.finalizedHeight : false;
+          const isFinalized = stats ? stats.finalizedHeight != null && b.height <= stats.finalizedHeight : false;
           const isFrontier = i === finalizedFrontierIndex && stats !== null;
           const isVotingOn = i === votedIndex;
           const isTip = stats ? b.height === stats.tipHeight : i === 0;
@@ -228,7 +230,7 @@ export function CrosslinkChainView({
         <div className="mt-3 flex items-center justify-between text-caption font-mono">
           <span className="text-muted">
             {stats &&
-              `Finalized through #${stats.finalizedHeight.toLocaleString()} · gap ${stats.finalityGap}`}
+              (stats.finalizedHeight == null ? (stats.crosslinkActive === false ? 'PoW phase · Crosslink not active' : 'Finality unavailable') : `Finalized through #${stats.finalizedHeight.toLocaleString()} · gap ${stats.finalityGap}`)}
           </span>
           <Link href="/chain" className="text-cipher-gold hover:underline">
             Open Chain View →
@@ -291,7 +293,7 @@ function ChainRow({
 
   return (
     <Link
-      href={`/block/${block.height}`}
+      href={`/block/${block.height}`} prefetch={false}
       className={`group flex items-stretch rounded-md border ${borderClass} bg-white dark:bg-white/[0.03] overflow-hidden hover:border-cipher-gold/60 transition-colors`}
     >
       <span className={`block w-1 shrink-0 ${accentClass}`} />
@@ -332,20 +334,18 @@ function ChainRow({
           {isVotingOn && bftTip && stats ? (
             <BftChip
               count={bftTip.signatureCount}
-              total={stats.finalizerCount}
               state="voting"
             />
           ) : decision && stats ? (
             <BftChip
               count={decision.signature_count}
-              total={stats.finalizerCount}
               state="signed"
               blocksInDecision={decision.pow_blocks_in_decision}
             />
           ) : isFinalized ? (
-            <BftChip count={0} total={0} state="final" />
+            <BftChip count={0} state="final" />
           ) : (
-            <BftChip count={0} total={0} state="pending" />
+            <BftChip count={0} state="pending" />
           )}
         </div>
       </div>
@@ -355,12 +355,10 @@ function ChainRow({
 
 function BftChip({
   count,
-  total,
   state,
   blocksInDecision,
 }: {
   count: number;
-  total: number;
   state: 'voting' | 'signed' | 'final' | 'pending';
   blocksInDecision?: number;
 }) {
@@ -386,9 +384,9 @@ function BftChip({
     );
   }
 
-  // signed or voting → show a mini circle with sig count + "of N"
+  // Historical decisions do not contain their roster denominator. The latest
+  // next-BFT roster must not be used to invent historical participation rates.
   const isVoting = state === 'voting';
-  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
   const circleColor = isVoting
     ? 'border-cipher-orange/70 bg-cipher-orange/15 text-cipher-orange'
     : 'border-cipher-coral/70 bg-cipher-coral/15 text-cipher-coral';
@@ -407,14 +405,14 @@ function BftChip({
       </span>
       <div className="text-caption font-mono leading-tight">
         <div className="text-black dark:text-white tabular-nums">
-          {isVoting ? 'voting' : `of ${total}`}
+          {isVoting ? 'voting' : 'signatures'}
         </div>
         <div className="text-muted tabular-nums">
           {isVoting
-            ? `${count}/${total}`
+            ? 'signatures observed'
             : blocksInDecision && blocksInDecision > 1
-            ? `${pct}% · ${blocksInDecision}b`
-            : `${pct}%`}
+            ? `${blocksInDecision} PoW blocks`
+            : 'observed'}
         </div>
       </div>
     </div>
@@ -437,14 +435,14 @@ function StatsGrid({
       />
       <TipStat
         label="Finalized"
-        value={`#${stats.finalizedHeight.toLocaleString()}`}
+        value={stats.finalizedHeight == null ? (stats.crosslinkActive === false ? 'Not active' : 'Unavailable') : `#${stats.finalizedHeight.toLocaleString()}`}
         tooltip="Highest block irreversibly confirmed by PoS BFT consensus."
       />
       <TipStat
         label="Finality Gap"
-        value={`${stats.finalityGap}`}
+        value={stats.finalityGap == null ? (stats.crosslinkActive === false ? 'Not active' : 'Unavailable') : `${stats.finalityGap}`}
         sub="blocks"
-        accent={openDivergence ? 'orange' : stats.finalityGap > 20 ? 'orange' : undefined}
+        accent={openDivergence ? 'orange' : (stats.finalityGap ?? 0) > 20 ? 'orange' : undefined}
         tooltip="Blocks between the PoW tip and the last finalized block. Healthy: 0–10."
       />
       <TipStat
@@ -609,7 +607,7 @@ function DivergencePanel({
                   </span>
                   . Started {fmtAgo(openEvent.start_time)} at finalized block{' '}
                   <Link
-                    href={`/block/${openEvent.start_finalized_height}`}
+                    href={`/block/${openEvent.start_finalized_height}`} prefetch={false}
                     className="text-cipher-gold hover:underline"
                   >
                     #{openEvent.start_finalized_height.toLocaleString()}
@@ -620,7 +618,7 @@ function DivergencePanel({
                 <>
                   We&apos;ve diverged at finalized block{' '}
                   <Link
-                    href={`/block/${recurringHeight[0]}`}
+                    href={`/block/${recurringHeight[0]}`} prefetch={false}
                     className="text-cipher-gold hover:underline"
                   >
                     #{recurringHeight[0].toLocaleString()}
@@ -663,7 +661,7 @@ function DivergencePanel({
                   <td className="py-2 pr-4 text-secondary">{fmtAgo(e.start_time)}</td>
                   <td className="py-2 pr-4">
                     <Link
-                      href={`/block/${e.start_finalized_height}`}
+                      href={`/block/${e.start_finalized_height}`} prefetch={false}
                       className="text-cipher-gold hover:underline"
                     >
                       #{e.start_finalized_height.toLocaleString()}

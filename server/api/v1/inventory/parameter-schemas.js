@@ -35,6 +35,24 @@ const softwareFilters = {
   bucket: {type:'string',enum:['auto','day','week'],default:'auto',description:'Auto selects weekly for ranges longer than 121 days. Weekly buckets start Monday; boundary weeks contain only requested days.'},
 };
 function getQueryConstraint(route, name) {
+  if (['/v1/crosschain/venues/analytics','/v1/crosschain/venues/swaps'].includes(route)) {
+    if (name === 'venue') return { required: true, schema: { type: 'string', enum: ['maya','thorchain'] }, description: 'Independent indexed venue dataset.' };
+    return getQueryConstraint(route.replace('/venues',''), name);
+  }
+  if (route === '/v1/crosschain/venues') {
+    const fields = {
+      venue: { type: 'string', enum: ['maya', 'thorchain'], description: 'One native-ZEC venue. Required; providers have independent observation and availability states.' },
+      limit: { type: 'integer', minimum: 1, maximum: 25, default: 10 },
+      cursor: { type: 'string', maxLength: 2048, pattern: '^[A-Za-z0-9_-]+$', description: 'Opaque data.nextCursor from this venue; do not construct or edit.' },
+    };
+    return fields[name] ? { required: name === 'venue', schema: fields[name], description: fields[name].description } : null;
+  }
+  if (route === '/v1/search/prefix' && name === 'q') {
+    return { required: true, schema: { type: 'string', minLength: 8, maxLength: 140, examples: ['5b34c8b44d', '5b34c8b44d...ec9e77'] }, description: 'Hex prefix of 8–63 characters, or a shortened id: a prefix of at least 6 and a suffix of at least 4 hex characters joined by ... or …. Case-insensitive.' };
+  }
+  if (route === '/v1/shielded-pools/activity' && name === 'period') {
+    return { required: false, schema: { type: 'string', enum: ['7d', '30d', '90d', '1y'], default: '30d' }, description: 'Trailing complete UTC calendar days, excluding today. One year means 365 days.' };
+  }
   if (['/v1/crosschain/analytics','/v1/crosschain/swaps'].includes(route)) {
     const schemas = {
       period: {type:'string',enum:['24h','7d','30d','90d','1y','all'],default:'30d',description:'Trailing UTC window; all starts at the earliest indexed record. Coverage can be incomplete.'},
@@ -59,6 +77,7 @@ function getQueryConstraint(route, name) {
   if (route.startsWith('/v1/valuation/') && name === 'period') return { required:false, schema:{type:'string',enum:['30d','90d','180d','1y','2y','all'],default:'1y'}, description:'All returns the complete available daily history.' };
 
   if (route === '/v1/network/accounting/history') {
+    if (name === 'period') return { required: false, schema: { type: 'string', enum: ['1d', '7d', '30d', 'all'] }, description: 'NU7-only UTC block-header periods; all means since activation. Cannot combine with limit/before. Returns aggregated buckets and exact period/since-activation totals; missing data is null.' };
     if (name === 'limit') return { required: false, schema: { type: 'integer', minimum: 1, maximum: 1000, default: 120 } };
     if (name === 'before') return { required: false, schema: { type: 'integer', minimum: 0, maximum: 499999999, description: 'Exclusive canonical block-height cursor.' } };
   }

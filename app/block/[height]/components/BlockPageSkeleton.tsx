@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { SkeletonTable } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Card, CardHeader, CardBody } from '@/components/ui/Card';
@@ -50,6 +51,14 @@ export function BlockPageSkeleton({
             </>
           )}
         </p>
+        {initialSummary?.isOrphaned && initialSummary.canonicalReplacementHeight != null && (
+          <p className="mt-2 text-xs sm:text-sm text-secondary">
+            Canonical replacement at this height:{' '}
+            <Link href={`/block/${initialSummary.canonicalReplacementHeight}`} prefetch={false} className="text-brand-gold hover:underline">
+              Zcash block #{initialSummary.canonicalReplacementHeight.toLocaleString('en-US')}
+            </Link>.
+          </p>
+        )}
         {/* Server-seeded facts from the SEO resolution fetch — real content
             instead of a shimmer while the full block detail loads client-side. */}
         {initialSummary && (initialSummary.timestamp != null || initialSummary.transactionCount != null || initialSummary.size != null) && (
@@ -81,7 +90,7 @@ export function BlockPageSkeleton({
       <Card className="mb-6" aria-hidden="true">
         <CardBody>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">{['Block hash', 'Timestamp', 'Block size', 'Transactions', 'Total fees'].map(label => <div key={label} className="rounded border border-cipher-border p-3"><p className="text-caption text-muted mb-2">{label}</p><Skeleton className="h-5 w-28" /></div>)}</div>
-          <div className="grid sm:grid-cols-2 gap-3 mt-3">{[0, 1].map(i => <div key={i} className="rounded border border-cipher-border p-4"><Skeleton className="h-4 w-32 mb-3" /><Skeleton className="h-4 w-3/4 mb-3" /><Skeleton className="h-4 w-1/2" /></div>)}</div>
+          <div className="mt-3 space-y-3">{['Coinbase message', 'Coinbase outputs'].map(label => <div key={label} className="rounded border border-cipher-border p-4"><p className="text-caption text-muted mb-3">{label}</p><Skeleton className="h-4 w-3/4 mb-3" /><Skeleton className="h-4 w-1/2" /></div>)}</div>
           <Skeleton className="h-10 w-40 mt-4" />
         </CardBody>
       </Card>

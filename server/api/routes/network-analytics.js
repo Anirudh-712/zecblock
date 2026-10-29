@@ -1,7 +1,8 @@
+const { supplyProjection } = require('../lib/issuance-projection');
 const { networkSchedule, targetSeconds, targetSpacing, halvingIndex, halvingHeight } = require('../lib/network-schedule');
 const { cachedHashrateHistory } = require('../lib/hashrate');
 const { logSafeError } = require('../lib/safe-log');
-const { subsidyZat, supplyZat, supplyHistory, dailyNetSupplyChanges, observedBlockCadence } = require('../lib/network-issuance');
+const { subsidyZat, supplyZat, supplyHistory, mergedSupplyHistory, dailyNetSupplyChanges, observedBlockCadence } = require('../lib/network-issuance');
 /**
  * Network analytics routes — halving, mining history, pool trends, emission, chain size.
  * Requires chain_snapshots table for size history (see docs/network-analytics-setup.md).
@@ -81,10 +82,17 @@ function rollingAverage(values, window) {
   for (let i = 0; i < values.length; i++) {
     const start = Math.max(0, i - window + 1);
     const slice = values.slice(start, i + 1);
-    const avg = slice.every(Number.isFinite) ? slice.reduce((a, b) => a + b, 0) / slice.length : null;
+    const avg = slice.length === window && slice.every(Number.isFinite) ? slice.reduce((a, b) => a + b, 0) / slice.length : null;
     out.push(avg);
   }
   return out;
+}
+
+function miningNumber(value) {
+  if ((typeof value !== 'number' && typeof value !== 'string')
+    || (typeof value === 'string' && value.trim() === '')) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function discoverNextHalving(callZebraRPC, currentHeight, chainInfo) {
@@ -189,26 +197,47 @@ function registerNetworkAnalyticsRoutes(router) {
          FROM blocks
          ORDER BY height DESC
          LIMIT $1`,
-        [limit]
+        // Keep the averaging window and its predecessor outside the displayed range.
+        [limit + window]
       );
 
       const rows = result.rows.reverse();
-      const intervals = rows.map((r, i) => {
+      const timestamps = rows.map((r) => {
+        const timestamp = miningNumber(r.timestamp);
+        return Number.isSafeInteger(timestamp) && timestamp >= 0 ? timestamp : null;
+      });
+      const heights = rows.map((r) => {
+        const height = miningNumber(r.height);
+        return Number.isSafeInteger(height) && height >= 0 ? height : null;
+      });
+      const intervals = rows.map((_, i) => {
         if (i === 0) return null;
-        const prev = rows[i - 1];
-        const delta = parseInt(r.timestamp, 10) - parseInt(prev.timestamp, 10);
-        return Number(r.height) === Number(prev.height) + 1 ? delta : null;
+        if (timestamps[i] === null || timestamps[i - 1] === null
+          || heights[i] === null || heights[i - 1] === null
+          || heights[i] !== heights[i - 1] + 1) return null;
+        return timestamps[i] - timestamps[i - 1];
       });
 
-      const difficulties = rows.map((r) => parseFloat(r.difficulty) || 0);
-      // Same 2^13 Equihash constant as /api/network/stats — see comment there.
-      const solrates = difficulties.map((d, i) => intervals[i] > 0 ? (d * 8192) / intervals[i] : null);
+      const difficulties = rows.map((r) => {
+        const difficulty = miningNumber(r.difficulty);
+        return Number.isFinite(difficulty) && difficulty > 0 ? difficulty : null;
+      });
       const fees = rows.map((r) => (parseInt(r.total_fees, 10) || 0) / 1e8);
       const txCounts = rows.map((r) => parseInt(r.transaction_count, 10) || 0);
 
       const rollDiff = rollingAverage(difficulties, window);
-      const rollSolrate = rollingAverage(solrates, window);
       const rollBlockTime = rollingAverage(intervals, window);
+      // Estimate the complete window's work over its elapsed header time, not
+      // the mean of instantaneous rates. Canonical headers can share a second
+      // or move backwards; those intervals do not invalidate a positive full
+      // span. rollingAverage still requires every consecutive interval and
+      // every contributing difficulty, so missing data remains unavailable.
+      // The 2^13 difficulty conversion is an estimate, distinct from nBits work.
+      const rollSolrate = rollDiff.map((difficulty, i) => {
+        if (difficulty === null || !(rollBlockTime[i] > 0)) return null;
+        const estimate = difficulty * 8192 / rollBlockTime[i];
+        return Number.isFinite(estimate) ? estimate : null;
+      });
       const rollFees = rollingAverage(fees, window);
       const rollTx = rollingAverage(txCounts, window);
 
@@ -219,19 +248,20 @@ function registerNetworkAnalyticsRoutes(router) {
         blockTime: rollBlockTime[i],
         txFees: rollFees[i],
         txCount: rollTx[i],
-      }));
+      })).slice(-limit);
 
       const latest = points[points.length - 1] || {};
 
       res.json({
         success: true,
         window,
+        solrateMethod: 'difficulty-work-over-elapsed-v1',
         latest: {
-          solrate: latest.solrate ?? 0,
-          difficulty: latest.difficulty ?? 0,
+          solrate: latest.solrate ?? null,
+          difficulty: latest.difficulty ?? null,
           blockTime: latest.blockTime ?? null,
-          txFees: latest.txFees ?? 0,
-          txCount: latest.txCount ?? 0,
+          txFees: latest.txFees ?? null,
+          txCount: latest.txCount ?? null,
         },
         points,
       });
@@ -374,7 +404,7 @@ function registerNetworkAnalyticsRoutes(router) {
     try {
       const pool = req.app.locals.pool;
       const callZebraRPC = req.app.locals.callZebraRPC;
-      const period = req.query.period || '1y';
+      const period = req.query.period || 'all';
       const interval = periodToInterval(period);
 
       let supplyPoints = [];
@@ -394,7 +424,7 @@ function registerNetworkAnalyticsRoutes(router) {
       const trends = await pool.query(
         `SELECT date::text AS date, pool_size, chain_supply
          FROM privacy_trends_daily
-         WHERE date >= CURRENT_DATE - INTERVAL '${interval}'
+         WHERE ${period === 'all' ? 'TRUE' : `date >= CURRENT_DATE - INTERVAL '${interval}'`}
          ORDER BY date ASC`
       );
 
@@ -408,17 +438,35 @@ function registerNetworkAnalyticsRoutes(router) {
         }
       }
 
+      if (await tableExists(pool, 'chain_supply_daily')) {
+        const state = (await pool.query('SELECT verified_height,verified_hash FROM chain_supply_archive_state WHERE id=true')).rows[0];
+        const canonical = state && await callZebraRPC('getblockhash', [Number(state.verified_height)]).catch(() => null) === state.verified_hash;
+        const archive = canonical ? await pool.query(
+          `SELECT a.date::text AS date,a.block_height,a.chain_supply_zat
+           FROM chain_supply_daily a
+           WHERE a.date < (NOW() AT TIME ZONE 'UTC')::date
+             AND ${period === 'all' ? 'TRUE' : `a.date >= (NOW() AT TIME ZONE 'UTC')::date - INTERVAL '${interval}'`}
+           ORDER BY a.date ASC`
+        ) : { rows: [] };
+        if (archive.rows.length) {
+          const recentSource = supplyPoints.length ? supplyHistoryTable : null;
+          supplyPoints = mergedSupplyHistory(archive.rows, supplyPoints);
+          supplyHistoryTable = recentSource ? `chain_supply_daily+${recentSource}` : 'chain_supply_daily';
+        }
+      }
+
       // Keep the observed points, including decreases and unknown values.
       // Interpolating missing dates would invent supply observations.
       const dailyEmission = dailyNetSupplyChanges(trends.rows);
       const latest = supplyPoints.at(-1);
       const latestSupply = latest?.circulating ?? null;
       const currentHeight = Number(await callZebraRPC('getblockcount').catch(() => NaN));
-      const [subsidy, cadence] = Number.isSafeInteger(currentHeight) && currentHeight > 0
+      const [subsidy, cadence, chainInfo] = Number.isSafeInteger(currentHeight) && currentHeight > 0
         ? await Promise.all([
           callZebraRPC('getblocksubsidy', [currentHeight]).catch(() => null),
           observedBlockCadence(pool, currentHeight).catch(() => null),
-        ]) : [null, null];
+          callZebraRPC('getblockchaininfo').catch(() => null),
+        ]) : [null, null, null];
       const dailyEstimate = subsidyZat(subsidy?.totalblocksubsidy) !== null && cadence !== null
         ? subsidy.totalblocksubsidy * (86400 / cadence.intervalSeconds) : null;
       const observations = validCount(supplyPoints);
@@ -434,6 +482,7 @@ function registerNetworkAnalyticsRoutes(router) {
         dailyEmissionEstimate: dailyEstimate,
         cadence,
         supplyHistory: supplyPoints,
+        projection: supplyProjection({ schedule: networkSchedule(chainInfo), latest, currentHeight, cadence }),
         dailyEmission,
         dailyEmissionMeaning: 'net-chain-supply-change',
         hasChainSnapshots,

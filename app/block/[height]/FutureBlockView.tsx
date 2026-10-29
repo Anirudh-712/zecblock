@@ -1,105 +1,64 @@
 'use client';
 
-import { readApiData } from '@/lib/api-client';
-import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { getApiUrl } from '@/lib/api-config';
-import { NETWORK_UPGRADES } from '@/lib/config';
-
-import { scheduledSeconds, type BlockSchedule } from '@/lib/block-timing';
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-  if (seconds < 86400) {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    return `${h}h ${m}m`;
-  }
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  return `${d}d ${h}h`;
-}
-
-function formatEstimatedDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  });
-}
+import { NETWORK } from '@/lib/config';
+import { useApiQuery } from '@/hooks/useApiQuery';
+import { ANNOUNCED_MAINNET_NU7, readUpgradeSnapshot, getFutureBlockUpgrade, estimateBlockArrival, estimateBlockArrivalDate, formatUpgradeTime } from '@/lib/network-upgrades';
 
 export function FutureBlockView({
   targetHeight,
   currentHeight: initialCurrentHeight,
+  initialStats,
 }: {
   targetHeight: number;
   currentHeight: number;
+  initialStats?: unknown;
 }) {
-  const [currentHeight, setCurrentHeight] = useState(initialCurrentHeight);
-  const [schedule, setSchedule] = useState<BlockSchedule | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-
-  // Poll for updated tip height every 30s
-  useEffect(() => {
-    const poll = async () => {
-      try {
-        const apiUrl = `${getApiUrl()}/v1/network/stats`;
-        const res = await fetch(apiUrl);
-        if (res.ok) {
-          const data = await readApiData(res);
-          setSchedule(data.mining?.schedule ?? null);
-          const h = Number(data.blockchain?.height);
-          if (Number.isSafeInteger(h) && h >= 0) {
-            setCurrentHeight(h);
-          }
-        } else { setSchedule(null); }
-      } catch { setSchedule(null); }
-    };
-    void poll();
-    const interval = setInterval(poll, 30_000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Update countdown every second
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const upgrade = NETWORK_UPGRADES[targetHeight] ?? null;
-  const blocksRemaining = targetHeight - currentHeight;
-  const secondsRemaining = scheduledSeconds(schedule, currentHeight, targetHeight);
-  const estimatedDate = secondsRemaining === null ? null : new Date(now + secondsRemaining * 1000);
-  const progress = currentHeight / targetHeight;
+  const network = NETWORK === 'crosslink' ? 'crosslink-testnet' : NETWORK;
+  const { data, error } = useApiQuery<unknown>('/v1/network/stats', undefined, {
+    enabled: NETWORK !== 'crosslink', refreshInterval: 30_000,
+    initialData: initialStats ?? undefined,
+  });
+  const lastVerifiedSnapshot = readUpgradeSnapshot(data, network);
+  const snapshot = error ? null : lastVerifiedSnapshot;
+  const currentHeight = lastVerifiedSnapshot?.height ?? initialCurrentHeight;
+  const upgrade = getFutureBlockUpgrade(targetHeight, network, lastVerifiedSnapshot);
+  const announced = upgrade?.authority === 'announcement';
+  const blocksRemaining = Math.max(0, targetHeight - currentHeight);
+  const estimate = estimateBlockArrival(snapshot, targetHeight);
+  const arrivalDate = estimateBlockArrivalDate(snapshot, targetHeight);
+  const progressHeight = Number.isSafeInteger(targetHeight) && targetHeight > 0
+    && Number.isSafeInteger(currentHeight) && currentHeight >= 0
+    ? Math.min(currentHeight, targetHeight) : null;
+  const progress = progressHeight === null ? null : progressHeight / targetHeight * 100;
+  // Reserve a displayed 100% for a chain that has reached the target block.
+  const progressLabel = progress === null ? null : (Math.floor(progress * 10_000) / 10_000).toFixed(4);
 
   // If the block has been mined while we're on this page, link to it
-  if (blocksRemaining <= 0) {
+  if (blocksRemaining <= 0 && !error) {
     return (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
         <Card>
           <CardBody className="text-center py-16">
             <h1 className="type-page font-mono text-primary mb-3">
-              Block #{targetHeight.toLocaleString()} Has Been Mined!
+              Block #{targetHeight.toLocaleString()} has been reached
             </h1>
-            {upgrade ? (
+            {announced ? (
+              <p className="text-secondary mb-6">The announced NU7 block has been reached. Activation is unverified because the serving node does not report this upgrade.</p>
+            ) : upgrade ? (
               <p className="text-secondary mb-6">
-                <span className="text-cipher-yellow-bright font-semibold">{upgrade.name}</span> has activated on the Zcash network.
+                <span className="text-cipher-yellow-bright font-semibold">{upgrade.name}</span> has reached its scheduled block. Open it to check the latest status.
               </p>
             ) : (
               <p className="text-secondary mb-6">
-                This block is now part of the Zcash blockchain.
+                The network has reached this block. Open it to see the details.
               </p>
             )}
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Link
-                href={`/block/${targetHeight}`}
+                href={`/block/${targetHeight}`} prefetch={false}
                 className="btn btn-md btn-primary"
               >
                 View Block →
@@ -123,10 +82,10 @@ export function FutureBlockView({
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 animate-fade-in">
       {/* Header */}
       <div className="mb-6">
-        <span className="text-caption font-mono text-muted tracking-wider">&gt; FUTURE_BLOCK</span>
+        <span className="text-caption font-mono text-muted tracking-wider">{upgrade ? 'Network upgrade' : 'Upcoming block'} · Zcash {NETWORK === 'testnet' ? 'testnet' : NETWORK === 'crosslink' ? 'Crosslink testnet' : 'mainnet'}</span>
         <div className="flex flex-wrap items-center gap-3 mt-1">
           <h1 className="type-page font-mono text-primary">
-            Zcash Block #{targetHeight.toLocaleString()}
+            {announced ? 'NU7 Mainnet Preview' : upgrade?.name === 'NU7 activation' ? 'NU7 Activation' : 'Zcash Block'} #{targetHeight.toLocaleString('en-US')}
           </h1>
           {upgrade ? (
             <Badge color="amber">{upgrade.badge || 'NETWORK UPGRADE'}</Badge>
@@ -135,8 +94,7 @@ export function FutureBlockView({
           )}
         </div>
         <p className="mt-3 text-xs sm:text-sm text-secondary">
-          This block has not been mined yet. Estimates use the serving node&apos;s
-          announced target-spacing schedule.
+          {announced ? 'Preview the announced NU7 mainnet block and its approximate arrival.' : error ? 'We’re having trouble getting the latest block.' : upgrade ? 'Follow the countdown to the next network upgrade.' : 'This block is still ahead. Follow its progress below.'}
         </p>
       </div>
 
@@ -162,7 +120,7 @@ export function FutureBlockView({
               {upgrade.link && (
                 <Link
                   href={upgrade.link}
-                  className="inline-flex items-center gap-1.5 mt-3 text-xs font-mono text-cipher-yellow-bright hover:text-cipher-ironwood transition-colors"
+                  className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium text-cipher-yellow-bright hover:text-cipher-ironwood transition-colors"
                 >
                   {upgrade.linkText || 'Migration tracker →'}
                 </Link>
@@ -172,101 +130,60 @@ export function FutureBlockView({
         </div>
       )}
 
-      {/* Countdown Card */}
+      {error && <p role="status" className="mb-4 text-sm text-muted">We can’t update the countdown right now. The block count is from our last update, and the time estimate is paused.</p>}
+
       <Card className="mb-6">
-        <CardBody>
-          <div className="text-center py-6">
-            {/* Big countdown */}
-            <div className="font-mono text-4xl sm:text-5xl font-semibold text-primary mb-2 tabular-nums">
-              {secondsRemaining === null ? 'Unavailable' : formatDuration(secondsRemaining)}
+        <CardBody className="!p-6 sm:!p-8">
+          <div className="text-center py-4 sm:py-6">
+            <p className="text-sm text-secondary mb-3">{announced ? 'The announced block is expected in' : upgrade ? `${upgrade.name === 'NU7 activation' ? 'NU7' : upgrade.name} arrives in` : 'This block is expected in'}</p>
+            <div className="text-4xl sm:text-5xl font-semibold tracking-tight text-primary tabular-nums">
+              {estimate === null ? 'Time unavailable' : `About ${formatUpgradeTime(estimate.seconds)}`}
             </div>
-            <div className="text-sm text-muted font-mono">estimated time remaining</div>
-
-            {/* Estimated date */}
-            <div className="mt-6 pt-6 border-t border-cipher-border">
-              <div className="text-xs text-muted uppercase tracking-wider mb-1">Estimated arrival</div>
-              <div className="font-mono text-sm text-secondary">
-                {estimatedDate === null ? 'Unavailable' : formatEstimatedDate(estimatedDate)}
-              </div>
-            </div>
+            <p className="mt-3 text-sm text-secondary"><span className="font-medium text-primary tabular-nums">{blocksRemaining.toLocaleString('en-US')}</span> {blocksRemaining === 1 ? 'block' : 'blocks'} to go</p>
+            {announced ? (
+              <p className="mt-3 text-sm text-secondary">Announced date: <time dateTime={upgrade.announcedDate} className="font-medium text-primary">{ANNOUNCED_MAINNET_NU7.dateLabel}</time></p>
+            ) : arrivalDate ? (
+              <p className="mt-3 text-sm text-secondary">Estimated arrival: <time dateTime={arrivalDate.dateTime} className="font-medium text-primary">{arrivalDate.label}</time></p>
+            ) : null}
           </div>
-        </CardBody>
-      </Card>
-
-      {/* Details Card */}
-      <Card className="mb-6">
-        <CardBody className="space-y-0">
-          <div className="flex flex-col sm:flex-row sm:items-center py-3 border-b border-cipher-border gap-2 sm:gap-0">
-            <div className="flex items-center min-w-[180px] text-secondary text-xs sm:text-sm">
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-              </svg>
-              Current Height
-            </div>
-            <div className="flex-1 font-mono text-xs sm:text-sm text-primary">
-              <Link href={`/block/${currentHeight}`} className="text-cipher-gold hover:underline">
-                #{currentHeight.toLocaleString()}
-              </Link>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center py-3 border-b border-cipher-border gap-2 sm:gap-0">
-            <div className="flex items-center min-w-[180px] text-secondary text-xs sm:text-sm">
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-              Target Height
-            </div>
-            <div className="flex-1 font-mono text-xs sm:text-sm text-primary font-semibold">
-              #{targetHeight.toLocaleString()}
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center py-3 border-b border-cipher-border gap-2 sm:gap-0">
-            <div className="flex items-center min-w-[180px] text-secondary text-xs sm:text-sm">
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Blocks Remaining
-            </div>
-            <div className="flex-1 font-mono text-xs sm:text-sm text-primary">
-              {blocksRemaining.toLocaleString()}
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center py-3 gap-2 sm:gap-0">
-            <div className="flex items-center min-w-[180px] text-secondary text-xs sm:text-sm">
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Block Interval
-            </div>
-            <div className="flex-1 font-mono text-xs sm:text-sm text-muted">
-              {scheduledSeconds(schedule, currentHeight, currentHeight + 1) != null ? `${scheduledSeconds(schedule, currentHeight, currentHeight + 1)} seconds (target)` : 'Unavailable'}
-            </div>
-          </div>
-
-          {/* Progress bar */}
-          <div className="pt-4 mt-4 border-t border-cipher-border">
-            <div className="flex items-center justify-between mb-2">
+          <div className="mt-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
               <span className="text-caption font-mono text-muted uppercase tracking-wider">Chain progress</span>
-              <span className="text-caption font-mono text-secondary">{(progress * 100).toFixed(4)}%</span>
+              <span className="text-caption font-mono text-secondary tabular-nums">{progressLabel === null ? 'Unavailable' : `${progressLabel}%`}</span>
             </div>
-            <div className="h-1.5 rounded-full bg-cipher-border overflow-hidden">
+            {progress !== null && progressHeight !== null && (
               <div
-                className="h-full rounded-full bg-gradient-to-r from-cipher-gold to-cipher-purple transition-[width] duration-1000"
-                style={{ width: `${Math.min(progress * 100, 100)}%` }}
-              />
-            </div>
+                role="progressbar"
+                aria-label="Chain progress"
+                aria-valuemin={0}
+                aria-valuemax={targetHeight}
+                aria-valuenow={progressHeight}
+                aria-valuetext={`Block ${currentHeight.toLocaleString('en-US')} of ${targetHeight.toLocaleString('en-US')}; ${blocksRemaining.toLocaleString('en-US')} ${blocksRemaining === 1 ? 'block' : 'blocks'} remaining`}
+                className="h-1.5 rounded-full bg-cipher-border overflow-hidden"
+              >
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-cipher-gold to-cipher-purple transition-[width] duration-1000 motion-reduce:transition-none"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            )}
           </div>
+          <dl className="mt-6 grid grid-cols-1 gap-5 border-t border-cipher-border pt-6 sm:grid-cols-2 sm:gap-8">
+            <div>
+              <dt className="text-sm text-secondary mb-2">Latest block</dt>
+              <dd className="font-mono text-primary tabular-nums"><Link href={`/block/${currentHeight}`} prefetch={false} className="hover:text-cipher-gold transition-colors">#{currentHeight.toLocaleString('en-US')}</Link></dd>
+            </div>
+            <div>
+              <dt className="text-sm text-secondary mb-2">{announced ? 'Announced block' : upgrade ? 'Activation block' : 'Upcoming block'}</dt>
+              <dd className="font-mono text-primary tabular-nums">#{targetHeight.toLocaleString('en-US')}</dd>
+            </div>
+          </dl>
         </CardBody>
       </Card>
-
-      {/* Disclaimer */}
-      <div className="text-center text-xs text-muted font-mono space-y-1">
-        <p>Estimates follow known target-spacing changes. Unscheduled upgrades and mining variance can change arrival times.</p>
-        <p>Actual times vary due to mining difficulty adjustments and hash rate fluctuations.</p>
-      </div>
+      <p className="text-center text-xs sm:text-sm text-muted leading-relaxed">
+        {estimate ? `Timing is based on ${estimate.basis} and updates every 30 seconds. ` : ''}
+        {announced ? 'The announced date is approximate; activation still requires a supporting node release. ' : upgrade ? 'The upgrade starts at its activation block. ' : ''}The arrival time may change as blocks are mined.
+      </p>
     </div>
   );
 }

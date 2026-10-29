@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { CURRENCY } from '@/lib/config';
 import { formatHumanDate } from './helpers';
 import type { AddressData } from './types';
 
@@ -35,7 +36,7 @@ export function AddressSummary({ data, totalTxCount }: AddressSummaryProps) {
     if (funding.funderLabel && funding.funderAddress) {
       return (
         <Link
-          href={`/address/${funding.funderAddress}`}
+          href={`/address/${funding.funderAddress}`} prefetch={false}
           className="text-cipher-gold hover:text-primary transition-colors"
         >
           {funding.funderLabel}
@@ -45,7 +46,7 @@ export function AddressSummary({ data, totalTxCount }: AddressSummaryProps) {
     if (funding.funderAddress) {
       return (
         <Link
-          href={`/address/${funding.funderAddress}`}
+          href={`/address/${funding.funderAddress}`} prefetch={false}
           className="text-cipher-gold hover:text-primary transition-colors"
         >
           {shortAddr(funding.funderAddress)}
@@ -61,14 +62,14 @@ export function AddressSummary({ data, totalTxCount }: AddressSummaryProps) {
       {funding && funding.isCoinbase && (
         <>
           {' '}
-          It first received {fmtZec(funding.amountZec)} ZEC as a mining reward on{' '}
+          It first received {fmtZec(funding.amountZec)} {CURRENCY} as a mining reward on{' '}
           {formatHumanDate(funding.blockTime)}.
         </>
       )}
       {funding && !funding.isCoinbase && (
         <>
           {' '}
-          It first received {fmtZec(funding.amountZec)} ZEC from {funderNode} on{' '}
+          It first received {fmtZec(funding.amountZec)} {CURRENCY} from {funderNode} on{' '}
           {formatHumanDate(funding.blockTime)}.
         </>
       )}

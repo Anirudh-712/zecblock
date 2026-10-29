@@ -1,4 +1,5 @@
 import { formatUSD, formatZec } from "./format";
+import type { VenueProviderRecord } from "./VenueTransferDetails";
 export const IS_DEMO = process.env.NEXT_PUBLIC_CROSSCHAIN_DEMO === "1";
 export type Amount = string | null;
 export type Unit = "usd" | "zec";
@@ -8,7 +9,6 @@ export const STATUSES = [
   "FAILED",
   "REFUNDED",
   "PROCESSING",
-  "PENDING_DEPOSIT",
   "INCOMPLETE_DEPOSIT",
 ];
 export const CHAINS: Record<string, string> = {
@@ -17,6 +17,8 @@ export const CHAINS: Record<string, string> = {
   btc: "Bitcoin",
   sol: "Solana",
   near: "NEAR",
+  maya: "Maya",
+  thor: "THORChain",
   base: "Base",
   arb: "Arbitrum",
   tron: "Tron",
@@ -157,6 +159,7 @@ export interface Analytics {
   }[];
   chainOutcomes?: { chain: string; status: string; count: number }[];
   routes: Route[];
+  routeRankings?: Record<"swaps" | Unit, Route[]>;
   distribution: {
     bucket: number;
     swaps: number;
@@ -183,6 +186,9 @@ export interface Analytics {
   volumeDefinition: string;
 }
 export interface Swap {
+  venue?: "maya" | "thorchain";
+  refundKind?: "partial" | "full" | null;
+  providerRecord?: VenueProviderRecord;
   id: string;
   depositAddress: string;
   depositMemo: string | null;

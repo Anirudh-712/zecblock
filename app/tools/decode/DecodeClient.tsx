@@ -533,7 +533,7 @@ export default function DecodeClient() {
                                 Previous TX
                               </label>
                               <div className="block-hash-bg px-3 py-2 rounded border border-cipher-border">
-                                <Link href={`/tx/${vin.txid}`}>
+                                <Link href={`/tx/${vin.txid}`} prefetch={false}>
                                   <code className="text-xs text-cipher-gold hover:underline break-all block">
                                     {vin.txid}
                                   </code>
@@ -645,7 +645,7 @@ export default function DecodeClient() {
                               To
                             </label>
                             <div className="block-hash-bg px-3 py-2 rounded border border-cipher-border">
-                              <Link href={`/address/${vout.scriptPubKey.address}`}>
+                              <Link href={`/address/${vout.scriptPubKey.address}`} prefetch={false}>
                                 <code className="text-xs text-cipher-gold hover:underline break-all block">
                                   {vout.scriptPubKey.address}
                                 </code>

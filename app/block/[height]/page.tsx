@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import {
   getBaseUrl,
   getApiUrl,
+  getNetwork,
   getBlockResolution,
+  BLOCK_HASH_PATTERN,
   normalizeBlockIdentifier,
   type BlockRecord,
 } from '@/lib/seo';
@@ -11,6 +13,8 @@ import { fetchWithDeadline } from '@/lib/server-fetch';
 import BlockPageClient, { type BlockPageSummary } from './BlockPageClient';
 import { FutureBlockView } from './FutureBlockView';
 import { retainLastGoodOrBuildFallback } from '@/lib/isr-fallback';
+import { getUpgradeStats } from '@/lib/network-upgrades-server';
+import { readUpgradeSnapshot, getFutureBlockUpgrade } from '@/lib/network-upgrades';
 
 function blockDescription(block: BlockRecord, height: number, hash: string): string {
   const transactionCount = Number(
@@ -54,7 +58,21 @@ export default async function BlockPage({
     if (requestedHeight !== null && requestedHeight >= 0) {
       const tipHeight = await getCurrentTipHeight();
       if (requestedHeight > tipHeight) {
-        return <FutureBlockView targetHeight={requestedHeight} currentHeight={tipHeight} />;
+        const initialStats = await getUpgradeStats();
+        const upgrade = getFutureBlockUpgrade(requestedHeight, getNetwork(), readUpgradeSnapshot(initialStats, getNetwork()));
+        const url = `${getBaseUrl()}/block/${requestedHeight}`;
+        const name = `${upgrade?.name ?? 'Future Zcash block'} #${requestedHeight.toLocaleString('en-US')}`;
+        const description = `${name} on Zcash ${getNetwork()}. This block is pending, ${Math.max(0, requestedHeight - tipHeight).toLocaleString('en-US')} blocks beyond the verified chain tip. ${upgrade?.description ?? 'Arrival time is an estimate.'}`;
+        const schema = {
+          '@context': 'https://schema.org', '@type': 'WebPage', '@id': `${url}#webpage`,
+          url, name, description, isPartOf: { '@id': `${getBaseUrl()}/#website` },
+          mainEntity: { '@type': 'Thing', '@id': `${url}#block`, url, name, description,
+            identifier: { '@type': 'PropertyValue', propertyID: 'Zcash block height', value: String(requestedHeight) } },
+        };
+        return <>
+          <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replace(/</g, '\\u003c') }} />
+          <FutureBlockView targetHeight={requestedHeight} currentHeight={tipHeight} initialStats={initialStats} />
+        </>;
       }
     }
     notFound();
@@ -75,6 +93,10 @@ export default async function BlockPage({
   const height = Number(block.height);
   const hash = block.hash.toLowerCase();
   const isOrphaned = block.isOrphaned === true;
+  const replacementHash = block.canonicalBlock?.hash;
+  const canonicalReplacementHeight = isOrphaned && typeof replacementHash === 'string'
+    && BLOCK_HASH_PATTERN.test(replacementHash) && replacementHash.toLowerCase() !== hash
+    ? height : null;
   const rawTransactionCount = block.transactionCount ?? block.transaction_count ?? null;
   const transactionCount = rawTransactionCount === null || rawTransactionCount === undefined
     ? null
@@ -87,6 +109,7 @@ export default async function BlockPage({
     height,
     hash,
     isOrphaned,
+    canonicalReplacementHeight,
     timestamp: Number.isFinite(timestamp) ? timestamp : null,
     transactionCount: Number.isFinite(transactionCount) ? transactionCount : null,
     size: Number.isFinite(size) ? size : null,

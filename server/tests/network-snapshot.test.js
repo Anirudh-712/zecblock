@@ -15,12 +15,15 @@ function load(stats, { fail = false } = {}) {
     exports, Date,
     require(name) {
       if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx, Fragment: 'fragment' };
+      if (name === '@/lib/issuance-curve') return { dailySupplyHistory: points => points };
+      if (name === '@/lib/network-upgrades') return { readUpgradeSnapshot: () => null };
       if (name === 'next/link') return { default: 'Link' };
       if (name === './NetworkClient') return { default: 'NetworkClient' };
       if (name === '@/components/RelativeTime') return { RelativeTimeProvider: 'RelativeTimeProvider' };
       if (name === '@/lib/seo') return { getNetwork: () => 'mainnet', getApiUrl: () => 'https://api.test', getBaseUrl: () => 'https://cipherscan.app' };
       if (name === '@/lib/api-client') return { readApiData: response => response.json() };
       if (name === '@/lib/isr-fallback') return { retainLastGoodOrBuildFallback: (_fallback, error) => { throw error; } };
+      if (name === '@/lib/block-speed-server') return { loadBlockSpeedSnapshot: async () => ({ story: { fixture: 'block-speed' } }) };
       if (name === '@/lib/server-fetch') return { fetchWithDeadline: async (url, init) => {
         calls.push({ url, init });
         return { ok: !fail, json: async () => url.endsWith('/network/stats') ? stats : { points } };
@@ -43,6 +46,7 @@ test('valid network statistics object is seeded and every server fetch uses five
   const tree = await page();
   const data = find(tree, 'NetworkClient').props.initialData;
   assert.equal(data.stats, stats, 'network object must not be mistaken for a network-name string');
+  assert.deepEqual(data.blockSpeed, { fixture: 'block-speed' });
   assert.ok(calls.length >= 6);
   for (const call of calls) assert.equal(call.init.next.revalidate, 300, call.url);
   // Main retains every historical point; assay has moved this dataset to Pools.

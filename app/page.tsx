@@ -1,7 +1,6 @@
 import { readApiData } from '@/lib/api-client';
 import Link from 'next/link';
 import { SearchBar } from '@/components/SearchBar';
-import { HeroBlockGrid } from '@/components/HeroBlockGrid';
 import { HomeBlocksProvider } from '@/components/HomeBlocksProvider';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { HomeFeedCard } from '@/components/HomeFeedCard';
@@ -122,16 +121,10 @@ export default async function Home() {
           does not add a fourth chrome edge under the nav. No `overflow: hidden` here: the search suggestions
           dropdown is absolutely positioned inside and must escape the band. */}
       <section className="home-hero-band">
-        {/* Shares the max-w-7xl container so the hero, the logo above it and
-            the feed tables below all start on the same left edge.
-            z-index so the search dropdown sits above the widgets below. */}
+        {/* z-index so the search dropdown sits above the widgets below. */}
         <div className="home-hero relative z-30 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <HeroBlockGrid />
           <div className="home-introduction">
-            {/* Kept small on purpose: this line is the indexable page subject,
-                not the visual centrepiece. The search field below is what the
-                page is actually for, so it gets the visual weight. */}
-            <h1 className="type-section text-primary">
+            <h1 className="text-primary">
               {crosslinkMode
                 ? 'The Zcash Crosslink Explorer'
                 : isTestnet
@@ -143,11 +136,11 @@ export default async function Home() {
                 ? 'Explore the Zcash Crosslink hybrid PoW/PoS feature net. Track finality, staking windows, validators, and blocks in real time.'
                 : isTestnet
                   ? 'Search TAZ blocks, transactions, and addresses on the Zcash testnet. Monitor pending transactions and network activity before using mainnet.'
-                  : 'Inspect the Zcash network. Blocks, transactions and shielded pools.'}
+                  : 'Explore Zcash with ZecBlock. Search blocks, transactions and addresses, and understand shielded pools.'}
             </p>
           </div>
 
-          {/* Search shares the centered hero column; input contents remain left-aligned. */}
+          {/* Input contents stay left-aligned inside the centred column. */}
           <div className="home-command">
             <SearchBar />
           </div>
@@ -168,12 +161,12 @@ export default async function Home() {
               Learn Crosslink →
             </Link>
             <a
-              href="https://github.com/ShieldedLabs/crosslink_monolith/releases/tag/season-1-workshop-1"
+              href="https://github.com/ShieldedLabs/crosslink_monolith/releases/tag/v14"
               target="_blank"
               rel="noopener noreferrer"
               className="text-xs font-mono text-muted hover:text-primary px-3 py-2.5 rounded-lg border border-white/[0.06] hover:border-cipher-gold/30 transition text-center"
             >
-              Join Season 1 →
+              Join v14 Round 3 →
             </a>
           </div>
         </div>

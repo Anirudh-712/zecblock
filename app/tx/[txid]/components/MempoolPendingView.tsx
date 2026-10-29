@@ -202,7 +202,7 @@ export function MempoolPendingView({
                       className="flex items-center justify-between py-2 px-3 rounded-lg bg-glass-2"
                     >
                       <Link
-                        href={`/address/${out.address}`}
+                        href={`/address/${out.address}`} prefetch={false}
                         className="text-xs font-mono text-cipher-gold hover:underline truncate max-w-[60%]"
                       >
                         {out.address}

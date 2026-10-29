@@ -30,6 +30,11 @@ export async function readApiResponse<T = unknown>(response: Response): Promise<
   try { body = await response.json(); } catch {
     throw new ApiError(response.ok ? 'The API returned an invalid response.' : `Request failed (HTTP ${response.status}).`, response.status);
   }
+  return parseApiResponse<T>(response, body);
+}
+
+/** Reuse envelope validation after a server caller has bounded JSON size and read time. */
+export function parseApiResponse<T = unknown>(response: Response, body: unknown): ApiEnvelope<T> {
   const record = body && typeof body === 'object' ? body as Record<string, unknown> : null;
   if (!response.ok) {
     throw new ApiError(

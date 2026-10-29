@@ -3,6 +3,7 @@
 import { ExportButton } from '@/components/ExportButton';
 import { AddressLabel } from '@/components/AddressLabel';
 import { Badge } from '@/components/ui/Badge';
+import { CURRENCY } from '@/lib/config';
 import { Icons } from './icons';
 import type { AddressData, Transaction } from './types';
 
@@ -51,7 +52,7 @@ export function AddressHeader({
           filename={`address-${address.slice(0, 12)}`}
           type="both"
           label="Export"
-          csvHeaders={['TXID', 'Block', 'Timestamp', 'Type', 'Amount (ZEC)']}
+          csvHeaders={['TXID', 'Block', 'Timestamp', 'Type', `Amount (${CURRENCY})`]}
           csvMapper={(tx: Transaction) => [
             tx.txid,
             String(tx.blockHeight || ''),

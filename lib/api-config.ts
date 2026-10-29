@@ -9,7 +9,7 @@
  * Network is auto-detected from the domain:
  * - cipherscan.app → mainnet
  * - testnet.zecblock.com → testnet
- * - crosslink.cipherscan.app → crosslink-testnet
+ * - crosslink.zecblock.com → crosslink-testnet
  * - localhost → testnet (default)
  */
 import {
@@ -46,7 +46,7 @@ const DEFAULT_API_URLS: Record<Network, string> = {
   'mainnet': 'https://api.zecblock.com',
   'testnet': 'https://api.testnet.zecblock.com',
   'crosslink-testnet': normalizeApiBaseUrl(
-    process.env.NEXT_PUBLIC_CROSSLINK_API_URL || 'https://api.crosslink.cipherscan.app',
+    process.env.NEXT_PUBLIC_CROSSLINK_API_URL || 'https://api.crosslink.zecblock.com',
   ),
 };
 
@@ -61,6 +61,16 @@ export function getApiUrlForNetwork(network: Network): string {
     : process.env.NEXT_PUBLIC_API_URL;
 
   return normalizeApiBaseUrl(configuredUrl || DEFAULT_API_URLS[network]);
+}
+
+/**
+ * Server-only base URL for another public network's API. The deployment's own
+ * API override applies only to its own network.
+ */
+export function getPeerNetworkApiUrl(network: 'mainnet' | 'testnet'): string {
+  if (network === NETWORK) return getApiUrlForNetwork(network);
+  const override = network === 'mainnet' ? process.env.MAINNET_API_URL : process.env.TESTNET_API_URL;
+  return normalizeApiBaseUrl(override || DEFAULT_API_URLS[network]);
 }
 
 export const API_CONFIG = {

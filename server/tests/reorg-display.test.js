@@ -54,6 +54,7 @@ test('malformed block paths are rejected before a streaming response starts', as
       'next/server': { NextResponse },
       './lib/governance-request': {},
       './lib/network': {},
+      './lib/address-syntax': {},
     })[name],
   });
   for (const id of ['bad-hash', '-1', '100000001', 'g'.repeat(64)]) {
@@ -105,6 +106,56 @@ test('block list routing preserves every archive filter and only rewrites unfilt
       }
       const response = await exports.proxy(new NextRequest(`https://${host}/blocks?min_txs=0&max_txs=10&pool=one&pool=two`));
       assert.equal(response.headers.get('x-middleware-rewrite'), null);
+    }
+  }
+});
+
+test('identifier aliases redirect before SSR without changing network, query or orphan identity', async () => {
+  const { NextRequest, NextResponse } = require('next/server');
+  const { unstable_doesMiddlewareMatch } = require('next/experimental/testing/server');
+  const exports = {};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync('proxy.ts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText, { exports, URL, process: { env: { NODE_ENV: 'development' } }, setInterval: () => {},
+    require: name => ({
+      'next/server': { NextResponse },
+      './lib/governance-request': {},
+      './lib/network': {},
+    })[name],
+  });
+  for (const host of ['zecblock.com', 'testnet.zecblock.com', 'crosslink.zecblock.com']) {
+    for (const [alias, canonical] of [
+      [`/tx/${'Ab'.repeat(32)}`, `/tx/${'ab'.repeat(32)}`],
+      [`/block/${'Cd'.repeat(32)}`, `/block/${'cd'.repeat(32)}`],
+      ['/block/0003492072', '/block/3492072'],
+      ['/block/000', '/block/0'],
+    ]) {
+      const url = `https://${host}${alias}?utm_source=reference`;
+      assert.equal(unstable_doesMiddlewareMatch({ config: exports.config, nextConfig: {}, url }), true);
+      const response = await exports.proxy(new NextRequest(url));
+      assert.equal(response.status, 308);
+      assert.equal(response.headers.get('location'), `https://${host}${canonical}?utm_source=reference`);
+    }
+    const canonicalTx = `https://${host}/tx/${'ab'.repeat(32)}`;
+    assert.equal(unstable_doesMiddlewareMatch({ config: exports.config, nextConfig: {}, url: canonicalTx }), false,
+      'ordinary transaction views must not gain a paid Proxy invocation');
+    // Malformed ids reach Proxy so it can return a styled 404 instead of the
+    // unstyled SSR error shell that a layout notFound() produces. The matcher
+    // must stay linear for long input.
+    for (const identifier of ['A'.repeat(63), 'A'.repeat(65), `${'A'.repeat(64)}g`, `${'A'.repeat(8192)}g`]) {
+      const started = process.hrtime.bigint();
+      assert.equal(unstable_doesMiddlewareMatch({ config: exports.config, nextConfig: {}, url: `https://${host}/tx/${identifier}` }), true,
+        'malformed transaction ids must reach the Proxy 404');
+      assert.ok(process.hrtime.bigint() - started < 50_000_000n, 'matching long invalid input must stay fast');
+    }
+    for (const identifier of ['3492072', 'cd'.repeat(32), '0'.repeat(64)]) {
+      const response = await exports.proxy(new NextRequest(`https://${host}/block/${identifier}`));
+      assert.equal(response.headers.get('location'), null, 'a canonical hash, including an orphan, stays a hash lookup');
+    }
+    for (const identifier of ['-01', '100000001', '000100000001', 'invalid']) {
+      const response = await exports.proxy(new NextRequest(`https://${host}/block/${identifier}`));
+      assert.equal(response.status, 404, 'normalization must not rescue an invalid identifier');
+      assert.equal(response.headers.get('location'), null);
     }
   }
 });

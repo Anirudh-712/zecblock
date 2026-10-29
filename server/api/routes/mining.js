@@ -11,6 +11,8 @@ const express = require('express');
 const router = express.Router();
 const { POOL_BY_ADDRESS, POOL_BY_TAG, getPoolTagSql, getPoolName } = require('../mining-pools');
 const { logSafeError } = require('../lib/safe-log');
+const { orphanRates } = require('../lib/orphan-rates');
+const minerBehavior = require('../lib/miner-behavior');
 
 let pool;
 let redisClient;
@@ -76,6 +78,18 @@ router.get('/api/mining/software', async (req,res) => {
   }
 });
 
+router.get('/api/mining/orphan-rates', async (req, res) => {
+  try {
+    // Use the request's read pool; no node RPC, writes or schema changes.
+    const data = await orphanRates(req.app.locals.pool);
+    res.set('Cache-Control', 'public, max-age=30');
+    res.json(data);
+  } catch (error) {
+    logSafeError('Observed orphan rates failed:', error);
+    res.status(503).set('Cache-Control', 'no-store').json({ success: false, error: 'Observed orphan rates unavailable' });
+  }
+});
+
 router.get('/api/mining/pool-distribution', async (req, res) => {
   try {
     const period = req.query.period || '7d';
@@ -108,7 +122,7 @@ router.get('/api/mining/pool-distribution', async (req, res) => {
     for (const row of result.rows) {
       const name = resolvePoolName(row.miner_address, row.pool_tag);
       if (!poolAgg[name]) {
-        poolAgg[name] = { address: row.miner_address, name, blocks: 0, totalFeesZat: BigInt(0) };
+        poolAgg[name] = { address: name === 'Unknown' ? null : row.miner_address, name, blocks: 0, totalFeesZat: BigInt(0) };
       }
       poolAgg[name].blocks += parseInt(row.block_count);
       poolAgg[name].totalFeesZat += BigInt(row.total_fees_zat || '0');
@@ -193,7 +207,7 @@ router.get('/api/mining/pool-ranking', async (req, res) => {
       const poolInfo = POOL_BY_ADDRESS[row.miner_address] || POOL_BY_TAG[row.pool_tag];
       if (!poolAgg[name]) {
         poolAgg[name] = {
-          address: row.miner_address,
+          address: name === 'Unknown' ? null : row.miner_address,
           name,
           url: poolInfo?.url || null,
           region: poolInfo?.region || null,
@@ -357,97 +371,32 @@ router.get('/api/mining/rewards', async (req, res) => {
 // ============================================================================
 router.get('/api/mining/miner-behavior', async (req, res) => {
   try {
-    const period = req.query.period || '90d';
-    const cacheKey = `mining:history-v3:miner-behavior:${period}`;
-
+    const period = req.query.period || '30d';
+    if (!['24h','3d','7d','30d','90d','6m','1y','all'].includes(period)) return res.status(400).json({ error: 'Invalid period' });
+    const cacheKey = `mining:history-v4:miner-behavior:${period}`;
     const cached = await getFromCache(cacheKey);
     if (cached) return res.json(cached);
 
     const interval = parsePeriod(period);
     const whereClause = interval
-      ? `WHERE date >= CURRENT_DATE - INTERVAL '${interval}'`
-      : '';
-
-    // Check if snapshot table exists
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables
-        WHERE table_name = 'mining_behavior_daily'
-      ) as exists
-    `);
-
+      ? `WHERE date >= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date - INTERVAL '${interval}' AND date < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`
+      : `WHERE date < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`;
+    const tableCheck = await pool.query(`SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='mining_behavior_daily') AS exists`);
     if (!tableCheck.rows[0].exists) {
-      return res.json({
-        period,
-        series: [],
-        summary: null,
-        message: 'Miner behavior data is being computed. Check back soon.',
-        generatedAt: new Date().toISOString(),
-      });
+      return res.set('Cache-Control', 'no-store').json(minerBehavior.unavailable(period, 'snapshots_not_configured'));
     }
-
     const result = await pool.query(`
-      SELECT
-        date::text AS date,
-        pool_name,
-        earned_zat,
-        spent_zat,
-        held_zat,
-        blocks_mined,
-        outputs_spent,
-        outputs_total
-      FROM mining_behavior_daily
-      ${whereClause}
-      ORDER BY date, pool_name
+      SELECT date::text AS date, pool_name, earned_zat, spent_zat, held_zat,
+             blocks_mined, outputs_spent, outputs_total, updated_at
+      FROM mining_behavior_daily ${whereClause} ORDER BY date, pool_name
     `);
-
-    // Group by date for aggregate view
-    const byDate = new Map();
-    for (const row of result.rows) {
-      const dateKey = row.date;
-      if (!byDate.has(dateKey)) {
-        byDate.set(dateKey, { date: dateKey, earned: BigInt(0), spent: BigInt(0), held: BigInt(0), pools: {} });
-      }
-      const entry = byDate.get(dateKey);
-      const earned = BigInt(row.earned_zat);
-      const spent = BigInt(row.spent_zat);
-      const held = BigInt(row.held_zat);
-      entry.earned += earned;
-      entry.spent += spent;
-      entry.held += held;
-      entry.pools[row.pool_name] = {
-        earned: row.earned_zat,
-        spent: row.spent_zat,
-        held: row.held_zat,
-        blocks: parseInt(row.blocks_mined),
-      };
-    }
-
-    const series = [...byDate.values()].map(entry => ({
-      date: entry.date,
-      earnedZat: entry.earned.toString(),
-      spentZat: entry.spent.toString(),
-      heldZat: entry.held.toString(),
-      sellRatio: entry.earned > 0n ? Number((entry.spent * 10000n) / entry.earned) / 10000 : 0,
-      pools: entry.pools,
-    }));
-
-    // Compute overall summary
-    const totalEarned = series.reduce((s, r) => s + BigInt(r.earnedZat), 0n);
-    const totalSpent = series.reduce((s, r) => s + BigInt(r.spentZat), 0n);
-    const summary = {
-      totalEarnedZat: totalEarned.toString(),
-      totalSpentZat: totalSpent.toString(),
-      totalHeldZat: (totalEarned - totalSpent).toString(),
-      overallSellRatio: totalEarned > 0n ? Number((totalSpent * 10000n) / totalEarned) / 10000 : 0,
-    };
-
-    const response = { period, series, summary, generatedAt: new Date().toISOString() };
-    await setCache(cacheKey, response, 900); // 15 min cache
+    const response = minerBehavior.summarize(period, result.rows);
+    if (response.status === 'available') await setCache(cacheKey, response, 900);
+    else res.set('Cache-Control', 'no-store');
     res.json(response);
   } catch (error) {
     logSafeError('Error fetching miner behavior:', error);
-    res.status(500).json({ error: 'Failed to fetch miner behavior' });
+    res.status(503).set('Cache-Control', 'no-store').json({ error: 'Miner reward spending snapshots are temporarily unavailable' });
   }
 });
 

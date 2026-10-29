@@ -233,6 +233,7 @@ function buildOperation(entry) {
   return {
     operationId: operationId(entry.method, entry.v1.path),
     summary: entry.description,
+    ...(entry.v1.description ? { description: entry.v1.description } : {}),
     tags: [entry.domain],
     ...(parameters.length ? { parameters } : {}),
     ...(entry.method === 'POST' ? { requestBody: { required: true, content: { 'application/json': { schema: requestSchema(entry) } } } } : {}),

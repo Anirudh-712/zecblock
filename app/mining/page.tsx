@@ -1,5 +1,6 @@
 'use client';
 import { MiningSoftwareSection } from '@/components/mining/MiningSoftwareSection';
+import { OrphanRateSection } from '@/components/mining/OrphanRateSection';
 import { readApiData } from '@/lib/api-client';
 import { ChartWatermark } from '@/components/ChartWatermark';
 import { ChartSkeleton } from '@/components/ui/Skeleton';
@@ -12,20 +13,26 @@ import {
   XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend,
 } from 'recharts';
 import { ChartTooltip as Tooltip } from '@/components/charts/ChartTooltip';
-import { getApiUrl } from '@/lib/api-config';
+import { getApiUrl, NETWORK } from '@/lib/api-config';
 import { useTheme } from '@/contexts/ThemeContext';
 import { categoryColor } from '@/lib/category-colors';
 import { getChartColors } from '@/lib/chart-theme';
 import { Card, CardBody } from '@/components/ui/Card';
-import { PageHeader, SectionHeader, DataTable, SkeletonTable } from '@/components/ui';
+import { PageHeader, SectionHeader, SkeletonTable } from '@/components/ui';
 import { ChartCard } from '@/components/network/ChartCard';
 import { PageSectionNav } from '@/components/PageSectionNav';
 import { MiningMetricsChart } from '@/components/network/MiningMetricsChart';
 import { NetworkHashrateChart } from '@/components/network/NetworkHashrateChart';
 import { zatToZec } from '@/lib/format-numbers';
+import { useUrlState } from '@/lib/use-url-state';
+import { ExportButton } from '@/components/ExportButton';
+import { zatToZecString } from '@/lib/csv';
+import { objectRowsCsv } from '@/components/charts/PanelShareControl';
+import { SortableDataTable } from '@/components/ui/SortableDataTable';
 
 const SECTIONS = [
   { id: 'metrics', label: 'Network' },
+  { id: 'orphans', label: 'Orphan rates' },
   { id: 'distribution', label: 'Distribution' },
   { id: 'ranking', label: 'Ranking' },
   { id: 'software', label: 'Mining software' },
@@ -117,23 +124,27 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
 
 function DistributionSection() {
   const { theme } = useTheme();
-  const [period, setPeriod] = useState<Period>('7d');
+  const [period, setPeriod] = useUrlState<Period>('distribution', '30d', PERIODS);
   const [data, setData] = useState<PoolDist[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Ignore a slower response for a period that is no longer selected.
+    let cancelled = false;
     setLoading(true);
     fetch(`${getApiUrl()}/v1/mining/pool-distribution?period=${period}`)
       .then(r => r.ok ? readApiData(r) : null)
       .then(res => {
+        if (cancelled) return;
         if (res?.pools) {
           setData(res.pools);
           setTotal(res.totalBlocks);
         }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [period]);
 
   // Group small shares into Other; the full ranking remains available below.
@@ -167,45 +178,67 @@ function DistributionSection() {
 
 function RankingSection() {
   const { theme } = useTheme();
-  const [period, setPeriod] = useState<Period>('7d');
+  const [period, setPeriod] = useUrlState<Period>('ranking', '30d', PERIODS);
   const [ranking, setRanking] = useState<PoolRank[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     fetch(`${getApiUrl()}/v1/mining/pool-ranking?period=${period}`)
       .then(r => r.ok ? readApiData(r) : null)
       .then(res => {
+        if (cancelled) return;
         if (res?.ranking) {
           setRanking(res.ranking);
           setTotal(res.totalBlocks);
         }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [period]);
 
   return (
     <section id="ranking" className="scroll-mt-36 mb-12 animate-fade-in-up stagger-3">
       <Card>
         <CardBody>
-          <SectionHeader label="POOL_RANKING" actions={<PeriodSelector value={period} onChange={setPeriod} />} />
+          <SectionHeader label="POOL_RANKING" actions={
+            <div className="flex flex-wrap items-center gap-2">
+              <PeriodSelector value={period} onChange={setPeriod} />
+              {ranking.length > 0 && (
+                <ExportButton
+                  type="csv"
+                  data={ranking}
+                  filename={`zecblock-pool-ranking-${period}`}
+                  csvHeaders={['Rank', 'Pool', 'Payout address', 'Region', 'Blocks', 'Share (fraction of blocks)', 'Average block interval (s)', 'Total fees (ZEC)']}
+                  csvMapper={(pool: PoolRank) => [
+                    String(pool.rank), pool.name, pool.address, pool.region ?? '', String(pool.blocks), String(pool.share),
+                    String(pool.avgBlockInterval ?? ''), zatToZecString(pool.totalFeesZat),
+                  ]}
+                />
+              )}
+            </div>
+          } />
 
           {loading ? (
             <SkeletonTable rows={5} headers={["#", "Pool", "Blocks", "Share", "Avg interval", "Total fees"]} />
           ) : (
             <>
-              <DataTable
+              <SortableDataTable
                 bare
+                caption={`Mining pool ranking by blocks found, ${period}`}
                 columns={[
                   {
                     id: 'rank',
+                    sortValue: (pool: PoolRank) => pool.rank,
                     header: '#',
                     cell: (pool: PoolRank) => <span className="font-mono text-xs text-muted">{pool.rank}</span>,
                   },
                   {
                     id: 'pool',
+                    sortValue: (pool: PoolRank) => pool.name,
                     header: 'Pool',
                     cell: (pool) => (
                       <div className="flex items-center gap-2">
@@ -222,6 +255,7 @@ function RankingSection() {
                   },
                   {
                     id: 'blocks',
+                    sortValue: (pool: PoolRank) => pool.blocks,
                     header: 'Blocks',
                     align: 'right',
                     cell: (pool) => (
@@ -230,6 +264,7 @@ function RankingSection() {
                   },
                   {
                     id: 'share',
+                    sortValue: (pool: PoolRank) => pool.share,
                     header: 'Share',
                     align: 'right',
                     cell: (pool) => (
@@ -249,6 +284,7 @@ function RankingSection() {
                   },
                   {
                     id: 'interval',
+                    sortValue: (pool: PoolRank) => pool.avgBlockInterval,
                     header: 'Avg Interval',
                     align: 'right',
                     className: 'hidden sm:table-cell',
@@ -260,6 +296,7 @@ function RankingSection() {
                   },
                   {
                     id: 'fees',
+                    sortValue: (pool: PoolRank) => Number(pool.totalFeesZat),
                     header: 'Total Fees',
                     align: 'right',
                     className: 'hidden md:table-cell',
@@ -269,7 +306,7 @@ function RankingSection() {
                   },
                 ]}
                 rows={ranking}
-                rowKey={(pool) => pool.address}
+                rowKey={(pool) => `${pool.rank}:${pool.name}:${pool.address}`}
               />
               <p className="text-caption text-muted font-mono mt-3">
                 {total.toLocaleString()} total blocks in {period}
@@ -314,7 +351,7 @@ function ChartModeToggle({ mode, onChange }: { mode: ChartMode; onChange: (m: Ch
 function HashrateShareSection() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
-  const [period, setPeriod] = useState<Period>('all');
+  const [period, setPeriod] = useUrlState<Period>('share', '30d', PERIODS);
   const [chartMode, setChartMode] = useState<ChartMode>('line');
   const [series, setSeries] = useState<HashratePoint[]>([]);
   const [allPools, setAllPools] = useState<string[]>([]);
@@ -322,17 +359,20 @@ function HashrateShareSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     fetch(`${getApiUrl()}/v1/mining/hashrate-share?period=${period}`)
       .then(r => r.ok ? readApiData(r) : null)
       .then(res => {
+        if (cancelled) return;
         if (res?.series) {
           setSeries(res.series);
           setAllPools(res.allPools || []);
         }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [period]);
 
   const poolOrder = [...allPools].sort((a, b) => {
@@ -373,6 +413,7 @@ function HashrateShareSection() {
     <section id="hashrate" className="scroll-mt-36 mb-12 animate-fade-in-up stagger-4">
       <ChartCard
         title="POOL_NETWORK_BLOCK_SHARE"
+        share={{ title: `Zcash mining pool block share (${period})`, fileName: `zecblock-pool-block-share-${period}`, csv: () => objectRowsCsv(chartData) }}
         height={380}
         controls={chartControls}
       >
@@ -398,6 +439,7 @@ function HashrateShareSection() {
                 domain={[0, 100]}
               />
               <Tooltip
+                itemSorter={(item) => -Number(item.value)}
                 cursor={cursorStyle}
                 contentStyle={{
                   backgroundColor: colors.tooltipBg,
@@ -446,6 +488,7 @@ function HashrateShareSection() {
                 domain={[0, 'auto']}
               />
               <Tooltip
+                itemSorter={(item) => -Number(item.value)}
                 cursor={cursorStyle}
                 contentStyle={{
                   backgroundColor: colors.tooltipBg,
@@ -510,25 +553,41 @@ function HashrateShareSection() {
 function MinerBehaviorSection() {
   const { theme } = useTheme();
   const colors = getChartColors(theme);
-  const [period, setPeriod] = useState<Period>('all');
+  const [period, setPeriod] = useUrlState<Period>('behavior', '30d', PERIODS);
   const [series, setSeries] = useState<BehaviorPoint[]>([]);
   const [summary, setSummary] = useState<BehaviorSummary | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [coverage, setCoverage] = useState<{ firstDate: string; lastDate: string; refreshedAt: string | null; freshness: 'current' | 'stale' | 'unknown' } | null>(null);
   const [loading, setLoading] = useState(true);
+  const currency = NETWORK === 'mainnet' ? 'ZEC' : 'TAZ';
 
   useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
-    fetch(`${getApiUrl()}/v1/mining/miner-behavior?period=${period}`)
-      .then(r => r.ok ? readApiData(r) : null)
-      .then(res => {
-        if (res) {
-          setSeries(res.series || []);
-          setSummary(res.summary || null);
-          setMessage(res.message || null);
-        }
-        setLoading(false);
+    setSeries([]);
+    setSummary(null);
+    setMessage(null);
+    setCoverage(null);
+    fetch(`${getApiUrl()}/v1/mining/miner-behavior?period=${period}`, { signal: controller.signal })
+      .then(async response => {
+        if (!response.ok) throw new Error('Miner behavior unavailable');
+        return readApiData(response);
       })
-      .catch(() => setLoading(false));
+      .then(data => {
+        if (controller.signal.aborted) return;
+        if (!data || !Array.isArray(data.series)) throw new Error('Invalid miner behavior response');
+        setSeries(data.series);
+        setSummary(data.series.length ? data.summary || null : null);
+        setCoverage(data.coverage || null);
+        setMessage(data.series.length ? null : data.message || 'No miner reward spending snapshots are available for this period.');
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setMessage('Miner behavior data is temporarily unavailable. Try again later.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, [period]);
 
   const chartData = series.map(p => ({
@@ -556,8 +615,8 @@ function MinerBehaviorSection() {
           </Link>
         </div>
         <p className="text-xs text-secondary mt-1 font-sans">
-          How much of their block rewards miners move vs leave unspent. A high moved ratio means rewards changed address
-          quickly; it does not prove they were sold. The{' '}
+          Spending of attributed miner payout outputs, grouped by the date the reward was earned. A movement means
+          an output was spent; it does not prove a sale. Amounts reflect current indexed spending when refreshed, rather than spending on the reward date. Unattributed payouts are excluded. The{' '}
           <Link href="/zodl" className="text-cipher-gold hover:underline">ZODL leaderboard</Link> breaks each pool&apos;s spending down by destination (shielded vs. exchange vs. transparent), showing observed transfers rather than proving sales.
         </p>
       </div>
@@ -568,7 +627,7 @@ function MinerBehaviorSection() {
             <CardBody className="py-3">
               <p className="text-caption font-mono text-muted uppercase mb-1">Total Earned</p>
               <p className="text-lg font-semibold font-mono tabular-nums text-primary">
-                {formatZec(summary.totalEarnedZat)} ZEC
+                {formatZec(summary.totalEarnedZat)} {currency}
               </p>
             </CardBody>
           </Card>
@@ -576,7 +635,7 @@ function MinerBehaviorSection() {
             <CardBody className="py-3">
               <p className="text-caption font-mono text-muted uppercase mb-1">Total Moved</p>
               <p className="text-lg font-semibold font-mono tabular-nums text-cipher-orange">
-                {formatZec(summary.totalSpentZat)} ZEC
+                {formatZec(summary.totalSpentZat)} {currency}
               </p>
             </CardBody>
           </Card>
@@ -584,13 +643,13 @@ function MinerBehaviorSection() {
             <CardBody className="py-3">
               <p className="text-caption font-mono text-muted uppercase mb-1">Still Held</p>
               <p className="text-lg font-semibold font-mono tabular-nums text-cipher-green">
-                {formatZec(summary.totalHeldZat)} ZEC
+                {formatZec(summary.totalHeldZat)} {currency}
               </p>
             </CardBody>
           </Card>
           <Card>
             <CardBody className="py-3">
-              <p className="text-caption font-mono text-muted uppercase mb-1">Sell Ratio</p>
+              <p className="text-caption font-mono text-muted uppercase mb-1">Moved Ratio</p>
               <p className="text-lg font-semibold font-mono tabular-nums text-primary">
                 {(summary.overallSellRatio * 100).toFixed(1)}%
               </p>
@@ -601,16 +660,16 @@ function MinerBehaviorSection() {
 
       <ChartCard
         title="MINER_EARNED_VS_MOVED"
+        share={{ title: `Zcash miner rewards earned vs moved (${period})`, fileName: `zecblock-miner-earned-vs-moved-${period}`, csv: () => objectRowsCsv(chartData) }}
         height={320}
         controls={<PeriodSelector value={period} onChange={setPeriod} />}
       >
         {loading ? (
           <ChartSkeleton height={320} />
-        ) : message ? (
+        ) : message || !chartData.length ? (
           <div className="flex items-center justify-center h-[320px]">
             <div className="text-center">
-              <p className="text-sm text-muted font-mono">{message}</p>
-              <p className="text-caption text-muted mt-2">Run the snapshot job to populate this data.</p>
+              <p className="text-sm text-muted font-mono">{message || 'No miner reward spending snapshots are available for this period.'}</p>
             </div>
           </div>
         ) : (
@@ -630,7 +689,7 @@ function MinerBehaviorSection() {
                 stroke={colors.axis}
                 tick={{ fill: colors.axis, fontSize: 12 }}
                 tickFormatter={(v: number) => `${v.toFixed(0)}`}
-                label={{ value: 'ZEC', angle: -90, position: 'insideLeft', fill: colors.axis, fontSize: 12 }}
+                label={{ value: currency, angle: -90, position: 'insideLeft', fill: colors.axis, fontSize: 12 }}
               />
               <Tooltip
                 cursor={{ fill: 'rgba(255,255,255,0.03)' }}
@@ -644,14 +703,14 @@ function MinerBehaviorSection() {
                 itemStyle={{ color: colors.tooltipText }}
                 labelStyle={{ color: colors.tooltipText, marginBottom: 4 }}
                 formatter={(value, name) => {
-                  const label = name === 'earned' ? 'Earned' : name === 'spent' ? 'Moved/Sold' : 'Held';
-                  return [`${Number(value).toFixed(2)} ZEC`, label];
+                  const label = name === 'earned' ? 'Earned' : name === 'spent' ? 'Moved' : 'Held';
+                  return [`${Number(value).toFixed(2)} ${currency}`, label];
                 }}
                 labelFormatter={(label) => String(label)}
               />
               <Legend
                 wrapperStyle={{ fontSize: 12, fontFamily: 'var(--font-geist-mono), monospace' }}
-                formatter={(value) => value === 'earned' ? 'Earned' : value === 'spent' ? 'Moved/Sold' : 'Held'}
+                formatter={(value) => value === 'earned' ? 'Earned' : value === 'spent' ? 'Moved' : 'Held'}
               />
               <Bar dataKey="earned" fill={colors.gold} fillOpacity={0.3} stroke={colors.gold} />
               <Bar dataKey="spent" fill={colors.deshielding} fillOpacity={0.7} />
@@ -660,6 +719,13 @@ function MinerBehaviorSection() {
           </ResponsiveContainer>
         )}
       </ChartCard>
+      {coverage && series.length > 0 && (
+        <p className="text-caption text-muted mt-3">
+          Available reward dates: {coverage.firstDate}–{coverage.lastDate}.
+          {coverage.refreshedAt && ` Oldest snapshot refresh: ${new Date(coverage.refreshedAt).toLocaleString(undefined, { timeZone: 'UTC' })} UTC.`}
+          {coverage.freshness === 'stale' && ' Some snapshots are more than 48 hours old.'}
+        </p>
+      )}
     </section>
   );
 }
@@ -670,7 +736,7 @@ export default function MiningPage() {
       <PageHeader
         eyebrow="MINING"
         title="Zcash Mining"
-        subtitle="Hashrate, difficulty, block economics, pool distribution, software markers, and miner behavior."
+        subtitle="Hashrate, observed orphan rates, block economics, pool distribution, software markers, and miner behavior."
       />
 
       <PageSectionNav sections={SECTIONS} ariaLabel="Mining pool sections" />
@@ -679,6 +745,7 @@ export default function MiningPage() {
         <NetworkHashrateChart />
       </section>
 
+      <OrphanRateSection />
       <DistributionSection />
       <RankingSection />
       <MiningSoftwareSection />
@@ -694,19 +761,22 @@ export default function MiningPage() {
           <div className="space-y-3 text-sm text-muted leading-relaxed">
             <p>
               Zcash is secured by Equihash proof-of-work mining with a block target set by the active network upgrade.
-              Pool attribution is derived from coinbase transaction payout addresses. A single
-              pool may use multiple addresses; unknown addresses are labeled by region when
-              identifiable through peer analysis.
+              Pool attribution uses corroborated coinbase payout addresses and recognized public
+              pool tags, cross-checked against ZecMiningPool’s network feed. A pool may use
+              multiple addresses or a shielded payout. Software markers do not establish pool
+              identity, and unidentified miners remain unattributed.
             </p>
             <p>
-              Miner behavior tracks whether coinbase outputs (block rewards) have been spent
-              or remain unspent. This is a moved-versus-unspent measure; destination analysis
+              Miner behavior tracks transparent coinbase outputs paid to the tracked miner address.
+              Shielded rewards and outputs to other payout addresses are outside this measure.
+              It records whether those tracked outputs have been spent or remain unspent.
+              This is a moved-versus-unspent measure; destination analysis
               is required before describing a movement as shielding, exchange transfer, or sale.
             </p>
           </div>
         </div></details>
       </section>
-      <nav aria-label="Related mining analysis" className="grid sm:grid-cols-3 gap-3">{[{href:'/network#issuance',title:'Issuance & halving',text:'Block subsidy and the remaining schedule.'},{href:'/zodl',title:'Miner reward destinations',text:'Observe the first move of mined rewards.'},{href:'/network/nodes',title:'Node explorer',text:'Reachability, clients and geographic coverage.'}].map(l=><Link key={l.href} href={l.href} className="border border-cipher-border rounded-lg p-4 hover:bg-glass-3"><span className="text-sm font-mono">{l.title} →</span><span className="block mt-2 text-xs text-muted">{l.text}</span></Link>)}</nav>
+      <nav aria-label="Related mining analysis" className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">{[{href:'/network#issuance',title:'Issuance & halving',text:'Block subsidy and the remaining schedule.'},{href:'/zodl',title:'Miner reward destinations',text:'Observe the first move of mined rewards.'},{href:'/reorgs',title:'Forks & orphaned blocks',text:'Inspect observed reorgs and competing blocks.'},{href:'/network/nodes',title:'Node explorer',text:'Reachability, clients and geographic coverage.'}].map(l=><Link key={l.href} href={l.href} className="border border-cipher-border rounded-lg p-4 hover:bg-glass-3"><span className="text-sm font-mono">{l.title} →</span><span className="block mt-2 text-xs text-muted">{l.text}</span></Link>)}</nav>
     </div>
   );
 }

@@ -384,7 +384,7 @@ export default function FinalizerPage() {
                         <StakingActionBadge type={a.action_type} compact />
                       </td>
                       <td className="px-3 sm:px-4 py-3">
-                        <Link href={`/block/${a.block_height}`} className="text-cipher-gold hover:underline font-mono">
+                        <Link href={`/block/${a.block_height}`} prefetch={false} className="text-cipher-gold hover:underline font-mono">
                           #{a.block_height.toLocaleString()}
                         </Link>
                       </td>
@@ -609,6 +609,7 @@ function DelegatorsPanel({ actions }: { actions: StakeAction[] }) {
                     <td className="px-3 sm:px-4 py-3">
                       <Link
                         href={`/block/${d.lastActionHeight}`}
+                        prefetch={false}
                         className="text-cipher-gold hover:underline font-mono"
                       >
                         #{d.lastActionHeight.toLocaleString()}

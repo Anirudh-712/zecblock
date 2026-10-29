@@ -8,6 +8,8 @@ import { getApiUrl } from '@/lib/api-config';
 import { Card, CardBody, Badge, DataTable, HashLink, EmptyState, type DataTableColumn } from '@/components/ui';
 
 import { BlockFirstSeen, BLOCK_FIRST_SEEN_EXPLANATION } from '@/components/BlockFirstSeen';
+import { ExportButton } from '@/components/ExportButton';
+import { SortableDataTable, type SortableColumn } from '@/components/ui/SortableDataTable';
 
 const API_URL = getApiUrl();
 
@@ -95,12 +97,13 @@ interface NodesSummary {
   forking: number;
 }
 
-const forkColumns: DataTableColumn<ForkEvent>[] = [
+const forkColumns: SortableColumn<ForkEvent>[] = [
   {
     id: 'height',
     header: 'Height',
+    sortValue: (fork) => fork.forkHeight,
     cell: (fork) => (
-      <Link href={`/block/${fork.forkHeight}`} className="text-cipher-gold hover:underline font-mono text-xs">
+      <Link href={`/block/${fork.forkHeight}`} prefetch={false} className="text-cipher-gold hover:underline font-mono text-xs">
         #{fork.forkHeight.toLocaleString()}
       </Link>
     ),
@@ -108,6 +111,7 @@ const forkColumns: DataTableColumn<ForkEvent>[] = [
   {
     id: 'depth',
     header: 'Depth',
+    sortValue: (fork) => fork.depth,
     align: 'center',
     cell: (fork) => (
       <Badge color={fork.depth > 3 ? 'orange' : fork.depth > 1 ? 'gold' : 'muted'}>
@@ -118,6 +122,7 @@ const forkColumns: DataTableColumn<ForkEvent>[] = [
   {
     id: 'blocks',
     header: 'Blocks',
+    sortValue: (fork) => fork.orphanedCount || fork.comparisons?.length || null,
     align: 'center',
     cell: (fork) => (
       <span className="font-mono text-xs text-secondary">
@@ -128,6 +133,7 @@ const forkColumns: DataTableColumn<ForkEvent>[] = [
   {
     id: 'source',
     header: 'Source',
+    sortValue: (fork) => fork.source,
     cell: (fork) => (
       <Badge color={fork.source === 'external' ? 'purple' : 'gold'}>
         {fork.source}
@@ -147,6 +153,7 @@ const forkColumns: DataTableColumn<ForkEvent>[] = [
   {
     id: 'detected',
     header: 'Detected',
+    sortValue: (fork) => Date.parse(fork.detectedAt),
     align: 'right',
     cell: (fork) => (
       <span className="text-xs text-muted font-mono whitespace-nowrap">
@@ -381,7 +388,7 @@ export default function UnclesPage() {
           <div>
             <span className="text-caption text-muted font-mono uppercase">Hash</span>
             <Link
-              href={isOrphan ? `/block/${block.hash}` : `/block/${height}`}
+              href={isOrphan ? `/block/${block.hash}` : `/block/${height}`} prefetch={false}
               className={`text-xs font-mono break-all hover:underline block mt-0.5 ${isOrphan ? 'text-cipher-orange' : 'text-cipher-green'}`}
             >
               {block.hash}
@@ -478,6 +485,33 @@ export default function UnclesPage() {
         >
           Monitored Nodes ({nodes.length})
         </button>
+        <div className="ml-auto self-center pb-1">
+          {tab === 'forks' && forks.length > 0 && (
+            <ExportButton
+              type="csv"
+              data={forks}
+              filename="zecblock-reorg-history"
+              csvHeaders={['Fork event', 'Fork height', 'Depth (blocks)', 'Orphaned blocks', 'Canonical tip', 'Source', 'Detected (UTC)', 'Resolved (UTC)', 'Description']}
+              csvMapper={(fork: ForkEvent) => [
+                String(fork.id), String(fork.forkHeight), String(fork.depth), String(fork.orphanedCount), String(fork.canonicalTip ?? ''),
+                fork.source, fork.detectedAt, fork.resolvedAt ?? '', fork.description ?? '',
+              ]}
+            />
+          )}
+          {tab === 'orphans' && orphans.length > 0 && (
+            <ExportButton
+              type="csv"
+              data={orphans}
+              filename="zecblock-orphaned-blocks"
+              csvHeaders={['Height', 'Orphaned hash', 'Canonical hash', 'Block time (UTC)', 'Transactions', 'Size (bytes)', 'Miner pool', 'Miner address', 'Source', 'Reported by', 'Consensus valid', 'Detected (UTC)', 'Fork event']}
+              csvMapper={(block: OrphanedBlock) => [
+                String(block.height), block.hash, block.canonicalHash ?? '', block.timestamp ? new Date(block.timestamp * 1000).toISOString() : '',
+                String(block.transactionCount), String(block.size), block.minerPool ?? '', block.minerAddress ?? '', block.source, block.reportedBy ?? '',
+                block.consensusValid == null ? '' : String(block.consensusValid), block.detectedAt, String(block.forkEventId ?? ''),
+              ]}
+            />
+          )}
+        </div>
       </div>
 
       {loading && (
@@ -517,7 +551,8 @@ export default function UnclesPage() {
 
       {/* Fork Events — Summary list */}
       {!loading && !error && tab === 'forks' && forks.length > 0 && (
-        <DataTable
+        <SortableDataTable
+          caption="Chain reorganization history"
           columns={forkColumns}
           rows={forks}
           rowKey={(fork) => fork.id}
@@ -549,7 +584,7 @@ export default function UnclesPage() {
                       onClick={() => setExpandedOrphan(expandedOrphan === block.id ? null : block.id)}
                     >
                       <td className="px-4 h-[44px] border-b border-cipher-border">
-                        <Link href={`/block/${block.height}`} className="text-cipher-gold hover:underline font-mono text-xs" onClick={e => e.stopPropagation()}>
+                        <Link href={`/block/${block.height}`} prefetch={false} className="text-cipher-gold hover:underline font-mono text-xs" onClick={e => e.stopPropagation()}>
                           #{block.height.toLocaleString()}
                         </Link>
                       </td>
@@ -585,7 +620,7 @@ export default function UnclesPage() {
                             <span className="text-xs text-muted">—</span>
                           )
                         ) : block.minerAddress ? (
-                          <Link href={`/address/${block.minerAddress}`} className="text-xs font-mono text-cipher-gold hover:underline truncate block max-w-[120px]" title={block.minerAddress} onClick={e => e.stopPropagation()}>
+                          <Link href={`/address/${block.minerAddress}`} prefetch={false} className="text-xs font-mono text-cipher-gold hover:underline truncate block max-w-[120px]" title={block.minerAddress} onClick={e => e.stopPropagation()}>
                             {block.minerPool}
                           </Link>
                         ) : (
