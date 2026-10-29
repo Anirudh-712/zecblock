@@ -8,7 +8,7 @@ const { NextRequest, NextResponse } = require('next/server');
 
 const repositoryRoot = path.resolve(__dirname, '../..');
 const source = (relativePath) => fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
-const KEY = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+const KEY = 'indexnow-test-key';
 
 function loadProxy({ network = 'mainnet', env = {} } = {}) {
   const compilerOptions = { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 };

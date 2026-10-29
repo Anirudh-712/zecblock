@@ -8,7 +8,7 @@ const {
   pathForEvent,
 } = require('../indexnow');
 
-const KEY = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+const KEY = 'indexnow-test-key';
 const TX_A = 'a'.repeat(64);
 const TX_B = 'b'.repeat(64);
 const HASH_1 = '1'.repeat(64);
