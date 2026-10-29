@@ -276,6 +276,11 @@ export function AskWorkspace() {
   function markSaved(docId: string) {
     setSessions(all => all.map(item => item.id !== activeId ? item : { ...item, title: tools.title, messages: item.messages.map(message => message.id === latestRecords?.id ? { ...message, savedDocumentId: docId } : message) }));
   }
+  // A conversation saved to the library shows the saved name, including renames.
+  function sessionTitle(item: Session) {
+    const docId = item.messages.findLast(message => message.savedDocumentId)?.savedDocumentId;
+    return (docId && tools.library.documents.find(doc => doc.id === docId)?.title) || item.title;
+  }
   function openSaved(doc: ResearchDocument, shared = false) {
     if (busy || tools.importing) return;
     const existing = shared ? undefined : sessions.find(item => item.messages.some(message => message.savedDocumentId === doc.id));
@@ -405,9 +410,9 @@ export function AskWorkspace() {
   return <div className={styles.workspace} ref={workspace}>
     <aside className={styles.sidebar} aria-label="Ask workspace navigation">
       <button type="button" onClick={newSession} className={styles.newButton} disabled={busy || tools.importing}><span aria-hidden="true">＋</span> New analysis</button>
-      {sessions.some(item => item.messages.length) ? <label className={styles.mobileSessions}><span className="sr-only">Recent analyses</span><select aria-label="Recent analyses" value={activeId} onChange={event => switchSession(Number(event.target.value))}>{sessions.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label> : null}
+      {sessions.some(item => item.messages.length) ? <label className={styles.mobileSessions}><span className="sr-only">Recent analyses</span><select aria-label="Recent analyses" value={activeId} onChange={event => switchSession(Number(event.target.value))}>{sessions.map(item => <option key={item.id} value={item.id}>{sessionTitle(item)}</option>)}</select></label> : null}
       <div className={styles.sidebarContent}>
-        {sessions.some(item => item.messages.length) ? <><p className={styles.sidebarHeading}>RECENT ANALYSES</p>{sessions.filter(item => item.messages.length).map(item => <button key={item.id} className={`${styles.session} ${activeId === item.id ? styles.selectedSession : ''}`} aria-current={activeId === item.id ? 'true' : undefined} onClick={() => switchSession(item.id)} title={item.title}>{item.title}</button>)}</> : null}
+        {sessions.some(item => item.messages.length) ? <><p className={styles.sidebarHeading}>RECENT ANALYSES</p>{sessions.filter(item => item.messages.length).map(item => { const title = sessionTitle(item); return <button key={item.id} className={`${styles.session} ${activeId === item.id ? styles.selectedSession : ''}`} aria-current={activeId === item.id ? 'true' : undefined} onClick={() => switchSession(item.id)} title={title}>{title}</button>; })}</> : null}
         {capability.researchEnabled || tools.library.documents.length ? <section aria-labelledby="ask-saved-heading">
           <p id="ask-saved-heading" className={`${styles.sidebarHeading} ${styles.savedHeading}`}><svg aria-hidden="true" viewBox="0 0 16 16" width="12" height="12"><path d="M4 2.5h8v11l-4-2.8-4 2.8z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/></svg>SAVED{tools.library.documents.length ? <span className={styles.countPill}>{tools.library.documents.length}</span> : null}</p>
           <ResearchLibrary tools={tools} busy={busy} onOpen={openSaved} compact/>
