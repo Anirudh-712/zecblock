@@ -27,10 +27,11 @@ export default function ResearchPlot({result,chart}:{result:ResearchResult;chart
  const series=chart.view==='bar'&&!many?chartSeries(result,chart.x):null;
  const stacked=!!chart.stacked&&many&&chart.view!=='line';
  const axes=stacked?values.map(()=>'left' as const):axisFor(result,values),right=axes.includes('right');
- const data=result.rows.map(row=>({x:chart.view==='bar'?chartLabel(result,row,chart.x,series?.column):row[chart.x]??'Unavailable',...Object.fromEntries(values.map(i=>[`v${i}`,row[i]===null?null:Number(row[i])])),fill:series?series.colorFor(row[series.column]):SERIES_COLORS[0]}));
+ const data=result.rows.map(row=>({x:chart.view==='bar'?chartLabel(result,row,chart.x,series?.column):row[chart.x]??'Unavailable',...Object.fromEntries(values.map(i=>[`v${i}`,row[i]===null?null:Number(row[i])])),...Object.fromEntries(values.map(i=>[`s${i}`,row[i]])),fill:series?series.colorFor(row[series.column]):SERIES_COLORS[0]}));
  if(data.some(d=>values.some(i=>{const v=(d as Record<string,unknown>)[`v${i}`];return v!==null&&!Number.isFinite(v);})))return <p className="text-sm text-secondary">Choose a numeric value column to draw this chart.</p>;
  const name=(i:number,k:number)=>`${result.columns[i].label.replaceAll('_',' ')}${axes[k]==='right'?' (right axis)':''}`;
- // Ordered labels are raw values; dates read as "Oct 2025" on the axis, exact in the tooltip.
+ // Ordered labels are raw values; dates read as "Oct 2025" on the axis. The tooltip
+ // shows readable dates and each value's exact cell text, never the drawn float.
  const dates=ordered?dateFormatter(result,chart.x):null;
  const xLabel=(value:unknown)=>shortLabel(dates&&typeof value==='string'?dates(value):value);
  const labelDates=dateFormatter(result,chart.x);
@@ -63,7 +64,7 @@ export default function ResearchPlot({result,chart}:{result:ResearchResult;chart
     {/* Bars start at zero; a level over time reads best on its own range. */}
     <YAxis yAxisId="left" tick={tick} tickLine={false} axisLine={false} width={52} tickFormatter={compact} domain={ordered&&!stacked?['auto','auto']:[0,'auto']}/>
     {right?<YAxis yAxisId="right" orientation="right" tick={tick} tickLine={false} axisLine={false} width={52} tickFormatter={compact} domain={ordered?['auto','auto']:[0,'auto']}/>:null}
-    <ChartTooltip contentStyle={{maxWidth:'min(420px,80vw)',overflowWrap:'anywhere'}}/>
+    <ChartTooltip contentStyle={{maxWidth:'min(420px,80vw)',overflowWrap:'anywhere'}} labelFormatter={value=>typeof value==='string'?pointLabel(value):value} formatter={(value,_name,item)=>{const key=String(item?.dataKey??'');const exact=(item?.payload as Record<string,string|null>|undefined)?.['s'+key.slice(1)];return exact===undefined?value:grouped(exact);}}/>
     {values.map((i,k)=>{
      const common={yAxisId:axes[k],dataKey:`v${i}`,name:name(i,k),...motion,...(stacked?{stackId:'stack'}:{})};
      if(chart.view==='bar')return <Bar key={i} {...common} fill={SERIES_COLORS[k]} radius={stacked&&k<values.length-1?0:[3,3,0,0]} maxBarSize={56}>
