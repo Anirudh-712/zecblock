@@ -315,3 +315,14 @@ test('a latest period still running past the indexed data is named to date and l
  const done=researchFacts({...monthly,indexedThrough:'2026-11-01T00:00:00Z'},[],'en').facts;
  assert.equal(done.partial_at,undefined);assert.equal(done.last_at,'October 2026');
 });
+
+test('coverage that ends exactly at midnight ends on the day before',async()=>{
+ const {windowFacts}=require('../../v1/lib/ask-research-reply');
+ const {parse}=require('pgsql-parser');
+ // activity_daily reports source_through 2026-10-29T00:00Z: complete through Oct 28.
+ const sql="SELECT date_trunc('month', date) AS month, sum(transactions) AS transactions FROM activity_daily WHERE date >= DATE '2025-11-01' AND date < DATE '2026-11-01' GROUP BY 1 ORDER BY 1";
+ const monthly=research(sql,[['month','text'],['transactions','number']],[['2025-11-01','473577'],['2026-09-01','363162'],['2026-10-01','208680']],{datasets:['activity_daily'],indexedThrough:'2026-10-29T00:00:00Z'});
+ assert.equal(researchFacts(monthly,[],'en').facts.partial_through,'Oct 28, 2026');
+ assert.equal(windowFacts(await parse(sql),'en','2026-10-29T00:00:00Z').facts.window,'Nov 1, 2025 – Oct 28, 2026 (to date)');
+ assert.equal(windowFacts(await parse(sql),'en','2026-10-29T22:55:02Z').facts.window,'Nov 1, 2025 – Oct 29, 2026 (to date)');
+});

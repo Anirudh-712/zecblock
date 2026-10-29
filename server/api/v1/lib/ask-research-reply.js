@@ -110,7 +110,8 @@ function windowFacts(tree,locale,through){
  const short=t=>new Date(t).toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short'}),long=t=>new Date(t).toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
  // The start keeps its year when the window crosses one ("Oct 1, 2025 – Sep 30, 2026").
  // A window ending after the indexed data ends at its last indexed day, to date.
- const last=Date.parse(through||''),indexed=Number.isFinite(last)?Date.UTC(new Date(last).getUTCFullYear(),new Date(last).getUTCMonth(),new Date(last).getUTCDate()):Infinity;
+ // Coverage ending exactly at midnight (daily tables) ends on the day before.
+ const last=Date.parse(through||'')-1,indexed=Number.isFinite(last)?Date.UTC(new Date(last).getUTCFullYear(),new Date(last).getUTCMonth(),new Date(last).getUTCDate()):Infinity;
  const span=(from,to)=>{const end=Math.min(at(to)-day,indexed),open=end<at(to)-day;return `${from.slice(0,4)===new Date(end).toISOString().slice(0,4)?short(at(from)):long(at(from))} – ${long(end)}${open?' (to date)':''}`;};
  const lengths=unique.slice(1).map((date,i)=>(at(date)-at(unique[i]))/day);
  const facts={},notes={};
@@ -221,7 +222,7 @@ function researchFacts(result,lineage,locale,{additive=[],shareOfTotal=[],partia
  const partialRow=label>=0?partialPeriod(result,label):-1,partialCells=partialRow>=0?rows[partialRow]:null;
  if(partialCells){
   facts.partial_at=cell(partialCells,label);
-  facts.partial_through=new Date(result.indexedThrough).toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
+  facts.partial_through=new Date(Date.parse(result.indexedThrough)-1).toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
   notes.partial_at='latest returned period, still incomplete: never compare it with complete periods or call it a low, decline or rise';
   notes.partial_through='last day of indexed data inside that incomplete period';
  }
