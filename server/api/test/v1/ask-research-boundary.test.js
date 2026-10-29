@@ -76,8 +76,8 @@ test('the Ask chat routes custom research and follow-ups through SQL without a s
   if(++stages===1){assert.deepEqual(body.currentResearch,query);assert.match(task.instruction,/three public tables/);return task.validator.parse({intent:'research',sql:query.sql,spec:null,blockQuery:null,transactionQuery:null,flowQuery:null,topics:['block'],locale:'en'});}
   assert.equal(body.evidence.facts.row_a_a,'9,007,199,254,740,993');
   assert.equal(body.evidence.facts.row_a_b,'unavailable');
-  assert.equal(task.validator.safeParse({summary:'Block 123 collected lots of fees.'}).success,false);
-  return task.validator.parse({summary:'The first returned block is {{row_a_a}}; its fee value is {{row_a_b}}.'});
+  assert.equal(task.validator.safeParse({finding:'Block 123 collected lots of fees.'}).success,false);
+  return task.validator.parse({finding:'The first returned block is {{row_a_a}}; its fee value is {{row_a_b}}.'});
  },null,new AbortController().signal,'fixed chart instructions',{},analytics);
  assert.equal(stages,2);assert.equal(executions,1);assert.equal(reply.research.rows[0][0],'9007199254740993');assert.match(reply.answer,/9,007,199,254,740,993/);assert.equal(reply.spec,null);
  for(const selection of [{intent:'research',sql:'DELETE FROM blocks'}, {intent:'unsupported',sql:null}]){
@@ -91,12 +91,12 @@ test('long results supply leading rows plus extremes over every returned row, no
  const {researchReply}=require('../../v1/lib/ask-research-reply');
  const result={query:{version:3,sql:'SELECT height FROM blocks',limit:100},columns:[{key:'c0',label:'day',type:'text'},{key:'c1',label:'count',type:'number'}],rows:Array.from({length:30},(_,i)=>['2026-09-'+String(i+1).padStart(2,'0'),String(i)]),truncated:false,datasets:['transactions'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-07T01:43:06Z',indexedThrough:'2026-10-07T01:43:05Z',coverage:'verified canonical records',units:'exact'};
  let captured;
- const reply=await researchReply(result,{question:'Daily counts',history:[]},async(input,task)=>{captured=input;assert.match(task.instruction,/exact extremes over every returned row/);return{summary:'The highest count is {{max_b}} on {{max_b_at}}.'};},'en');
+ const reply=await researchReply(result,{question:'Daily counts',history:[]},async(input,task)=>{captured=input;assert.match(task.instruction,/exact server calculations over the returned rows/);return{finding:'The highest count is {{max_b}} on {{max_b_at}}.'};},'en');
  assert.equal(captured.evidence.facts.row_count,'30');assert.equal(captured.evidence.facts.max_b,'29');assert.equal(captured.evidence.facts.min_b,'0');
  assert.equal(captured.evidence.facts.row_d_b,undefined);assert.equal(captured.evidence.rows,undefined);
  assert.equal(reply.answer,'The highest count is 29 on Sep 30, 2026.');
  for(const rows of [Array.from({length:41},()=>['date','1']),Array.from({length:30},()=>['x'.repeat(1000),'1'])]){
-  await researchReply({...result,rows},{question:'Counts',history:[]},async(input)=>{captured=input;return{summary:'The leading count is {{row_a_b}}.'};},'en');
+  await researchReply({...result,rows},{question:'Counts',history:[]},async(input)=>{captured=input;return{finding:'The leading count is {{row_a_b}}.'};},'en');
   assert.equal(captured.evidence.facts.row_count,String(rows.length));assert.ok(captured.evidence.facts.row_a_a.length<=160);
  }
 });
@@ -105,12 +105,12 @@ test('a fragmented prose table cannot replace a complete SQL result',async()=>{
  const {researchReply}=require('../../v1/lib/ask-research-reply');
  const result={query:{version:3,sql:'SELECT height FROM blocks',limit:100},columns:[{key:'c0',label:'height',type:'number'}],rows:[['100'],['101']],truncated:false,datasets:['blocks'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-07T01:43:06Z',indexedThrough:'2026-10-07T01:43:05Z',coverage:'verified canonical records',units:'exact'};
  const template='The first of 2 returned rows has height 100. Across all returned rows, height ranges from 100 to 101.';
- const reply=await researchReply(result,{question:'Show the table',history:[]},async()=>({summary:'Height | Count\n{{row_a_a}} |'}),'en');
+ const reply=await researchReply(result,{question:'Show the table',history:[]},async()=>({finding:'Height | Count\n{{row_a_a}} |'}),'en');
  assert.equal(reply.answer,template);
  assert.deepEqual(reply.research.rows,result.rows);
  assert.equal(reply.evidenceKey,result.fingerprint);
  // Numerical provenance remains mandatory: an unvalidated figure is never published.
- const literal=await researchReply(result,{question:'Show the table',history:[]},async()=>({summary:'Height | Count\n999 |'}),'en');
+ const literal=await researchReply(result,{question:'Show the table',history:[]},async()=>({finding:'Height | Count\n999 |'}),'en');
  assert.equal(literal.answer,template);assert.doesNotMatch(literal.answer,/999/);
 });
 
@@ -120,19 +120,19 @@ test('row counts and figures without placeholders cannot surface as misleading n
  const question={question:'How many blocks had fees above 50000 zatoshis?',history:[]};
  const reply=await researchReply(result,question,async(input,task)=>{
   assert.equal(input.evidence.facts.row_count,'1');assert.equal(input.evidence.facts.row_a_a,'59');
-  assert.equal(task.validator.shape.summary.safeParse('Among the last {{returned_rows}} blocks.').success,false);
+  assert.equal(task.validator.shape.finding.safeParse('Among the last {{returned_rows}} blocks.').success,false);
   assert.match(task.instruction,/never write digits/);
-  return {summary:'There were  {{row_a_a}}  blocks with fees above the threshold you specified.'};
+  return {finding:'There were  {{row_a_a}}  blocks with fees above the threshold you specified.'};
  },'en');
  assert.equal(reply.answer,'There were 59 blocks with fees above the threshold you specified.');
  const template='The single returned row has block_count 59.';
  // Observed live: the count was reused as the threshold, and strict decoding
  // replaced unavailable figures with a stray letter or punctuation glyph.
  for(const summary of ['Among recent blocks, {{row_a_a}} had fees above {{row_a_a}} zatoshis.','There were {{row_a_a}} blocks with fees greater than ɯ.','Among the last \u{1104D} blocks, {{row_a_a}} had high fees.']){
-  const fallback=await researchReply(result,question,async()=>({summary}),'en');
+  const fallback=await researchReply(result,question,async()=>({finding:summary}),'en');
   assert.equal(fallback.answer,template,summary);assert.deepEqual(fallback.research.rows,result.rows);
  }
- const french=await researchReply(result,{question:'Combien de blocs ?',history:[]},async()=>({summary:'Il y a eu {{row_a_a}} blocs aux frais élevés.'}),'fr');
+ const french=await researchReply(result,{question:'Combien de blocs ?',history:[]},async()=>({finding:'Il y a eu {{row_a_a}} blocs aux frais élevés.'}),'fr');
  assert.equal(french.answer,'Il y a eu 59 blocs aux frais élevés.');
 });
 
@@ -140,7 +140,7 @@ test('prose artifacts reject period runs and unattached marks while retaining no
  const {researchReply}=require('../../v1/lib/ask-research-reply');
  const result={query:{version:3,sql:'SELECT count(*) AS total FROM transactions',limit:100},columns:[{key:'c0',label:'total',type:'number'}],rows:[['542746']],truncated:false,datasets:['transactions'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-15T00:00:00Z',indexedThrough:'2026-10-15T00:00:00Z',coverage:'verified canonical records',units:'exact'};
  const answer=async(summary,evidence=result)=>{
-  const reply=await researchReply(evidence,{question:'Explain the count',history:[]},async(_,task)=>task.validator.parse({summary}),'en');
+  const reply=await researchReply(evidence,{question:'Explain the count',history:[]},async(_,task)=>task.validator.parse({finding:summary}),'en');
   assert.deepEqual(reply.research,evidence);assert.equal(reply.evidenceKey,evidence.fingerprint);return reply.answer;
  };
  const fallback='The single returned row has total 542,746.';
@@ -161,7 +161,7 @@ test('a unit attached to a research value must match its column conversion',asyn
  const zatoshis={...base,columns:[{key:'c0',label:'average_fee_per_block',type:'number'}],rows:[['225510.400000000000']]};
  const zec={...base,query:{...base.query,sql:'SELECT avg(fees)::numeric/100000000 AS average_fee_zec FROM blocks'},columns:[{key:'c0',label:'average_fee_zec',type:'number'}],rows:[['0.002255104']]};
  const answer=async(result,summary)=>{
-  const reply=await researchReply(result,{question:'Average fee?',history:[]},async()=>({summary}),'en');
+  const reply=await researchReply(result,{question:'Average fee?',history:[]},async()=>({finding:summary}),'en');
   assert.deepEqual(reply.research,result);assert.equal(reply.evidenceKey,result.fingerprint);return reply.answer;
  };
  const zatoshiFallback='The single returned row has average_fee_per_block 225,510.4 zatoshis.';
@@ -197,8 +197,8 @@ test('research facts preserve exact figures and legitimate ranks, dates and repe
  const {researchReply}=require('../../v1/lib/ask-research-reply');
  const base={query:{version:3,sql:'SELECT count(*) AS total FROM transactions',limit:100},columns:[{key:'c0',label:'total',type:'number'}],rows:[['542746']],truncated:false,datasets:['transactions'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-15T00:00:00Z',indexedThrough:'2026-10-15T00:00:00Z',coverage:'verified canonical records',units:'exact'};
  const answer=async(result,summary,locale='en')=>(await researchReply(result,{question:'Explain the result',history:[]},async(input,task)=>{
-  for(const invalid of ['Transactions amounted to {{returned_rows}} {{row_a_a}}.','Transactions amounted to {{returned_rows}}.'])assert.equal(task.validator.shape.summary.safeParse(invalid).success,false);
-  return {summary};
+  for(const invalid of ['Transactions amounted to {{returned_rows}} {{row_a_a}}.','Transactions amounted to {{returned_rows}}.'])assert.equal(task.validator.shape.finding.safeParse(invalid).success,false);
+  return {finding:summary};
  },locale)).answer;
  assert.equal(await answer(base,'Transactions amounted to {{row_a_a}}.'),'Transactions amounted to 542,746.');
  assert.equal(await answer({...base,rows:[['1']]},'There was {{row_a_a}} transaction.'),'There was 1 transaction.');
@@ -223,7 +223,7 @@ test('research monetary units follow expressions through aliases and mixed datas
  const {researchReply}=require('../../v1/lib/ask-research-reply');
  const base={query:{version:3,sql:'SELECT b.fees::numeric/100000000 AS fee_2026 FROM blocks b',limit:100},columns:[{key:'c0',label:'fee_2026',type:'number'}],rows:[['0.002255104']],truncated:false,datasets:['blocks'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-15T00:00:00Z',indexedThrough:'2026-10-15T00:00:00Z',coverage:'verified canonical records',units:'exact'};
  const answer=async(result,summary)=>{
-  const reply=await researchReply(result,{question:'Explain the result',history:[]},async()=>({summary}),'en');
+  const reply=await researchReply(result,{question:'Explain the result',history:[]},async()=>({finding:summary}),'en');
   assert.deepEqual(reply.research,result);assert.equal(reply.evidenceKey,result.fingerprint);return reply.answer;
  };
  const template=label=>`The single returned row has ${label} 0.002255104.`;
@@ -256,7 +256,7 @@ test('paired pool aliases cannot relabel stored zatoshis as ZEC',async()=>{
  let calls=0;
  const reply=await researchReply(result,{question:'Compare the pools',history:[]},async(input)=>{
   calls++;assert.equal(input.evidence.columns[1].unit,'unlabelled');assert.equal(input.evidence.facts.row_a_b,'100,000,000');
-  return {summary:'Orchard holds {{row_a_b}} ZEC.'};
+  return {finding:'Orchard holds {{row_a_b}} ZEC.'};
  },'en');
  assert.equal(calls,1);assert.doesNotMatch(reply.answer,/ZEC/);
  assert.equal(reply.answer,'The single returned row is Sep 3, 2026, with 100,000,000 orchard_zec and 200,000,000 ironwood_zec.');
@@ -288,14 +288,14 @@ test('wide growth results preserve final values and percentages in bounded narra
  const result={query:{version:3,sql:'SELECT height FROM blocks',limit:100},columns:labels.map((label,i)=>({key:'c'+i,label,type:[0,4,7,8].includes(i)?'number':'text'})),rows:[['1','Shielded transactions','2025-10-07','2025-11-06','55094','2026-09-07','2026-10-07','176694','220.71']],truncated:false,datasets:['transactions'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-07T01:43:06Z',indexedThrough:'2026-10-07T01:43:05Z',coverage:'verified canonical records',units:'exact'};
  const reply=await researchReply(result,{question:'Compare yearly growth',history:[]},async(input,task)=>{
   assert.equal(input.evidence.columns.length,9);
-  assert.equal(input.evidence.facts.row_a_h,'176,694');assert.equal(input.evidence.facts.row_a_i,'220.71%');assert.match(task.instruction,/Do not calculate new numbers/);
-  return {summary:'Shielded transactions grew from {{row_a_e}} to {{row_a_h}}, a change of {{row_a_i}} percent.'};
+  assert.equal(input.evidence.facts.row_a_h,'176,694');assert.equal(input.evidence.facts.row_a_i,'220.71%');assert.match(task.instruction,/Do not calculate or estimate any number yourself/);
+  return {finding:'Shielded transactions grew from {{row_a_e}} to {{row_a_h}}, a change of {{row_a_i}} percent.'};
  },'en');
  assert.match(reply.answer,/55,094 to 176,694/);assert.match(reply.answer,/220\.71%/);assert.deepEqual(reply.research,result);
  const wide={...result,columns:Array.from({length:24},(_,i)=>({key:'c'+i,label:'measure_'+i,type:'text'})),rows:Array.from({length:40},()=>Array(24).fill('x'.repeat(200)))};
  await researchReply(wide,{question:'Explain results',history:[]},async(input)=>{
   assert.ok(input.evidence.columns.length<=12);assert.ok(Buffer.byteLength(JSON.stringify(input.evidence))<=20000);
-  return {summary:'The leading measure is {{row_a_a}}.'};
+  return {finding:'The leading measure is {{row_a_a}}.'};
  },'en');
 });
 

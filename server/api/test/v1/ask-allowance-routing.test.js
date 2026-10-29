@@ -81,7 +81,7 @@ async function fixture(t, { jobsEnabled = true } = {}) {
       state.provider++;
       if (state.providerFailure) throw Error('Fixture provider transport failure');
       const input = JSON.parse(options.body), task = input.response_format.json_schema.name;
-      const value = JSON.parse(input.messages[1].content).evidence?.facts?.orchard_value ? { summary: 'The selected Orchard balance is {{orchard_value}}.', observations: [], limitation: '', sources: ['pools'] } : task === 'contextual_intent' ? { intent: 'research', sql: query.sql, spec: null, blockQuery: null, transactionQuery: null, flowQuery: null, topics: [], locale: 'en' } : task === 'research_sql' ? { sql: query.sql } : task === 'research_caption' ? { summary: 'The first returned fee is {{row_a_b}} zatoshis.' } : { summary: 'The first returned fee is {{row_a_b}} zatoshis.', observations: [], limitation: '', sources: ['block'] };
+      const value = JSON.parse(input.messages[1].content).evidence?.facts?.orchard_value ? { summary: 'The selected Orchard balance is {{orchard_value}}.', observations: [], limitation: '', sources: ['pools'] } : task === 'contextual_intent' ? { intent: 'research', sql: query.sql, spec: null, blockQuery: null, transactionQuery: null, flowQuery: null, topics: [], locale: 'en' } : task === 'research_sql' ? { sql: query.sql } : task === 'research_caption' ? { finding: 'The first returned fee is {{row_a_b}} zatoshis.', interpretation: '' } : { summary: 'The first returned fee is {{row_a_b}} zatoshis.', observations: [], limitation: '', sources: ['block'] };
       return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] });
     },
   });

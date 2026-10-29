@@ -175,7 +175,7 @@ test('locale-formatted date facts keep all their punctuation inside a complete r
  const {researchReply}=require('../../v1/lib/ask-research-reply');
  const result={query:{version:3,sql:'SELECT date,shielded_transactions FROM activity_daily',limit:100},columns:[{key:'c0',label:'date',type:'text'},{key:'c1',label:'shielded_transactions',type:'number'}],rows:[['2026-09-03','22283']],truncated:false,datasets:['activity_daily'],fingerprint:'a'.repeat(64),retrievedAt:'2026-10-12T00:00:00Z',indexedThrough:'2026-10-12T00:00:00Z',coverage:'verified canonical records',units:'exact'};
  for(const locale of ['de','fr']){
-  const reply=await researchReply(result,{question:'Activity'},async()=>({summary:'Datum {{row_a_a}}: {{row_a_b}} transactions. Completed finding.',observations:[],limitation:''}),locale,()=>({instruction:''}));
+  const reply=await researchReply(result,{question:'Activity'},async()=>({finding:'Datum {{row_a_a}}: {{row_a_b}} transactions. Completed finding.'}),locale,()=>({instruction:''}));
   const date=new Date('2026-09-03T00:00:00Z').toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
   assert.ok(reply.answer.includes(date));assert.ok(reply.answer.includes('22,283'));assert.ok(reply.answer.endsWith('Completed finding.'));
  }
