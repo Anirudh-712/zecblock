@@ -25,3 +25,20 @@ test('shared SQL remains an untrusted draft: no fetch, execution, provider or st
  const share=queryShare({...doc(),query:{version:3,sql:'DELETE FROM blocks',limit:10}});let ids=0;
  const imported=sharedLibrary(share,()=>{ids++;return randomUUID();},'2026-10-16T00:00:00Z');assert.equal(ids,1);assert.equal(imported.documents[0].query.sql,'DELETE FROM blocks');assert.equal(imported.documents[0].result,null);
 });
+
+test('compact #r= links round-trip, stay shorter, keep legacy links and cap decompression', async () => {
+  const { compactResearchLink, readAnyResearchLink, researchLink } = require('../../lib/ask/research-share');
+  const sql = "SELECT date_trunc('month', to_timestamp(timestamp)) AS month, count(*) FILTER (WHERE orchard) AS orchard_txs, count(*) AS all_txs FROM transactions WHERE timestamp >= EXTRACT(EPOCH FROM current_date - 180)::bigint GROUP BY 1 ORDER BY 1";
+  const share = { format: 'zecblock-research-link', version: 1, kind: 'query', title: 'Orchard transactions per month', queries: [{ title: 'Orchard transactions per month', query: { version: 3, sql, limit: 100 }, chart: { view: 'line', x: 0, y: 1 } }] };
+  const compact = await compactResearchLink(share, 'https://zecblock.com'), legacy = researchLink(share, 'https://zecblock.com');
+  assert.match(compact, /^https:\/\/zecblock\.com\/ask#r=[A-Za-z0-9_-]+$/);
+  assert.ok(compact.length < legacy.length, `${compact.length} < ${legacy.length}`);
+  assert.deepEqual(await readAnyResearchLink(new URL(compact).hash), share);
+  assert.deepEqual(await readAnyResearchLink(new URL(legacy).hash), share);
+  assert.equal(await readAnyResearchLink('#elsewhere'), null);
+  await assert.rejects(readAnyResearchLink('#r=AAAA'), /invalid/);
+  // A tiny link that inflates past the cap is refused rather than parsed.
+  const bomb = new Uint8Array(await new Response(new Blob([new TextEncoder().encode('{"a":"' + 'x'.repeat(200000) + '"}')]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+  let text = ''; for (const byte of bomb) text += String.fromCharCode(byte);
+  await assert.rejects(readAnyResearchLink('#r=' + btoa(text).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')), /invalid/);
+});

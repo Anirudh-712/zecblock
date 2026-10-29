@@ -56,18 +56,36 @@ function exactNumber(value){
  const [whole,fraction]=value.replace(/^\+/,'').split('.');const tail=fraction?.replace(/0+$/,'');
  return whole.replace(/\B(?=(\d{3})+(?!\d))/g,',')+(tail?'.'+tail:'');
 }
-const signed=value=>(compare(value,'0')>0?'+':'')+exactNumber(value);
+// Prose rounds long currency amounts (ZEC, USD) for reading; the table and
+// every other value keep every digit. Amounts of magnitude >= 1 keep two
+// decimals, marked "≈" when digits were dropped. Exact decimal-string arithmetic, round half away from zero.
+function roundDecimal(value,places){
+ const negative=value.startsWith('-'),[whole,fraction='']=value.replace(/^[+-]/,'').split('.');
+ if(fraction.length<=places)return {text:value,rounded:false};
+ const digits=(whole+fraction.slice(0,places)).split('').map(Number);
+ if(Number(fraction[places])>=5)for(let i=digits.length-1;i>=0;i--){if(digits[i]<9){digits[i]++;break;}digits[i]=0;if(i===0)digits.unshift(1);}
+ const joined=digits.join(''),cut=joined.length-places;
+ return {text:(negative?'-':'')+joined.slice(0,cut)+(places?'.'+joined.slice(cut):''),rounded:/[1-9]/.test(fraction.slice(places))};
+}
+function readable(value){
+ const magnitude=value.replace(/^[+-]/,'').split('.')[0];
+ if(!/[1-9]/.test(magnitude))return {text:value,approx:false};
+ const {text,rounded}=roundDecimal(value,2);return {text,approx:rounded};
+}
+const currency=unit=>unit==='zec'||unit==='usd';
+const readableNumber=(value,unit)=>{if(!currency(unit))return exactNumber(value);const {text,approx}=readable(value);return (approx?'≈':'')+exactNumber(text);};
+const signed=(value,unit)=>{const sign=compare(value,'0')>0?'+':'';if(!currency(unit))return sign+exactNumber(value);const {text,approx}=readable(value);return (approx?'≈':'')+sign+exactNumber(text);};
 // NULL stays visible as null (a missing label is not an empty string and a
 // missing measure is not zero). Valid UTC-midnight dates become readable; a
 // column labelled as a month whose values are all first days names the month.
 function display(value,column,unit,monthly,locale){
  if(value===null)return column.type==='number'?'unavailable':'null';
- if(column.type==='number'&&decimal.test(value))return exactNumber(value)+(suffixes[unit]||'');
+ if(column.type==='number'&&decimal.test(value))return readableNumber(value,unit)+(suffixes[unit]||'');
  if(!validDate(value))return value.slice(0,160);
  return new Date(midnight.exec(value)[1]+'T00:00:00Z').toLocaleDateString(locale,monthly?{timeZone:'UTC',month:'long',year:'numeric'}:{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
 }
 // A difference of percentages is in percentage points, not percent.
-const change=(value,unit)=>signed(value)+(unit==='percent'?' percentage points':suffixes[unit]||'');
+const change=(value,unit)=>signed(value,unit)+(unit==='percent'?' percentage points':suffixes[unit]||'');
 
 // A share of a column total is meaningful only for an additive measure: an
 // output that is directly count(...) or a sum(...) of a non-balance field,

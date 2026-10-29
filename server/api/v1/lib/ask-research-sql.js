@@ -52,7 +52,9 @@ async function compileUnchecked(input,{extended=false}={},trace={}){
    }
    if(tag==='WithClause'||tag==='CommonTableExpr')throw Error('Unexpected CTE');
    if(tag==='RangeVar'){
-    if(++relations>16||n.catalogname||n.schemaname&&n.schemaname!=='analytics_public'||!identifier(n.relname)||n.relpersistence&&n.relpersistence!=='p')throw Error('Invalid relation');
+    if(++relations>16)throw policyError('A query can reference at most 16 tables',trace.at);
+    if(n.catalogname||n.schemaname&&n.schemaname!=='analytics_public')throw policyError(`Schema-qualified name ${shown([n.catalogname,n.schemaname,n.relname].filter(Boolean).join('.'))} is not supported`,trace.at,'Use a dataset name from the catalogue, such as blocks or transactions.');
+    if(!identifier(n.relname)||n.relpersistence&&n.relpersistence!=='p')throw Error('Invalid relation');
     if(!n.schemaname&&scope.has(n.relname))return;
     const key=Object.keys(tables).find(k=>n.relname===k||n.relname===tables[k]);
     if(!key||!extended&&!['blocks','transactions','flows'].includes(key))throw policyError(`Dataset ${shown(n.relname)} is not admitted`,trace.at,'Use a table from the data catalogue.');

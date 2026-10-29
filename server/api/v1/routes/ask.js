@@ -247,7 +247,7 @@ function createAskRouter(env = process.env, dependencies = {}) {
           return sendProblem(res, failure.type, { status: failure.status, detail: failure.detail, extra: { code: failure.code } });
         }
       }
-      const guided = guidedReply(parsed.data);
+      const guided = guidedReply(parsed.data, { zips: true });
       if (guided) return sendSuccess(res, guided);
       return sendProblem(res, 'upstream-error', { status: 503, detail: 'Contextual AI is not connected. Reviewed page guides and starter charts remain available.' });
     }

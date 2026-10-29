@@ -212,3 +212,12 @@ test('empty results and a wholly wrong requested year never call the model',asyn
  const months=research("SELECT date_trunc('month',date) AS month,sum(transactions) FROM activity_daily GROUP BY 1",[['month','text'],['n','number']],[['2020-01-01','1']]);
  await assert.rejects(researchReply(months,{question:'Monthly counts during 2025'},()=>assert.fail('wrong year'),'en'),e=>e.askKind==='answer');
 });
+
+test('prose rounds long ZEC amounts with ≈ while plain values stay exact', async () => {
+  const { researchReply } = require('../../v1/lib/ask-research-reply');
+  const { compileResearchSQL } = require('../../v1/lib/ask-research-sql');
+  const compiled = await compileResearchSQL({ version: 3, sql: "SELECT date_trunc('week', to_timestamp(timestamp)) AS week, sum(amount)::numeric / 100000000 AS shielded_zec, count(*) AS records FROM flows WHERE direction = 'shield' GROUP BY 1 ORDER BY 2 DESC", limit: 100 });
+  const result = { query: compiled.request, columns: [{ key: 'c0', label: 'week', type: 'text' }, { key: 'c1', label: 'shielded_zec', type: 'number' }, { key: 'c2', label: 'records', type: 'number' }], rows: [['2026-08-17 00:00:00+00', '397255.85355764', '4365'], ['2026-08-24 00:00:00+00', '0.61701300000000000000', '7']], truncated: false, datasets: ['flows'], fingerprint: compiled.fingerprint, retrievedAt: '2026-10-29T00:00:00Z', indexedThrough: '2026-10-29T00:00:00Z', coverage: 'source-defined coverage', units: 'zatoshis' };
+  const reply = await researchReply(result, { question: 'Which week shielded the most?' }, async () => ({ finding: 'The top week shielded {{row_a_b}} across {{row_a_c}} records; the next shielded {{row_b_b}}.' }), 'en');
+  assert.equal(reply.answer.split('\n')[0], 'The top week shielded ≈397,255.85 ZEC across 4,365 records; the next shielded 0.617013 ZEC.');
+});

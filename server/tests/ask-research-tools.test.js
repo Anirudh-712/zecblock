@@ -36,8 +36,8 @@ test('one native view selector and primary actions keep advanced research contro
  assert.deepEqual(calls,[['chart',{view:'bar',x:0,y:0}],['save'],['share']]);
 });
 test('table mode is direct and Sources & details contains guide, exact query and provenance together',()=>{
- const {html}=panel();assert.equal((html.match(/<summary>Sources &amp; details<\/summary>/g)||[]).length,1);assert.match(html,/Reading a block/);assert.match(html,/SQL behind this result/);assert.match(html,/SELECT height FROM blocks LIMIT 1/);assert.match(html,/Query fingerprint:/);assert.match(html,/3,534,000/);assert.doesNotMatch(html,/<summary>View data<\/summary>/);
- const capture=[],exports=load({capture});const chart=renderToStaticMarkup(React.createElement(exports.ResearchData,{result,chart:{view:'bar',x:0,y:0},showDetails:false}));assert.match(chart,/<summary>View data<\/summary>/);assert.doesNotMatch(chart,/Sources &amp; details|Query fingerprint:/);
+ const {html}=panel();assert.equal((html.match(/<summary>Sources &amp; details<\/summary>/g)||[]).length,1);assert.match(html,/Reading a block/);assert.match(html,/SQL behind this result/);assert.match(html,/SELECT height FROM blocks LIMIT 1/);assert.match(html,/Query fingerprint/);assert.match(html,/3,534,000/);assert.doesNotMatch(html,/<summary>View data<\/summary>/);
+ const capture=[],exports=load({capture});const chart=renderToStaticMarkup(React.createElement(exports.ResearchData,{result,chart:{view:'bar',x:0,y:0},showDetails:false}));assert.match(chart,/<summary>View data<\/summary>/);assert.doesNotMatch(chart,/Sources &amp; details|Query fingerprint/);
 });
 test('share field describes a reusable draft and CSV is disabled for an edited SQL snapshot',()=>{
  const {html,capture}=panel({shareURL:'https://fixture.example/ask#research=example',sql:'SELECT height FROM blocks LIMIT 2'});assert.match(html,/name="research-link"/);assert.match(html,/SQL draft, title and chart settings/);assert.match(html,/Answers, notes and result snapshots are excluded/);assert.match(html,/never runs automatically/);assert.equal(capture.find(e=>e.type==='button'&&e.props.children==='CSV results').props.disabled,true);
@@ -69,7 +69,7 @@ test('snapshot status and indexed/retrieved provenance stay inside closed Source
  const summary=html.indexOf('<summary>Sources &amp; details</summary>'),start=html.lastIndexOf('<details',summary),end=html.indexOf('</details>',summary)+10;
  assert.ok(summary>0);assert.doesNotMatch(html.slice(start,summary),/\bopen(?:=|\s|>)/);
  const details=html.slice(start,end),outside=html.slice(0,start)+html.slice(end);
- for(const text of ['Saved snapshot. Run the query to refresh its data.','Indexed through','Retrieved','Query fingerprint:','SELECT height FROM blocks LIMIT 1','Reading a block']){assert.ok(details.includes(text),text+' belongs in provenance');assert.ok(!outside.includes(text),text+' is not repeated outside');}
+ for(const text of ['Saved snapshot. Run the query to refresh its data.','Indexed through','Retrieved','Query fingerprint','SELECT height FROM blocks LIMIT 1','Reading a block']){assert.ok(details.includes(text),text+' belongs in provenance');assert.ok(!outside.includes(text),text+' is not repeated outside');}
  assert.match(outside,/>1 row<\/p>/);
  const fresh=panel({id:'saved-analysis'},{saved:false}).html;
  assert.doesNotMatch(fresh,/Saved snapshot/,'a retained document id does not turn a new run into a saved snapshot');
@@ -78,7 +78,7 @@ test('result counts and truncation remain visible while optional provenance stay
  const exports=load();
  for(const [rows,truncated,label] of [[[],false,'0 rows'],[[['1']],false,'1 row'],[[['1'],['2']],true,'2 rows (limited)']]){
   const data={...result,rows,truncated};const html=renderToStaticMarkup(React.createElement(exports.ResearchData,{result:data,chart:{view:'table',x:0,y:0},savedSnapshot:true,showDetails:false}));
-  assert.ok(html.includes('>'+label+'</p>'));assert.doesNotMatch(html,/Saved snapshot|Indexed through|Retrieved|Query fingerprint:|Sources &amp; details/);
+  assert.ok(html.includes('>'+label+'</p>'));assert.doesNotMatch(html,/Saved snapshot|Indexed through|Retrieved|Query fingerprint|Sources &amp; details/);
  }
 });
 test('action feedback and errors remain outside the provenance disclosure',()=>{

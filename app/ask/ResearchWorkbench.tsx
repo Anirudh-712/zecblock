@@ -7,7 +7,7 @@ import {defaultResearchChart,shortLabel,supportsLine,cellLink} from '@/lib/ask/r
 import type { ResearchChart, ResearchDocument, ResearchLibrary, ResearchResult, ResearchNarrative } from '@/lib/ask/research-contract';
 import { researchDocumentSchema, researchNarrativeSchema } from '@/lib/ask/research-contract';
 import { emptyLibrary, readLibrary, writeLibrary, readPortable, mergePortable, markdownReport, csvReport, MAX_BYTES } from '@/lib/ask/research-library';
-import { queryShare, dashboardShare, researchLink, sharedLibrary, type ResearchShare } from '@/lib/ask/research-share';
+import { queryShare, dashboardShare, compactResearchLink, sharedLibrary, type ResearchShare } from '@/lib/ask/research-share';
 import styles from './research.module.css';
 import askStyles from './ask.module.css';
 import {catalogueFor} from '../../lib/ask/research-catalogue';
@@ -108,7 +108,7 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
   async function copyLink(board = false) {
     try {
       const share = board && boardId ? dashboardShare(library, boardId) : queryShare(document());
-      const url = researchLink(share, window.location.origin); setShareURL(url); setError('');
+      const url = await compactResearchLink(share, window.location.origin); setShareURL(url); setError('');
       try { await navigator.clipboard.writeText(url); setNotice(board ? 'Dashboard draft link copied.' : 'Query draft link copied.'); }
       catch { setNotice('Link ready. Copy it from the field below.'); }
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not create this research link.'); }
@@ -140,14 +140,15 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
 }
 type Tools = ReturnType<typeof useResearchTools>;
 
-export function ResearchLibrary({ tools, busy, onOpen }: { tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void }) {
+// compact: inside the Ask sidebar, which supplies its own "Saved" heading.
+export function ResearchLibrary({ tools, busy, onOpen, compact = false }: { tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void; compact?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const disabled = busy || tools.importing;
-  return <div className={styles.libraryContent}>
-    <p className={styles.eyebrow}>SAVED ANALYSES</p>
+  return <div className={`${styles.libraryContent} ${compact ? styles.libraryCompact : ''}`}>
+    {compact ? null : <p className={styles.eyebrow}>SAVED ANALYSES</p>}
     {tools.library.documents.length ? tools.library.documents.map(doc => <button key={doc.id} className={`${askStyles.session} ${tools.id === doc.id ? askStyles.selectedSession : ''}`} disabled={disabled} onClick={() => onOpen(doc)} title={doc.title}>{doc.title}</button>) : <p className={styles.caption}>Save an analysis to keep exploring later.</p>}
     {tools.library.dashboards.length ? <><p className={styles.eyebrow}>DASHBOARDS</p>{tools.library.dashboards.map(board => <button key={board.id} className={askStyles.session} disabled={disabled} onClick={() => tools.setBoardId(board.id)} title={board.title}>{board.title}</button>)}</> : null}
-    <div className={styles.libraryActions}><button className={styles.textButton} disabled={!tools.ready || disabled} onClick={() => input.current?.click()}>Import research ↗</button><button className={styles.textButton} disabled={disabled} onClick={tools.downloadLibrary}>Download all saved research ↓</button></div>
+    <div className={styles.libraryActions}><button className={styles.textButton} disabled={!tools.ready || disabled} onClick={() => input.current?.click()} aria-label="Import research file">↑ Import</button><button className={styles.textButton} disabled={disabled || !tools.library.documents.length} onClick={tools.downloadLibrary} aria-label="Download all saved research">↓ Export all</button></div>
     {tools.error || tools.notice.startsWith('Imported') ? <ResearchStatus tools={tools} /> : null}
     <input type="file" ref={input} className="sr-only" tabIndex={-1} accept=".json,application/json" aria-label="Import research file" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; void tools.importFile(selected); }} />
   </div>;
@@ -175,13 +176,15 @@ export function ResearchData({ result, chart, sources, showDetails = true, saved
     <p className={styles.caption}>{result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}{result.truncated ? ' (limited)' : ''}</p>
     {chart.view === 'table' ? table : <><Plot result={result} chart={chart} /><details className={styles.exactTable}><summary>View data</summary>{table}</details></>}
     {showDetails ? <details className={styles.disclosure}><summary>Sources &amp; details</summary><div className={styles.provenance}>
-      {savedSnapshot ? <p>Saved snapshot. Run the query to refresh its data.</p> : null}
-      <p>Indexed through {utcDate(result.indexedThrough)}.</p>
-      {sources}
-      <p>{result.coverage}. This describes source admission, not a certification of your SQL calculations.</p><p>{result.units}</p>
-      <p>Charts use approximate plotting numbers; the table preserves exact decimals. Rows follow query order; repeated labels are separate records. Full identifiers remain in the results and downloads.</p>
-      <p>Retrieved {utcDate(result.retrievedAt)}. Query fingerprint: <span className={styles.fingerprint}>{result.fingerprint}</span></p>
-      {result.query?.sql ? <><p className={styles.detailLabel}>SQL query</p><pre className={styles.shareSQL} translate="no" tabIndex={0} aria-label="SQL behind this result">{displaySQL(result.query.sql)}</pre></> : null}
+      {savedSnapshot ? <p className={styles.snapshotNote}>Saved snapshot. Run the query to refresh its data.</p> : null}
+      <dl className={styles.provRows}>
+        <div><dt>Data</dt><dd>Indexed through {utcDate(result.indexedThrough)} · Retrieved {utcDate(result.retrievedAt)}</dd></div>
+        {sources ? <div><dt>Guide</dt><dd>{sources}</dd></div> : null}
+        <div><dt>Coverage</dt><dd>{result.coverage}</dd></div>
+        <div><dt>Units</dt><dd>{result.units}{chart.view !== 'table' ? ' Charts are approximate; the table is exact.' : ''}</dd></div>
+        <div><dt>Query fingerprint</dt><dd><span className={styles.fingerprint} title={result.fingerprint}>{result.fingerprint.slice(0, 16)}…</span></dd></div>
+      </dl>
+      {result.query?.sql ? <details className={styles.sqlDetails}><summary>SQL query</summary><pre className={styles.shareSQL} translate="no" tabIndex={0} aria-label="SQL behind this result">{displaySQL(result.query.sql)}</pre></details> : null}
     </div></details> : null}
   </>;
 }
@@ -194,6 +197,17 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
   const disabled = busy || tools.importing;
   const hasSnapshot = tools.result?.fingerprint === result.fingerprint && tools.sql === result.query?.sql && tools.limit === result.query?.limit;
   const hasSave = saved ?? Boolean(tools.id);
+  // The More dropdown closes on an outside click or Escape, like a menu.
+  const more = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (event: Event) => {
+      const menu = more.current;
+      if (!menu?.open) return;
+      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !menu.contains(event.target as Node)) menu.open = false;
+    };
+    document.addEventListener('pointerdown', close); document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', close); };
+  }, []);
   return <div className={`${styles.panelBody} ${embedded ? styles.embeddedPanel : ''}`}>
     {!embedded ? <h2 className={styles.resultTitle}>{tools.title}</h2> : null}
     <div className={`${styles.resultToolbar} ${embedded ? styles.embeddedToolbar : ''}`}>
@@ -205,7 +219,7 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
         <button className={styles.button} disabled={disabled} onClick={() => void tools.copyLink()}>Share query</button>
         {actions}
       </div>
-      <details className={styles.moreOptions}><summary>More</summary><div className={styles.moreBody}>
+      <details ref={more} className={styles.moreOptions}><summary>More</summary><div className={styles.moreBody}>
         {editAction ? <div className={styles.optionGroup}><p className={styles.optionHeading}>Query</p><div className={styles.actions}>{editAction}</div></div> : null}
         <fieldset className={styles.optionGroup}><legend>Name &amp; notes</legend>
           <label className={styles.field} htmlFor={analysisTitleId}>Analysis title<input id={analysisTitleId} name="title" autoComplete="off" className={styles.input} maxLength={120} value={tools.title} onChange={event => tools.setTitle(event.target.value)} /></label>
@@ -239,7 +253,10 @@ export function ResearchDashboard({ tools, busy, onOpen }: { tools: Tools; busy:
 }
 
 function ShareLinkField({ tools }: { tools: Tools }) {
-  return tools.shareURL ? <label className={styles.field}>Research link<input readOnly name="research-link" type="url" autoComplete="off" spellCheck={false} className={`${styles.input} ${styles.shareInput}`} value={tools.shareURL} onFocus={event => event.currentTarget.select()} /></label> : null;
+  const [copied, setCopied] = useState(false);
+  useEffect(() => setCopied(false), [tools.shareURL]);
+  async function copy() { try { await navigator.clipboard.writeText(tools.shareURL); setCopied(true); } catch { setCopied(false); } }
+  return tools.shareURL ? <div className={styles.field}><label htmlFor="research-link">Research link</label><div className={styles.shareRow}><input id="research-link" readOnly name="research-link" type="url" autoComplete="off" spellCheck={false} className={`${styles.input} ${styles.shareInput}`} value={tools.shareURL} onFocus={event => event.currentTarget.select()} /><button type="button" className={styles.button} onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button></div></div> : null;
 }
 export function SharedResearchDraft({ share, tools, busy, enabled, onOpen, onDismiss }: { share: ResearchShare; tools: Tools; busy: boolean; enabled: boolean; onOpen: (doc: ResearchDocument) => void; onDismiss: () => void }) {
   return <section className={styles.sharedDraft} aria-label="Shared research draft">

@@ -25,7 +25,7 @@ import { sqlDraft } from '@/lib/ask/composer';
 import { AskFeedback, AskFailureFeedback, useAskFeedback } from '@/components/ask/AskFeedback';
 import { describeMetric } from '@/lib/ask/data';
 import { AskAnalysis } from './AskAnalysis';
-import { readResearchLink, type ResearchShare } from '@/lib/ask/research-share';
+import { readAnyResearchLink, type ResearchShare } from '@/lib/ask/research-share';
 import { researchFollowUps } from '@/lib/ask/follow-ups';
 import { catalogueFor } from '@/lib/ask/research-catalogue';
 import { examplesFor } from '@/lib/ask/sql-examples';
@@ -39,7 +39,7 @@ const SQLEditor = dynamic(() => import('@/components/ask/SQLEditor').then(module
 const categories = ['Featured', 'Pools', 'Ironwood', 'Cross-chain', 'Network'];
 // ticket: bearer capability for a finished SQL job, kept in memory only so an
 // explanation can be requested later; never saved, shared or sent elsewhere.
-type Message = { ticket?: ResearchJobTicket; title?: string; narrative?: ResearchNarrative; savedDocumentId?: string; savedSnapshot?: boolean; state?: 'pending' | 'complete' | 'failed' | 'cancelled'; sql?: string; research?: ResearchResult; analytics?: AskReply['analytics']; transactions?: AskReply['transactions']; blocks?: AskReply['blocks']; dataContext?: AskReply['dataContext']; id: number; question: string; answer: string; spec?: AnalysisSpec; viewSpec?: AnalysisSpec; sources?: AskSource[]; transfers?: AskReply['transfers']; locale?: string; scope?: string };
+type Message = { ticket?: ResearchJobTicket; narrative?: ResearchNarrative; savedDocumentId?: string; savedSnapshot?: boolean; state?: 'pending' | 'complete' | 'failed' | 'cancelled'; sql?: string; research?: ResearchResult; analytics?: AskReply['analytics']; transactions?: AskReply['transactions']; blocks?: AskReply['blocks']; dataContext?: AskReply['dataContext']; id: number; question: string; answer: string; spec?: AnalysisSpec; viewSpec?: AnalysisSpec; sources?: AskSource[]; transfers?: AskReply['transfers']; locale?: string; scope?: string };
 type Session = { transaction?: string; block?: string; id: number; title: string; messages: Message[]; spec: AnalysisSpec | null; page?: string };
 type Capability = AskCapability;
 const initialSession: Session = { id: 0, title: 'New analysis', messages: [], spec: null };
@@ -122,9 +122,10 @@ export function AskWorkspace() {
   }, [tools.id, tools.library, latestRecords, activeId]);
 
   useEffect(() => {
+    // Compact (#r=) and older (#research=) links; neither ever runs SQL.
     const readShare = () => {
-      try { setSharedResearch(readResearchLink(window.location.hash)); }
-      catch (failure) { setSharedResearch(null); setChatError(failure instanceof Error ? failure.message : 'This research link is invalid.'); }
+      readAnyResearchLink(window.location.hash).then(share => setSharedResearch(share))
+        .catch(failure => { setSharedResearch(null); setChatError(failure instanceof Error ? failure.message : 'This research link is invalid.'); });
     };
     readShare(); window.addEventListener('hashchange', readShare);
     return () => window.removeEventListener('hashchange', readShare);
@@ -158,9 +159,13 @@ export function AskWorkspace() {
     };
   }, []);
 
+  // Explaining an earlier result keeps the reader where they are; only
+  // composer-originated work scrolls its status into view.
+  const [explainingId, setExplainingId] = useState<number | null>(null);
   useEffect(() => {
+    if (explainingId !== null) return;
     if (busy || feedback.failure || notice || chatError) composerStatus.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
-  }, [busy, feedback.failure, notice, chatError]);
+  }, [busy, feedback.failure, notice, chatError, explainingId]);
 
   useEffect(() => { latestTurn.current?.scrollIntoView({block:'nearest',behavior:'instant'}); }, [session.messages.length]);
 
@@ -291,7 +296,7 @@ export function AskWorkspace() {
       const answer = `${result.rows.length} rows returned. No AI was used.`;
       const narrative = narrativeFor({ question: 'SQL query', sql: query.sql, answer, research: result });
       tools.accept(result, title, false, narrative); setNotice('');
-      setSessions(all=>all.map(item=>item.id===activeId?{...item,spec:null,messages:item.messages.map(message=>message.id===id?{...message,state:'complete' as const,answer,narrative,research:result,ticket,title}:message)}:item));
+      setSessions(all=>all.map(item=>item.id===activeId?{...item,spec:null,messages:item.messages.map(message=>message.id===id?{...message,state:'complete' as const,answer,narrative,research:result,ticket}:message)}:item));
     }catch(error){
       if(request.current!==controller)return;
       setSQLInput(query.sql);setSQLLimit(query.limit);
@@ -309,11 +314,11 @@ export function AskWorkspace() {
     const { ticket, answer: previous, id } = message;
     const update = (patch: Partial<Message>) => setSessions(all => all.map(item => item.id === activeId ? { ...item, messages: item.messages.map(turn => turn.id === id ? { ...turn, ...patch } : turn) } : item));
     const controller = new AbortController(); request.current = controller;
-    setBusy(true); setPhase('explaining'); setNotice(''); feedback.clear('ask'); setChatError(''); update({ state: 'pending' });
+    setExplainingId(id); setBusy(true); setPhase('explaining'); feedback.clear('ask'); setChatError('');
     try {
-      // A concrete question gives the checked narration something to answer.
-      const topic = message.title && message.title !== 'My Zcash analysis' ? `${message.title}: ` : '';
-      const question = `${topic}What are the main findings in these results? Name the leading rows and how they compare.`;
+      // Only this result is described: no earlier conversation title or question
+      // (observed on staging: a prior question leaked into the explanation).
+      const question = 'What are the main findings in these SQL results? Name the leading rows and how they compare.';
       const reply = await explainResearch(ticket, question, 'auto', AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]));
       if (request.current !== controller) return;
       const narrative = narrativeFor({ question: 'SQL query', sql: message.sql, answer: reply.answer, research: message.research, locale: reply.locale });
@@ -325,7 +330,7 @@ export function AskWorkspace() {
       if (controller.signal.aborted) setNotice('Explanation stopped. Your results are unchanged.');
       else feedback.report(error, 'ask');
     } finally {
-      if (request.current === controller) { request.current = null; setBusy(false); }
+      if (request.current === controller) { request.current = null; setBusy(false); setExplainingId(null); }
     }
   }
   function editQuery(message: Message) {
@@ -391,7 +396,10 @@ export function AskWorkspace() {
       {sessions.some(item => item.messages.length) ? <label className={styles.mobileSessions}><span className="sr-only">Recent analyses</span><select aria-label="Recent analyses" value={activeId} onChange={event => switchSession(Number(event.target.value))}>{sessions.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label> : null}
       <div className={styles.sidebarContent}>
         {sessions.some(item => item.messages.length) ? <><p className={styles.sidebarHeading}>RECENT ANALYSES</p>{sessions.filter(item => item.messages.length).map(item => <button key={item.id} className={`${styles.session} ${activeId === item.id ? styles.selectedSession : ''}`} aria-current={activeId === item.id ? 'true' : undefined} onClick={() => switchSession(item.id)} title={item.title}>{item.title}</button>)}</> : null}
-        {capability.researchEnabled || tools.library.documents.length ? <details className={styles.sidebarDisclosure} open={tools.library.documents.length > 0}><summary>Library{tools.library.documents.length ? ` · ${tools.library.documents.length}` : ''}</summary><ResearchLibrary tools={tools} busy={busy} onOpen={openSaved}/></details> : null}
+        {capability.researchEnabled || tools.library.documents.length ? <section aria-labelledby="ask-saved-heading">
+          <p id="ask-saved-heading" className={`${styles.sidebarHeading} ${styles.savedHeading}`}><svg aria-hidden="true" viewBox="0 0 16 16" width="12" height="12"><path d="M4 2.5h8v11l-4-2.8-4 2.8z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/></svg>SAVED{tools.library.documents.length ? <span className={styles.countPill}>{tools.library.documents.length}</span> : null}</p>
+          <ResearchLibrary tools={tools} busy={busy} onOpen={openSaved} compact/>
+        </section> : null}
         <details className={styles.sidebarDisclosure}><summary>Explore data</summary>
           <Link href="/pools" className={styles.sourceLink}>Shielded pools <span>↗</span></Link>
           <Link href="/ironwood" className={styles.sourceLink}>Ironwood <span>↗</span></Link>
@@ -421,7 +429,7 @@ export function AskWorkspace() {
             {session.messages.map(message => <div key={message.id} ref={message.id === session.messages.at(-1)?.id ? latestTurn : undefined} className="mb-7">
               <div className={styles.sentMessage}>{message.sql ? <><span className={styles.sqlPreview}>{message.sql.split('\n').slice(0,3).join('\n')}</span><details className={styles.sentSQL}><summary>View submitted SQL</summary><pre translate="no">{message.sql}</pre></details></> : message.question}</div>
               <article className={styles.assistantReply} aria-label="ZecBlock response"><AskMark small /><div className={styles.replyBody}><p className="text-caption font-mono text-muted mb-2">ZecBlock</p>{message.state === 'pending' ? <AskFeedback working title={statusTitle} detail={statusDetail}/> : null}<p dir="auto" lang={message.locale} className="text-sm text-secondary leading-relaxed whitespace-pre-wrap">{message.answer}</p>{message.scope ? <p className="mt-2 text-caption text-muted">{message.scope}</p> : null}
-              {message.sql && message.ticket && message.research && message.state === 'complete' && capability.mode === 'ai' ? <button type="button" className={`${styles.followup} mt-3`} disabled={busy || aiBlocked} onClick={() => void explainSQL(message)} title="Writes a short summary using only numbers from these results. Uses your AI allowance.">Explain results</button> : null}
+              {message.sql && message.ticket && message.research && message.state === 'complete' && capability.mode === 'ai' ? <button type="button" className={`${styles.followup} mt-3`} disabled={busy || aiBlocked} aria-busy={explainingId === message.id} onClick={() => void explainSQL(message)} aria-describedby={`explain-note-${message.id}`}>{explainingId === message.id ? 'Explaining…' : 'Explain results'}<span id={`explain-note-${message.id}`} className="sr-only">Writes a short summary using only numbers from these results. Uses your AI allowance.</span></button> : null}
               {message.spec ? <AskAnalysis spec={message.viewSpec || message.spec} changed={!!message.viewSpec && analysisScopeKey(message.viewSpec) !== analysisScopeKey(message.spec)} onChange={next => {
                 const previous = message.viewSpec || message.spec!;
                 const validated = analysisSchema.parse(next.period !== previous.period || next.pool !== previous.pool || next.metric !== previous.metric ? {...next, start:null, end:null} : next);

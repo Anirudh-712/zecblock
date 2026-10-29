@@ -110,7 +110,9 @@ function substituteFacts(text, facts) {
 
 function renderExplanation(raw, facts) {
   const parsed = explanationSchema.parse(raw);
-  function render(text) {
+  function render(raw) {
+    // Invisible format characters (e.g. U+180E seen on staging) never reach readers.
+    const text = raw.replace(/\p{Cf}/gu, '');
     const remainder = text.replace(/\{\{([a-z_]+)\}\}/g, (_, id) => {
       if (!Object.hasOwn(facts, id)) throw new Error('Unknown evidence reference');
       return '';

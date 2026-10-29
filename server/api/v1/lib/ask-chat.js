@@ -101,7 +101,9 @@ const growthClarification = {
   ar: 'ما المقاييس التي تريد مقارنتها: عدد المعاملات، المعاملات المحمية، الرسوم، أم أحجام الحماية وإلغاء الحماية العامة؟ للسنة الماضية، أقترح مقارنة أول وآخر فترتين كاملتين مدة كل منهما ثلاثون يوماً وترتيب التغيرات المئوية. اختر المقاييس أو طريقة مقارنة أخرى.',
   ru: 'Какие показатели сравнить: число транзакций, защищённых транзакций, комиссии или публичный объём shielding/deshielding? За прошедший год предлагаю сравнить первые и последние полные тридцатидневные периоды и ранжировать процентные изменения. Выберите показатели или другой способ сравнения.',
 };
-function guidedReply(input) {
+// zips: only the no-AI fallback answers ZIP questions from index text;
+// with AI available they go to the model, which cites the same records.
+function guidedReply(input, { zips: includeZips = false } = {}) {
   const page = pageById(input.page);
   const question = input.question.trim().toLowerCase().replace(/[?.!]+$/, '');
   const spec = resolveShortcut(input.question, input.context);
@@ -116,7 +118,7 @@ function guidedReply(input) {
   if (Object.hasOwn(concepts, question)) topics = [concepts[question]];
   for (const id of ['zodl', 'vizor', 'zakura', 'zebra']) if (question === `what is ${id}`) topics = [id];
   // Without AI, cite ZIPs only for questions that ask about a ZIP, proposal or upgrade.
-  const zips = /\b(?:zips?|proposals?|nu\d)\b/i.test(question) ? matchZips(input.question) : [];
+  const zips = includeZips && /\b(?:zips?|proposals?|nu\d)\b/i.test(question) ? matchZips(input.question) : [];
   if (!spec && !topics.length && !zips.length) return null;
   const records = [...getKnowledge(topics), ...zipRecords(zips).records];
   return { answer: records.length ? records.map(item => item.text).join('\n\n') : 'This analysis uses indexed public observations. Open its chart to inspect the data and methodology.', sources: publicSources(records), spec: spec || (pageExplanation ? input.context || page.spec || null : null), locale: 'en', mode: 'guided', scope: 'Reviewed guide · AI not connected' };
@@ -226,7 +228,9 @@ async function chat(input, run, internalClient, signal, analysisInstructions, ca
   // Matching ZIPs from the official index join as citable records, only for
   // protocol questions (never page guides or charts). Their numbers/statuses
   // reach prose only as server facts ({{zip_a}}).
-  const wantsZips = !spec && (selection.topics.includes('protocol') || /\b(?:zips?|proposals?|nu\d)\b/i.test(input.question));
+  // Explicit ZIP/proposal/upgrade wording only: a classifier topic alone is not
+  // enough (a jailbreak mentioning "API key" matched ZIP 316 on staging).
+  const wantsZips = !spec && selection.intent !== 'unsupported' && /\b(?:zips?|proposals?|nu\d(?:\.\d)?)\b/i.test(input.question);
   const zipContext = wantsZips ? zipRecords(matchZips(input.question), { placeholders: true }) : { records: [], facts: {} };
   const records = [...getKnowledge([...new Set([...selection.topics, ...(topic ? [topic] : [])])]), ...zipContext.records];
   if (!records.length) return { answer: unsupported[locale], sources: [], spec: null, locale };
@@ -240,7 +244,9 @@ async function chat(input, run, internalClient, signal, analysisInstructions, ca
   // Use the same numeric/markup provenance validation as chart explanations.
   const rendered = await askStage('answer', () => renderExplanation({ summary: raw.summary, observations: raw.observations, limitation: raw.limitation }, evidence?.facts || {}));
   if (cacheKey && !cached) await cache.redis.set(cacheKey, JSON.stringify(raw), { EX: 300 });
-  return { answer: [rendered.summary, ...rendered.observations, rendered.limitation].filter(text => text.trim()).join('\n\n'), sources: publicSources(records.filter(record => raw.sources.includes(record.id))), spec, locale, ...(loaded ? { evidenceKey: loaded.evidenceKey, dataContext: loaded.dataContext } : {}) };
+  // A model that writes "ZIP {{zip_a}}" would otherwise render "ZIP ZIP 317".
+  const tidy = text => text.replace(/\bZIP\s+(?=ZIP\s+\d)/g, '');
+  return { answer: [rendered.summary, ...rendered.observations, rendered.limitation].filter(text => text.trim()).map(tidy).join('\n\n'), sources: publicSources(records.filter(record => raw.sources.includes(record.id))), spec, locale, ...(loaded ? { evidenceKey: loaded.evidenceKey, dataContext: loaded.dataContext } : {}) };
 }
 async function blockReply(query, input, client, signal, run, locale = 'en') {
   const evidence = await askStage('source', () => loadBlocks(query, client, signal));

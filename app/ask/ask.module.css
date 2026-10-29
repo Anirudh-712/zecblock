@@ -101,3 +101,6 @@
 
 .mobileLibraryAccess {display:none;}
 @media(max-width:640px){.mobileLibraryAccess{display:block;margin-top:16px;border-bottom:1px solid var(--color-border);padding-bottom:16px}.mobileLibraryAccess > summary{cursor:pointer;color:var(--color-text-secondary);font-size:14px}.mobileLibraryAccess > summary:focus-visible{outline:2px solid var(--color-gold);outline-offset:3px}.mobileLibraryAccess > div{display:block}}
+
+.savedHeading {display:flex;align-items:center;gap:6px;}
+.countPill {margin-left:auto;min-width:18px;padding:0 6px;border:1px solid var(--color-border);border-radius:999px;font-size:12px;line-height:18px;text-align:center;color:var(--color-text-secondary);}

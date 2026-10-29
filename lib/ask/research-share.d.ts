@@ -6,3 +6,5 @@ export function dashboardShare(library:ResearchLibrary,id:string):ResearchShare;
 export function researchLink(share:ResearchShare,origin:string):string;
 export function readResearchLink(fragment:string):ResearchShare|null;
 export function sharedLibrary(share:ResearchShare,uuid:()=>string,now:string):ResearchLibrary;
+export function compactResearchLink(share:ResearchShare,origin:string):Promise<string>;
+export function readAnyResearchLink(fragment:string):Promise<ResearchShare|null>;

@@ -53,7 +53,9 @@ async function fixture(t,{mode='ai',jobsEnabled=true}={}) {
   const settle=async()=>{for(let i=0;i<4;i++){await new Promise(resolve=>setImmediate(resolve));render();}};
   t.after(()=>{for(const effect of effects)effect?.cleanup?.();for(const[key,value]of Object.entries(original)){if(value===undefined)delete global[key];else global[key]=value;}});
   render();await settle();
-  const button=label=>elements.find(item=>item.type==='button'&&item.props.children===label);
+  // A button's visible label is its first text child (Explain results also carries an sr-only note).
+  const label=children=>Array.isArray(children)?children.find(child=>typeof child==='string'):children;
+  const button=text=>elements.find(item=>item.type==='button'&&label(item.props.children)===text);
   async function runSQL(){
     button('SQL').props.onClick();render();
     elements.find(item=>item.props?.datasets&&typeof item.props.onRun==='function').props.onChange(result.query.sql);render();
@@ -67,10 +69,10 @@ test('a finished SQL job offers Explain results, sends its ticket once and shows
   assert.equal(f.calls.submit.length,1);assert.equal(f.calls.explain.length,0);
   assert.match(f.html,/1 rows returned\. No AI was used\./);
   const explain=f.button('Explain results');assert.ok(explain,'Explain results is offered after a queued SQL run');
-  assert.match(explain.props.title,/AI allowance/);
+  assert.match(JSON.stringify(explain.props.children),/AI allowance/,'the cost is announced to assistive technology');
   explain.props.onClick();await f.settle();
   assert.equal(f.calls.explain.length,1);assert.deepEqual(f.calls.explain[0].sent,ticket);
-  assert.match(f.calls.explain[0].question,/^Analysis: What are the main findings in these results\?/);
+  assert.equal(f.calls.explain[0].question,'What are the main findings in these SQL results? Name the leading rows and how they compare.','no conversation title or earlier question leaks into the request');
   assert.match(f.html,/The latest returned height is 3,534,601\./);
   assert.equal(f.calls.annotate.at(-1).inputMode,'sql');assert.equal(f.calls.annotate.at(-1).fingerprint,result.fingerprint);
   assert.equal(f.button('Explain results'),undefined,'the ticket is consumed; no second paid explanation is offered');
