@@ -60,7 +60,7 @@
   {
     "method": "POST",
     "path": "/v1/ask/chat",
-    "description": "Contextual mainnet questions with reviewed public sources, supported language selection and bounded recent questions. Paid answers require bot verification and shared spend limits.",
+    "description": "Contextual mainnet questions with reviewed public sources, supported languages and bounded history. Optional restricted replica analytics return dated count/pool rankings by day, week or month. Paid answers require bot verification and shared spend limits; analytics additionally require private-worker query quotas. Arbitrary SQL is never accepted.",
     "category": "ask",
     "query": [],
     "listKey": null,
@@ -284,6 +284,245 @@
             "maxLength": 1000
           }
         },
+        "currentAnalytics": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "dataset": {
+              "type": "string",
+              "enum": [
+                "daily",
+                "blocks",
+                "transactions",
+                "flows",
+                "swaps"
+              ]
+            },
+            "start": {
+              "type": "string",
+              "pattern": "^20\\d{2}-\\d{2}-\\d{2}$"
+            },
+            "end": {
+              "type": "string",
+              "pattern": "^20\\d{2}-\\d{2}-\\d{2}$"
+            },
+            "bucket": {
+              "type": "string",
+              "enum": [
+                "none",
+                "day",
+                "week",
+                "month"
+              ]
+            },
+            "dimensions": {
+              "maxItems": 2,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z_]{0,31}$"
+              }
+            },
+            "filters": {
+              "maxItems": 4,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z_]{0,31}$"
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "ne",
+                      "gte",
+                      "lte"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "field",
+                  "op",
+                  "value"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "measures": {
+              "minItems": 1,
+              "maxItems": 4,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z_]{0,31}$"
+                  },
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "count",
+                      "sum",
+                      "avg",
+                      "min",
+                      "max",
+                      "last"
+                    ]
+                  },
+                  "filters": {
+                    "maxItems": 2,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "field": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z_]{0,31}$"
+                        },
+                        "op": {
+                          "type": "string",
+                          "enum": [
+                            "eq",
+                            "ne",
+                            "gte",
+                            "lte"
+                          ]
+                        },
+                        "value": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "op",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "field",
+                  "operation",
+                  "filters"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "calculations": {
+              "maxItems": 2,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "ratio",
+                      "difference"
+                    ]
+                  },
+                  "left": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "right": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3
+                  }
+                },
+                "required": [
+                  "operation",
+                  "left",
+                  "right"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "order": {
+              "type": "object",
+              "properties": {
+                "column": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "asc",
+                    "desc"
+                  ]
+                }
+              },
+              "required": [
+                "column",
+                "direction"
+              ],
+              "additionalProperties": false
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 25
+            }
+          },
+          "required": [
+            "version",
+            "dataset",
+            "start",
+            "end",
+            "bucket",
+            "dimensions",
+            "filters",
+            "measures",
+            "calculations",
+            "order",
+            "limit"
+          ],
+          "additionalProperties": false
+        },
+        "currentResearch": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 3
+            },
+            "sql": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          "required": [
+            "version",
+            "sql",
+            "limit"
+          ],
+          "additionalProperties": false
+        },
         "challenge": {
           "type": "string",
           "maxLength": 2048
@@ -407,6 +646,87 @@
       "required": [
         "spec",
         "evidenceKey"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/v1/ask/research/plan",
+    "description": "Feature-gated mainnet research: draft reviewed read-only PostgreSQL over three public datasets. Requires AI, challenge and shared spend admission. Returns validated SQL; execute=true runs it through the same isolated read-only worker in one admitted request.",
+    "category": "ask",
+    "query": [],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": null,
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [],
+    "requestBody": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "challenge": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "execute": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "question",
+        "challenge",
+        "execute"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/v1/ask/research/query",
+    "description": "Feature-gated mainnet research: validated SELECT with joins, nonrecursive CTEs and windows over blocks, transactions and public flows. Challenge/IP and worker quotas apply; manual execution does not call AI. Exact decimal strings, 200 rows and 256 KiB maximum. No writes, private tables or arbitrary functions.",
+    "category": "ask",
+    "query": [],
+    "listKey": null,
+    "zatoshiFields": [],
+    "note": null,
+    "ownershipToken": false,
+    "pagination": null,
+    "parameters": [],
+    "requestBody": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 3
+        },
+        "sql": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "challenge": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "version",
+        "sql",
+        "limit",
+        "challenge"
       ],
       "additionalProperties": false
     }

@@ -26,7 +26,7 @@
     "test:sitemap-security": "node --test server/tests/sitemap-security.test.js",
     "test:revalidate-security": "node --test server/tests/revalidate-security.test.js",
     "test:error-message-leakage": "NODE_PATH=$PWD/server/api/node_modules node server/tests/error-message-leakage.test.js",
-    "test:performance": "node --test server/tests/slow-page-performance.test.js server/tests/server-fetch-security.test.js",
+    "test:performance": "node --test server/tests/slow-page-performance.test.js server/tests/server-fetch-security.test.js server/tests/rich-list-staging.test.js",
     "test:ttfb-probe": "node --test server/tests/ttfb-probe.test.js",
     "test:isr-warmup": "node --test server/tests/isr-warmup.test.js",
     "test:route-cache-build": "node --test server/tests/next-route-cache-build.test.js",
@@ -76,6 +76,14 @@
     "braces": "$braces"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-sql": "6.10.0",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.14",
+    "@lezer/highlight": "1.2.5",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
     "@tailwindcss/postcss": "^4.3.0",

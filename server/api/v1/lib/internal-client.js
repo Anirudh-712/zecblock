@@ -131,7 +131,7 @@ class UpstreamError extends Error {
 /**
  * @param {object} config - result of require('../config').loadV1Config()
  */
-function createInternalClient(config) {
+function createInternalClient(config, { fetchImpl = fetch } = {}) {
   const baseUrl = config.internalBaseUrl;
   const timeoutMs = config.internalTimeoutMs;
   const maxResponseBytes = config.maxResponseBytes;
@@ -188,7 +188,7 @@ function createInternalClient(config) {
     }
 
     try {
-      const response = await fetch(url, init);
+      const response = await fetchImpl(url, init);
       const relayedHeaders = pickAllowedHeaders(response.headers);
       if (opts.paymentAuth) for (const name of ['payment-required', 'www-authenticate', 'payment-response', 'payment-receipt', 'x-session-balance', 'x-session-id']) {
         if (response.headers.has(name)) relayedHeaders[name] = response.headers.get(name);

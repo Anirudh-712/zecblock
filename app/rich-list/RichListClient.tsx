@@ -2,7 +2,6 @@
 
 import { readApiData } from '@/lib/api-client';
 import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { TransparentSupplyBreakdown } from '@/components/network/TransparentSupplyBreakdown';
 import { PageHeader, DataTable, HashLink, type DataTableColumn } from '@/components/ui';
 import { getApiUrl } from '@/lib/api-config';
@@ -12,6 +11,7 @@ import { Pagination } from '@/components/Pagination';
 import { ExportButton } from '@/components/ExportButton';
 
 const PAGE_SIZE = 100;
+const REFRESH_TIMEOUT_MS = 9_000;
 
 export interface RichListEntry {
   rank: number;
@@ -71,20 +71,23 @@ interface RichListClientProps {
   initialAddresses?: RichListEntry[];
   initialConcentration?: Concentration | null;
   initialPagination?: PaginationData | null;
+  initialUnavailable?: boolean;
 }
 
 export default function RichListClient({
   initialAddresses = [],
   initialConcentration = null,
   initialPagination = null,
+  initialUnavailable = false,
 }: RichListClientProps) {
   const hasInitialData = initialPagination !== null;
   const skipInitialRefresh = useRef(hasInitialData);
   const [addresses, setAddresses] = useState<RichListEntry[]>(initialAddresses);
   const [concentration, setConcentration] = useState<Concentration | null>(initialConcentration);
   const [pagination, setPagination] = useState<PaginationData | null>(initialPagination);
-  const [loading, setLoading] = useState(!hasInitialData);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(!hasInitialData && !initialUnavailable);
+  const [error, setError] = useState<string | null>(initialUnavailable ? 'Address rankings are temporarily unavailable. Retry to load them.' : null);
+  const [retry, setRetry] = useState(0);
   const [page, setPage] = useState(1);
   const [zecPrice, setZecPrice] = useState<number | null>(null);
 
@@ -100,23 +103,34 @@ export default function RichListClient({
       skipInitialRefresh.current = false;
       return;
     }
+    const controller = new AbortController();
+    let current = true;
+    const timer = setTimeout(() => {
+      controller.abort(new DOMException('Ranking request deadline exceeded', 'TimeoutError'));
+      if (current) { setError('Address rankings are temporarily unavailable. Retry to load them.'); setLoading(false); }
+    }, REFRESH_TIMEOUT_MS);
     setLoading(true);
     setError(null);
     const offset = (page - 1) * PAGE_SIZE;
-    fetch(`${getApiUrl()}/v1/addresses/rich-list?limit=${PAGE_SIZE}&offset=${offset}`)
+    fetch(`${getApiUrl()}/v1/addresses/rich-list?limit=${PAGE_SIZE}&offset=${offset}`, { signal: controller.signal })
       .then(r => readApiData(r))
       .then(data => {
-        if (!data) throw new Error(data.error || 'Failed to fetch');
+        if (!current || controller.signal.aborted) return;
+        if (!data || !Array.isArray(data.addresses) || !data.concentration || !data.pagination) throw new Error('Unavailable ranking');
         setAddresses(data.addresses);
         setConcentration(data.concentration);
         setPagination(data.pagination);
         setLoading(false);
       })
-      .catch(err => {
-        setError(err.message);
-        setLoading(false);
-      });
-  }, [page]);
+      .catch(() => {
+        if (current) {
+          setError('Address rankings are temporarily unavailable. Retry to load them.');
+          setLoading(false);
+        }
+      })
+      .finally(() => clearTimeout(timer));
+    return () => { current = false; clearTimeout(timer); controller.abort(new DOMException('Request replaced', 'AbortError')); };
+  }, [page, retry]);
 
   const labeledCount = addresses.filter(a => a.label).length;
 
@@ -215,13 +229,14 @@ export default function RichListClient({
   if (error && !addresses.length) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <PageHeader eyebrow="RICH_LIST" title="Top Addresses" />
         <Card className="text-center">
           <CardBody className="py-16">
             <div className="text-5xl mb-6">&#x26A0;&#xFE0F;</div>
             <h2 className="text-xl font-semibold text-primary mb-3">Rich List Unavailable</h2>
-            <p className="text-secondary mb-6">{error}</p>
+            <p role="alert" className="text-secondary mb-6">{error}</p>
             <button
-              onClick={() => { setError(null); setPage(1); }}
+              onClick={() => { setError(null); setPage(1); setRetry(value => value + 1); }}
               className="btn btn-primary btn-md"
             >
               Retry
@@ -261,6 +276,8 @@ export default function RichListClient({
           </div>
         }
       />
+
+      {error && <p role="status" className="text-caption text-secondary mb-4">Couldn&apos;t refresh. Showing the last loaded ranking.</p>}
 
       {/* Concentration Summary Cards */}
       {concentration && (

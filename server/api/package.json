@@ -7,7 +7,7 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test test/*.test.js",
-    "test:v1": "node --test test/v1/*.test.js",
+    "test:v1": "node --test --test-timeout=120000 test/v1/*.test.js",
     "test:redis": "node -e \"if (!process.env.TEST_REDIS_URL) throw new Error('TEST_REDIS_URL is required')\" && node --test test/list-cache.redis.test.js",
     "verify": "find . -name '*.js' -not -path './node_modules/*' -print0 | xargs -0 -n1 node --check && npm test && npm run test:v1"
   },
@@ -32,6 +32,7 @@
     "express-rate-limit": "^8.7.0",
     "helmet": "^8.0.0",
     "pg": "^8.23.0",
+    "pgsql-parser": "18.2.9",
     "redis": "^6.2.1",
     "ws": "^8.21.3",
     "zod": "^4.6.7"
