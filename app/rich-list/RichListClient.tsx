@@ -9,6 +9,7 @@ import { getApiUrl } from '@/lib/api-config';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Pagination } from '@/components/Pagination';
+import { ExportButton } from '@/components/ExportButton';
 
 const PAGE_SIZE = 100;
 
@@ -237,11 +238,27 @@ export default function RichListClient({
         eyebrow="RICH_LIST"
         title="Top Addresses"
         actions={
-          pagination ? (
-            <span className="text-xs text-muted font-mono">
-              {pagination.total.toLocaleString()} addresses with balance
-            </span>
-          ) : undefined
+          <div className="flex items-center gap-3">
+            {pagination && (
+              <span className="text-xs text-muted font-mono">
+                {pagination.total.toLocaleString()} addresses with balance
+              </span>
+            )}
+            {addresses.length > 0 && (
+              <ExportButton
+                type="csv"
+                data={addresses}
+                filename={`zecblock-rich-list-page-${pagination ? Math.floor(pagination.offset / pagination.limit) + 1 : 1}`}
+                csvHeaders={['Rank', 'Address', 'Label', 'Category', 'Verified label', 'Balance (ZEC)', 'Total received (ZEC)', 'Total sent (ZEC)', 'Transactions', 'First seen (UTC)', 'Last seen (UTC)']}
+                csvMapper={(entry: RichListEntry) => [
+                  String(entry.rank), entry.address, entry.label ?? '', entry.category ?? '', entry.verified ? 'yes' : 'no',
+                  String(entry.balance), String(entry.totalReceived), String(entry.totalSent), String(entry.txCount),
+                  entry.firstSeen ? new Date(Number(entry.firstSeen) * 1000).toISOString() : '',
+                  entry.lastSeen ? new Date(Number(entry.lastSeen) * 1000).toISOString() : '',
+                ]}
+              />
+            )}
+          </div>
         }
       />
 

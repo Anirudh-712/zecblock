@@ -25,6 +25,8 @@ import { MiningMetricsChart } from '@/components/network/MiningMetricsChart';
 import { NetworkHashrateChart } from '@/components/network/NetworkHashrateChart';
 import { zatToZec } from '@/lib/format-numbers';
 import { useUrlState } from '@/lib/use-url-state';
+import { ExportButton } from '@/components/ExportButton';
+import { zatToZecString } from '@/lib/csv';
 
 const SECTIONS = [
   { id: 'metrics', label: 'Network' },
@@ -193,7 +195,23 @@ function RankingSection() {
     <section id="ranking" className="scroll-mt-36 mb-12 animate-fade-in-up stagger-3">
       <Card>
         <CardBody>
-          <SectionHeader label="POOL_RANKING" actions={<PeriodSelector value={period} onChange={setPeriod} />} />
+          <SectionHeader label="POOL_RANKING" actions={
+            <div className="flex flex-wrap items-center gap-2">
+              <PeriodSelector value={period} onChange={setPeriod} />
+              {ranking.length > 0 && (
+                <ExportButton
+                  type="csv"
+                  data={ranking}
+                  filename={`zecblock-pool-ranking-${period}`}
+                  csvHeaders={['Rank', 'Pool', 'Payout address', 'Region', 'Blocks', 'Share (fraction of blocks)', 'Average block interval (s)', 'Total fees (ZEC)']}
+                  csvMapper={(pool: PoolRank) => [
+                    String(pool.rank), pool.name, pool.address, pool.region ?? '', String(pool.blocks), String(pool.share),
+                    String(pool.avgBlockInterval ?? ''), zatToZecString(pool.totalFeesZat),
+                  ]}
+                />
+              )}
+            </div>
+          } />
 
           {loading ? (
             <SkeletonTable rows={5} headers={["#", "Pool", "Blocks", "Share", "Avg interval", "Total fees"]} />

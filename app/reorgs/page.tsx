@@ -8,6 +8,7 @@ import { getApiUrl } from '@/lib/api-config';
 import { Card, CardBody, Badge, DataTable, HashLink, EmptyState, type DataTableColumn } from '@/components/ui';
 
 import { BlockFirstSeen, BLOCK_FIRST_SEEN_EXPLANATION } from '@/components/BlockFirstSeen';
+import { ExportButton } from '@/components/ExportButton';
 
 const API_URL = getApiUrl();
 
@@ -478,6 +479,33 @@ export default function UnclesPage() {
         >
           Monitored Nodes ({nodes.length})
         </button>
+        <div className="ml-auto self-center pb-1">
+          {tab === 'forks' && forks.length > 0 && (
+            <ExportButton
+              type="csv"
+              data={forks}
+              filename="zecblock-reorg-history"
+              csvHeaders={['Fork event', 'Fork height', 'Depth (blocks)', 'Orphaned blocks', 'Canonical tip', 'Source', 'Detected (UTC)', 'Resolved (UTC)', 'Description']}
+              csvMapper={(fork: ForkEvent) => [
+                String(fork.id), String(fork.forkHeight), String(fork.depth), String(fork.orphanedCount), String(fork.canonicalTip ?? ''),
+                fork.source, fork.detectedAt, fork.resolvedAt ?? '', fork.description ?? '',
+              ]}
+            />
+          )}
+          {tab === 'orphans' && orphans.length > 0 && (
+            <ExportButton
+              type="csv"
+              data={orphans}
+              filename="zecblock-orphaned-blocks"
+              csvHeaders={['Height', 'Orphaned hash', 'Canonical hash', 'Block time (UTC)', 'Transactions', 'Size (bytes)', 'Miner pool', 'Miner address', 'Source', 'Reported by', 'Consensus valid', 'Detected (UTC)', 'Fork event']}
+              csvMapper={(block: OrphanedBlock) => [
+                String(block.height), block.hash, block.canonicalHash ?? '', block.timestamp ? new Date(block.timestamp * 1000).toISOString() : '',
+                String(block.transactionCount), String(block.size), block.minerPool ?? '', block.minerAddress ?? '', block.source, block.reportedBy ?? '',
+                block.consensusValid == null ? '' : String(block.consensusValid), block.detectedAt, String(block.forkEventId ?? ''),
+              ]}
+            />
+          )}
+        </div>
       </div>
 
       {loading && (
