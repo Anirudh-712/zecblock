@@ -6,6 +6,13 @@ import { detectAddressType } from '@/lib/zcash';
 import { findAddressByLabel, searchAddressesByLabel, fetchOfficialLabels } from '@/lib/address-labels';
 import { isValidName } from '@/lib/zns';
 import { isMainnet, isCrosslink } from '@/lib/config';
+import { HISTORICAL_UPGRADES } from '@/lib/upgrade-history-data';
+
+// The first block of the Ironwood upgrade, from the deployment ZIP heights.
+const IRONWOOD_ACTIVATION = HISTORICAL_UPGRADES.find((upgrade) => upgrade.id === 'nu63')!.heights;
+const EXAMPLE_BLOCK = isCrosslink
+  ? { height: 6, label: 'Block #6' }
+  : { height: isMainnet ? IRONWOOD_ACTIVATION.mainnet : IRONWOOD_ACTIVATION.testnet, label: 'Ironwood activation' };
 
 interface SearchBarProps {
   compact?: boolean;
@@ -374,10 +381,10 @@ export function SearchBar({ compact = false, subtitle, onNavigate }: SearchBarPr
         <span className="text-caption text-muted font-mono uppercase tracking-wider">Try:</span>
         <button
           type="button"
-          onClick={() => setQuery(isCrosslink ? '6' : '354939')}
+          onClick={() => setQuery(String(EXAMPLE_BLOCK.height))}
           className="example-tag example-tag-default"
         >
-          Block #{isCrosslink ? 6 : 354939}
+          {EXAMPLE_BLOCK.label}
         </button>
         <button
           type="button"
