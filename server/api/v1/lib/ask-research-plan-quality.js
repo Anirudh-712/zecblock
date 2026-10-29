@@ -225,17 +225,25 @@ async function draftDiagnostics(sql,{extended=false,question}={}){
  // Only proven raw monetary values trigger a draft repair. Aliases mentioning
  // an asset, counts, USD, and unresolved expressions never imply zatoshis.
  for(const target of unitsFromTree(tree,issues,{question}).targets)if(/(?:^|_)zec(?:_|$)/i.test(target.name||'')&&target.unit==='zatoshi')issues.add('A column labelled ZEC must convert zatoshis in its own expression by dividing by 100000000, for example sum(fees)::numeric/100000000 AS fees_zec. Otherwise keep a zatoshi label.');
- function select(s,inherited=new Map(),requirements=new Map()){
+ function select(s,inherited=new Map(),requirements=new Map(),windowDemanded=true){
   const scope=new Map(inherited);
   const requestedCounts=new Map();
   if(s.fromClause?.length===1)for(const term of andTerms(s.whereClause)){const e=term?.A_Expr,ref=column(e?.lexpr),n=integer(e?.rexpr);if(e?.name?.[0]?.String?.sval==='='&&ref?.length&&Number.isSafeInteger(n))requestedCounts.set(ref.at(-1),n);}
-  for(const item of s.withClause?.ctes||[]){const c=item.CommonTableExpr;const direct=s.fromClause?.length===1&&s.fromClause[0].RangeVar?.relname===c.ctename;scope.set(c.ctename,select(c.ctequery.SelectStmt,scope,direct?requestedCounts:new Map()));}
+  // New impossible-window advice follows only the actually consumed sole
+  // unqualified RangeVar CTE chain. Other diagnostics retain their old walk.
+  const localCTEs=new Map((s.withClause?.ctes||[]).map(item=>[item.CommonTableExpr.ctename,item.CommonTableExpr]));
+  const demandedCTEs=new Set();let demand=s;
+  while(windowDemanded&&demand?.fromClause?.length===1){const r=demand.fromClause[0]?.RangeVar;if(!r||r.schemaname||!localCTEs.has(r.relname)||demandedCTEs.has(r.relname))break;demandedCTEs.add(r.relname);demand=localCTEs.get(r.relname).ctequery?.SelectStmt;}
+  for(const item of s.withClause?.ctes||[]){const c=item.CommonTableExpr,direct=s.fromClause?.length===1&&s.fromClause[0].RangeVar?.relname===c.ctename,renamed=c.aliascolnames?.length>0;
+   const info=select(c.ctequery.SelectStmt,scope,direct&&!renamed?requestedCounts:new Map(),windowDemanded&&demandedCTEs.has(c.ctename));
+   scope.set(c.ctename,renamed?{...info,dailyBounds:null,shortWindows:null}:info);
+  }
   if(extended&&summaryCountHistory(s,scope))issues.add('This completed-UTC-month shielded/transparent count history is exactly represented by activity_daily. Aggregate shielded_transactions and transparent_transactions by month over the same date bounds instead of scanning raw transactions. Preserve all requested measures, share denominator, dates and the rolling window over monthly aggregates. Transparent means shielded IS FALSE, never unknown: keep unclassified_transactions separate; transactions includes all three categories. Do not replace transparent counts with total minus shielded or fold NULL into false. Raw detail and filters absent from the summaries must retain their raw source and requested scope.');
   const joins=[];
   const source=from=>{
    if(from.JoinExpr){joins.push(from.JoinExpr);return [...source(from.JoinExpr.larg),...source(from.JoinExpr.rarg)];}
-   if(from.RangeVar){const r=from.RangeVar,name=canonical(r.relname),info=scope.get(r.relname);return [{alias:r.alias?.aliasname||r.relname,directHeight:!info&&['blocks','transactions','flows','address_activity'].includes(name),kind:info?info.kind:name,dateType:info?info.dateType:['daily','activity_daily','flow_daily'].includes(name)?'date':null}];}
-   if(from.RangeSubselect){const info=select(from.RangeSubselect.subquery.SelectStmt,scope,requestedCounts);return [{alias:from.RangeSubselect.alias?.aliasname,...info}];}
+   if(from.RangeVar){const r=from.RangeVar,name=canonical(r.relname),info=scope.get(r.relname),plain=!r.alias?.colnames?.length;return [{alias:r.alias?.aliasname||r.relname,directHeight:!info&&['blocks','transactions','flows','address_activity'].includes(name),kind:info?info.kind:name,dateType:info?info.dateType:['daily','activity_daily','flow_daily'].includes(name)?'date':null,rangeOnly:plain,dailyBounds:plain?info?.dailyBounds:null,shortWindows:plain?info?.shortWindows:null}];}
+   if(from.RangeSubselect){const info=select(from.RangeSubselect.subquery.SelectStmt,scope,requestedCounts,false);return [{alias:from.RangeSubselect.alias?.aliasname,...info,rangeOnly:false,dailyBounds:null,shortWindows:null}];}
    return [{kind:null,dateType:null}];
   };
   const sources=(s.fromClause||[]).flatMap(source);
@@ -254,7 +262,7 @@ async function draftDiagnostics(sql,{extended=false,question}={}){
   };
   const checkClock=n=>{
    if(!n||typeof n!=='object')return;
-   if(n.SelectStmt){select(n.SelectStmt,scope);return;}
+   if(n.SelectStmt){select(n.SelectStmt,scope,new Map(),false);return;}
    if(n.FuncCall?.funcname?.at(-1)?.String?.sval==='to_timestamp'&&heightClock(n.FuncCall.args?.[0])==='height')issues.add('Block height is not Unix time: never derive a UTC date from height or height multiplied by an assumed block interval. Use the published timestamp field for raw records, or activity_daily.date and its shielded/transparent counts for calendar summaries without transaction-level filters. Preserve the requested dates, measures and rolling window.');
    for(const value of Object.values(n))checkClock(value);
   };
@@ -265,7 +273,8 @@ async function draftDiagnostics(sql,{extended=false,question}={}){
    if(expr?.name?.[0]?.String?.sval==='='&&left&&right&&left!==right)issues.add('Daily join keys must have matching DATE types. to_char returns text: use swaps.timestamp::date for UTC daily buckets, or explicitly cast the bucket to date before joining daily.date or flow_daily.date.');
   }
   const resolve=ref=>ref?.length===1&&sources.length===1?sources[0].kind:sources.find(x=>x.alias===ref?.[0])?.kind;
-  let lower=-Infinity,upper=Infinity;
+  const daySource=sources.length===1&&sources[0].rangeOnly&&sources[0].dateType==='date'&&['daily','activity_daily'].includes(sources[0].kind);
+  let lower=daySource?sources[0].dailyBounds?.lower??-Infinity:-Infinity,upper=daySource?sources[0].dailyBounds?.upper??Infinity:Infinity;
   for(const term of andTerms(s.whereClause)){
    const expr=term?.A_Expr;if(!expr)continue;const ref=column(expr.lexpr),value=string(expr.rexpr),op=expr.name?.[0]?.String?.sval;
    const kind=resolve(ref);
@@ -276,19 +285,25 @@ async function draftDiagnostics(sql,{extended=false,question}={}){
     const allowed=kind==='swaps'?['inflow','outflow']:['flows','flow_daily'].includes(kind)?['shield','deshield']:null;
     if(allowed&&!allowed.includes(value))issues.add('Use the published direction values: swaps inflow/outflow; flows and flow_daily shield/deshield. Do not invent in/out.');
    }
-   if(ref?.at(-1)==='date'&&['daily','activity_daily'].includes(kind)&&/^\d{4}-\d{2}-\d{2}$/.test(value||'')){
+   if(daySource&&ref?.at(-1)==='date'&&['daily','activity_daily'].includes(kind)&&(!castType||castType==='date')&&/^\d{4}-\d{2}-\d{2}$/.test(value||'')){
     const date=Date.parse(value+'T00:00:00Z')/86400000;
     if(op==='>=')lower=Math.max(lower,date);if(op==='<')upper=Math.min(upper,date);
    }
   }
-  // Unique daily sources and literal half-open date bounds make this case
-  // provable: no row can have N prior rows in an input containing <=N dates.
-  if(sources.length===1&&['daily','activity_daily'].includes(sources[0].kind)&&!s.groupClause?.length&&Number.isFinite(lower)&&Number.isFinite(upper)){
-   for(const item of s.targetList||[]){const f=item.ResTarget?.val?.FuncCall,w=f?.over;
-    if(f?.funcname?.at(-1)?.String?.sval==='count'&&w?.frameOptions===6165&&integer(w.endOffset)===1&&requirements.get(item.ResTarget.name)===integer(w.startOffset)&&integer(w.startOffset)>=upper-lower&&upper>lower){
-     issues.add('The window input is too short to contain a full preceding baseline. Include lookback dates in the window CTE, compute windows there, and filter requested output dates only in an outer SELECT.');
+  const shortWindows=new Map(),shortInput='The window input is too short to contain a full preceding baseline. Include lookback dates in the window CTE, compute windows there, and filter requested output dates only in an outer SELECT.';
+  // Bounds survive only simple date-preserving unique-day CTEs. A proved
+  // insufficient counter is metadata, not an error until an actual consumer
+  // requires that full count; partial windows and unused CTEs remain valid.
+  if(daySource&&Number.isFinite(lower)&&Number.isFinite(upper)&&upper>lower&&!s.groupClause?.length){
+   for(const item of s.targetList||[]){const f=item.ResTarget?.val?.FuncCall,w=f?.over,n=integer(w?.startOffset),name=item.ResTarget?.name||f?.funcname?.at(-1)?.String?.sval;
+    if(f?.funcname?.at(-1)?.String?.sval==='count'&&w?.frameOptions===6165&&integer(w.endOffset)===1&&Number.isSafeInteger(n)&&n>=upper-lower){
+     shortWindows.set(name,n);if(windowDemanded&&requirements.get(name)===n)issues.add(shortInput);
     }
    }
+  }
+  if(windowDemanded&&daySource&&sources[0].shortWindows)for(const term of andTerms(s.whereClause)){
+   const e=term?.A_Expr,ref=column(e?.lexpr),required=integer(e?.rexpr);
+   if(e?.name?.[0]?.String?.sval==='='&&Number.isSafeInteger(required)&&ref?.length&&(ref.length===1||ref.length===2&&ref[0]===sources[0].alias)&&sources[0].shortWindows.get(ref.at(-1))===required)issues.add(shortInput);
   }
   // Conservative lineage only: no joins, set operations, grouping, renamed
   // date or expanding expressions. Unknown lineage never becomes a rejection.
@@ -297,7 +312,14 @@ async function draftDiagnostics(sql,{extended=false,question}={}){
   const dateCast=dateTarget?.TypeCast?.typeName?.names?.at(-1)?.String?.sval;
   const dateType=dateCast==='date'?'date':['text','varchar','bpchar'].includes(dateCast)?'text':dateTarget?.FuncCall?.funcname?.at(-1)?.String?.sval==='to_char'?'text':resolveDate(column(dateTarget))||(preservesDate&&sources.length===1?sources[0].dateType:null);
   const kind=sources.length===1&&!s.groupClause?.length&&(!s.op||s.op==='SETOP_NONE')&&preservesDate?sources[0].kind:null;
-  return {kind,dateType};
+  const simpleDay=daySource&&kind&&dateType==='date'&&!s.distinctClause?.length&&!s.limitCount&&!s.limitOffset&&!s.havingClause;
+  const exposedShort=new Map();
+  if(simpleDay)for(const item of s.targetList||[]){const target=item.ResTarget,ref=column(target?.val),star=target?.val?.ColumnRef?.fields?.at(-1)?.A_Star;
+   if(star&&(ref?.length===1||ref?.length===2&&ref[0]===sources[0].alias)){for(const [name,n]of sources[0].shortWindows||[])exposedShort.set(name,n);}
+   if(ref?.length&&(ref.length===1||ref.length===2&&ref[0]===sources[0].alias)&&(!target.name||target.name===ref.at(-1))&&sources[0].shortWindows?.has(ref.at(-1)))exposedShort.set(ref.at(-1),sources[0].shortWindows.get(ref.at(-1)));
+   const name=target?.name||target?.val?.FuncCall?.funcname?.at(-1)?.String?.sval;if(shortWindows.has(name))exposedShort.set(name,shortWindows.get(name));
+  }
+  return {kind,dateType,dailyBounds:simpleDay?{lower,upper}:null,shortWindows:simpleDay?exposedShort:null};
  }
  select(tree.stmts[0].stmt.SelectStmt);return [...issues];
 }

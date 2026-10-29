@@ -149,6 +149,18 @@ test('disposable PG16 catalogue SQL and exact wire transport',{skip:process.env.
   assert.notEqual(result.rows[0][4],result.rows[0][5],'matching zero-unclassified production rows must not hide a wrong denominator');
  });
 
+ await t.test('upstream period filtering cannot supply the requested full preceding baseline',async()=>{
+  const bad=fs.readFileSync(path.join(__dirname,'../fixtures/ask-fixed-short-lookback.sql'),'utf8');
+  const empty=await read(await compileResearchSQL({version:3,sql:bad,limit:100},{extended:true}));
+  assert.deepEqual(empty.rows,[]);
+  const reviewed=cases.find(item=>item.id==='shielded_baseline');
+  const corrected=await read(await compileResearchSQL({version:3,sql:reviewed.referenceSQL,limit:100},{extended:true}));
+  assert.equal(corrected.rows.length,10);
+  assert.equal(corrected.rows[0][0],'2026-09-01');
+  assert.equal(corrected.rows[0][1],'1000');
+  assert.equal(corrected.rows[0][2],'100.00');
+ });
+
  await t.test('transport check rejects a rounded large count instead of trusting numeric appearance',()=>{
   const {candidate,verification}=results.get('fixture_exact_large_count'),mutant={...candidate,rows:[['2026-09-01','9007199254740992']]};
   assert.throws(()=>splitComparison(cases.find(item=>item.id==='fixture_exact_large_count'),mutant,verification),error=>error.verificationDiagnostic?.stage==='snapshot-mismatch');

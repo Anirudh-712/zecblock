@@ -286,6 +286,18 @@ Sources: [Luna model](https://developers.openai.com/api/docs/models/gpt-6-luna),
 The mini model page currently marks it deprecated; it remains an explicit
 comparison profile here, not a recommendation or a serving-default change.
 
+## Preceding-window input bounds
+
+Check the input window separately from the requested output period. A daily
+source restricted to thirty dates cannot provide thirty preceding observations
+for any row. The model-only quality path carries proven bounds and short-window
+counter lineage through simple date-preserving CTEs. It requests the existing
+single repair only when a consumer actually requires an impossible full count;
+unused counters and explicitly requested partial windows remain valid. Unknown
+joins, renamed/expanded dates and grouped inputs do not acquire inferred bounds.
+Keep the lookback in the source, calculate windows there, and filter output dates
+afterward. Direct SQL admission remains unchanged.
+
 ## All-transaction share semantics
 
 A zero-unclassified observation can hide the wrong denominator: a shielded share
