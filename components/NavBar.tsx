@@ -202,7 +202,7 @@ export function NavBar() {
 
             {/* Right: utilities */}
             <div className="flex items-center gap-1.5 sm:gap-2">
-              {isMainnet ? <Link href="/zift" aria-current={pathname === '/zift' ? 'page' : undefined} title="Zift: ask questions and run SQL on Zcash data" className="hidden xl:flex h-9 items-center gap-1.5 px-1 sm:px-2.5 text-xs font-mono text-secondary hover:text-primary hover:bg-cipher-hover rounded-md transition-colors"><ZiftMark size={14} /> Zift</Link> : null}
+              {isMainnet ? <Link href="/zift" aria-current={pathname === '/zift' ? 'page' : undefined} title="Zift: ask questions and run SQL on Zcash data" className="hidden xl:flex h-9 items-center gap-1.5 px-1 sm:px-2.5 text-xs font-mono text-secondary hover:text-primary hover:bg-cipher-hover rounded-md transition-colors"><ZiftMark size={14} /> Ask Zift</Link> : null}
               {/* Buy ZEC — mainnet only, desktop */}
               {isMainnet && (
                 <a
