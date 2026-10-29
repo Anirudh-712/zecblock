@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { useApiQuery } from '@/hooks/useApiQuery';
 import { Card, CardBody } from '@/components/ui/Card';
-import { DataTable, SectionHeader } from '@/components/ui';
+import { SectionHeader } from '@/components/ui';
 import { useUrlState } from '@/lib/use-url-state';
+import { SortableDataTable } from '@/components/ui/SortableDataTable';
 
 type Period = '24h' | '7d' | '30d';
 interface PoolRate {
@@ -82,11 +83,11 @@ export function OrphanRateSection() {
           {selected && <>
             <p className="text-caption text-muted mb-3">{utc(selected.windowStart)} – {utc(selected.windowEnd)} UTC · block-header timestamps</p>
             {selected.unavailableReason ? <p className="text-sm text-muted py-4">Canonical block history is insufficient for this window. The observed counts above are retained; a rate is unavailable.</p> :
-              <DataTable bare columns={[
-                { id: 'pool', header: 'Pool', cell: (pool: PoolRate) => <span className="font-mono text-xs text-primary">{pool.name}</span> },
-                { id: 'canonical', header: 'Canonical blocks', align: 'right', cell: pool => <span className="font-mono text-xs tabular-nums">{pool.canonicalBlocks.toLocaleString()}</span> },
-                { id: 'orphans', header: 'Observed orphans', align: 'right', cell: pool => <span className="font-mono text-xs tabular-nums">{pool.orphanedBlocks.toLocaleString()}</span> },
-                { id: 'rate', header: 'Observed rate', align: 'right', cell: pool => <span className="font-mono text-xs tabular-nums">{percent(pool.rate)}</span> },
+              <SortableDataTable bare caption={`Observed orphan rate by mining pool, ${period}`} columns={[
+                { id: 'pool', header: 'Pool', sortValue: (pool: PoolRate) => pool.name, cell: (pool: PoolRate) => <span className="font-mono text-xs text-primary">{pool.name}</span> },
+                { id: 'canonical', header: 'Canonical blocks', align: 'right', sortValue: pool => pool.canonicalBlocks, cell: pool => <span className="font-mono text-xs tabular-nums">{pool.canonicalBlocks.toLocaleString()}</span> },
+                { id: 'orphans', header: 'Observed orphans', align: 'right', sortValue: pool => pool.orphanedBlocks, cell: pool => <span className="font-mono text-xs tabular-nums">{pool.orphanedBlocks.toLocaleString()}</span> },
+                { id: 'rate', header: 'Observed rate', align: 'right', sortValue: pool => pool.rate, cell: pool => <span className="font-mono text-xs tabular-nums">{percent(pool.rate)}</span> },
               ]} rows={selected.pools} rowKey={pool => pool.name} />}
           </>}
           <p className="text-caption text-muted mt-4">

@@ -18,7 +18,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { categoryColor } from '@/lib/category-colors';
 import { getChartColors } from '@/lib/chart-theme';
 import { Card, CardBody } from '@/components/ui/Card';
-import { PageHeader, SectionHeader, DataTable, SkeletonTable } from '@/components/ui';
+import { PageHeader, SectionHeader, SkeletonTable } from '@/components/ui';
 import { ChartCard } from '@/components/network/ChartCard';
 import { PageSectionNav } from '@/components/PageSectionNav';
 import { MiningMetricsChart } from '@/components/network/MiningMetricsChart';
@@ -28,6 +28,7 @@ import { useUrlState } from '@/lib/use-url-state';
 import { ExportButton } from '@/components/ExportButton';
 import { zatToZecString } from '@/lib/csv';
 import { objectRowsCsv } from '@/components/charts/PanelShareControl';
+import { SortableDataTable } from '@/components/ui/SortableDataTable';
 
 const SECTIONS = [
   { id: 'metrics', label: 'Network' },
@@ -218,16 +219,19 @@ function RankingSection() {
             <SkeletonTable rows={5} headers={["#", "Pool", "Blocks", "Share", "Avg interval", "Total fees"]} />
           ) : (
             <>
-              <DataTable
+              <SortableDataTable
                 bare
+                caption={`Mining pool ranking by blocks found, ${period}`}
                 columns={[
                   {
                     id: 'rank',
+                    sortValue: (pool: PoolRank) => pool.rank,
                     header: '#',
                     cell: (pool: PoolRank) => <span className="font-mono text-xs text-muted">{pool.rank}</span>,
                   },
                   {
                     id: 'pool',
+                    sortValue: (pool: PoolRank) => pool.name,
                     header: 'Pool',
                     cell: (pool) => (
                       <div className="flex items-center gap-2">
@@ -244,6 +248,7 @@ function RankingSection() {
                   },
                   {
                     id: 'blocks',
+                    sortValue: (pool: PoolRank) => pool.blocks,
                     header: 'Blocks',
                     align: 'right',
                     cell: (pool) => (
@@ -252,6 +257,7 @@ function RankingSection() {
                   },
                   {
                     id: 'share',
+                    sortValue: (pool: PoolRank) => pool.share,
                     header: 'Share',
                     align: 'right',
                     cell: (pool) => (
@@ -271,6 +277,7 @@ function RankingSection() {
                   },
                   {
                     id: 'interval',
+                    sortValue: (pool: PoolRank) => pool.avgBlockInterval,
                     header: 'Avg Interval',
                     align: 'right',
                     className: 'hidden sm:table-cell',
@@ -282,6 +289,7 @@ function RankingSection() {
                   },
                   {
                     id: 'fees',
+                    sortValue: (pool: PoolRank) => Number(pool.totalFeesZat),
                     header: 'Total Fees',
                     align: 'right',
                     className: 'hidden md:table-cell',
@@ -291,7 +299,7 @@ function RankingSection() {
                   },
                 ]}
                 rows={ranking}
-                rowKey={(pool) => pool.address}
+                rowKey={(pool) => `${pool.rank}:${pool.name}:${pool.address}`}
               />
               <p className="text-caption text-muted font-mono mt-3">
                 {total.toLocaleString()} total blocks in {period}

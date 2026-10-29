@@ -9,6 +9,7 @@ import { Card, CardBody, Badge, DataTable, HashLink, EmptyState, type DataTableC
 
 import { BlockFirstSeen, BLOCK_FIRST_SEEN_EXPLANATION } from '@/components/BlockFirstSeen';
 import { ExportButton } from '@/components/ExportButton';
+import { SortableDataTable, type SortableColumn } from '@/components/ui/SortableDataTable';
 
 const API_URL = getApiUrl();
 
@@ -96,10 +97,11 @@ interface NodesSummary {
   forking: number;
 }
 
-const forkColumns: DataTableColumn<ForkEvent>[] = [
+const forkColumns: SortableColumn<ForkEvent>[] = [
   {
     id: 'height',
     header: 'Height',
+    sortValue: (fork) => fork.forkHeight,
     cell: (fork) => (
       <Link href={`/block/${fork.forkHeight}`} prefetch={false} className="text-cipher-gold hover:underline font-mono text-xs">
         #{fork.forkHeight.toLocaleString()}
@@ -109,6 +111,7 @@ const forkColumns: DataTableColumn<ForkEvent>[] = [
   {
     id: 'depth',
     header: 'Depth',
+    sortValue: (fork) => fork.depth,
     align: 'center',
     cell: (fork) => (
       <Badge color={fork.depth > 3 ? 'orange' : fork.depth > 1 ? 'gold' : 'muted'}>
@@ -119,6 +122,7 @@ const forkColumns: DataTableColumn<ForkEvent>[] = [
   {
     id: 'blocks',
     header: 'Blocks',
+    sortValue: (fork) => fork.orphanedCount || fork.comparisons?.length || null,
     align: 'center',
     cell: (fork) => (
       <span className="font-mono text-xs text-secondary">
@@ -129,6 +133,7 @@ const forkColumns: DataTableColumn<ForkEvent>[] = [
   {
     id: 'source',
     header: 'Source',
+    sortValue: (fork) => fork.source,
     cell: (fork) => (
       <Badge color={fork.source === 'external' ? 'purple' : 'gold'}>
         {fork.source}
@@ -148,6 +153,7 @@ const forkColumns: DataTableColumn<ForkEvent>[] = [
   {
     id: 'detected',
     header: 'Detected',
+    sortValue: (fork) => Date.parse(fork.detectedAt),
     align: 'right',
     cell: (fork) => (
       <span className="text-xs text-muted font-mono whitespace-nowrap">
@@ -545,7 +551,8 @@ export default function UnclesPage() {
 
       {/* Fork Events — Summary list */}
       {!loading && !error && tab === 'forks' && forks.length > 0 && (
-        <DataTable
+        <SortableDataTable
+          caption="Chain reorganization history"
           columns={forkColumns}
           rows={forks}
           rowKey={(fork) => fork.id}
