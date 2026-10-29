@@ -139,6 +139,16 @@ test('disposable PG16 catalogue SQL and exact wire transport',{skip:process.env.
   if(id==='fixture_boolean_unknown'){assert.deepEqual(candidate.rows,[['2026-09-01','t','f',null]]);assert.deepEqual(candidate.columns.slice(1).map(column=>column.type),['boolean','boolean','boolean']);}
  });
 
+ await t.test('nonzero unclassified activity distinguishes all-transaction and classified-only shares',async()=>{
+  const compiled=await compileResearchSQL({version:3,sql:`SELECT transactions,shielded_transactions,transparent_transactions,unclassified_transactions,
+   round(100*shielded_transactions::numeric/nullif(transactions,0),2) AS all_share,
+   round(100*shielded_transactions::numeric/nullif(shielded_transactions+transparent_transactions,0),2) AS classified_share
+   FROM activity_daily WHERE date=DATE '2025-01-01'`,limit:10},{extended:true});
+  const result=await read(compiled);
+  assert.deepEqual(result.rows,[['300','100','180','20','33.33','35.71']]);
+  assert.notEqual(result.rows[0][4],result.rows[0][5],'matching zero-unclassified production rows must not hide a wrong denominator');
+ });
+
  await t.test('transport check rejects a rounded large count instead of trusting numeric appearance',()=>{
   const {candidate,verification}=results.get('fixture_exact_large_count'),mutant={...candidate,rows:[['2026-09-01','9007199254740992']]};
   assert.throws(()=>splitComparison(cases.find(item=>item.id==='fixture_exact_large_count'),mutant,verification),error=>error.verificationDiagnostic?.stage==='snapshot-mismatch');

@@ -286,6 +286,18 @@ Sources: [Luna model](https://developers.openai.com/api/docs/models/gpt-6-luna),
 The mini model page currently marks it deprecated; it remains an explicit
 comparison profile here, not a recommendation or a serving-default change.
 
+## All-transaction share semantics
+
+A zero-unclassified observation can hide the wrong denominator: a shielded share
+of shielded plus transparent counts coincides with an all-transaction share only
+in that special case. Review the generated expression as well as the observed
+number. The model-only quality path diagnoses a source-proven shielded division
+by classified counts when the question explicitly requests all transactions; it
+uses the existing single repair. Classified-only research and manually submitted
+SQL remain supported. Unknown lineage stays unresolved rather than acquiring
+meaning from an output alias. The disposable PostgreSQL counterexample includes
+nonzero unclassified counts and verifies that both legitimate shares differ.
+
 ## Run and interpret
 
 From the checkout root, the default command validates fixed cases and compiles
