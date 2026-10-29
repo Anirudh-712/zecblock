@@ -126,7 +126,13 @@ function renderExplanation(raw, facts) {
   const parsed = explanationSchema.parse(raw);
   function render(raw) {
     // Invisible format characters (e.g. U+180E seen on staging) never reach readers.
-    const text = raw.replace(/\p{Cf}/gu, '');
+    // A fact ID written without braces ("over the start_date to …") is repaired
+    // into its placeholder, and a stray combining mark at a word start (seen
+    // in front of one on production) is dropped.
+    const ids = Object.keys(facts).filter(id => id.includes('_'));
+    const unbraced = ids.length ? new RegExp(`(?<!\\{\\{)\\b(${ids.join('|')})\\b(?!\\}\\})`, 'g') : null;
+    let text = raw.replace(/\p{Cf}/gu, '').replace(/(^|\s)\p{M}+/gu, '$1');
+    if (unbraced) text = text.replace(unbraced, '{{$1}}');
     let remainder = text.replace(/\{\{([a-z_]+)\}\}/g, (_, id) => {
       if (!Object.hasOwn(facts, id)) throw new Error('Unknown evidence reference');
       return '';

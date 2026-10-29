@@ -108,7 +108,8 @@ function windowFacts(tree,locale){
  if(inexact||unique.length<2||unique.length>3)return {facts:{},notes:{}};
  const day=86400000,at=date=>Date.parse(date+'T00:00:00Z');
  const short=t=>new Date(t).toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short'}),long=t=>new Date(t).toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
- const span=(from,to)=>`${short(at(from))} – ${long(at(to)-day)}`;
+ // The start keeps its year when the window crosses one ("Oct 1, 2025 – Sep 30, 2026").
+ const span=(from,to)=>`${from.slice(0,4)===new Date(at(to)-day).toISOString().slice(0,4)?short(at(from)):long(at(from))} – ${long(at(to)-day)}`;
  const lengths=unique.slice(1).map((date,i)=>(at(date)-at(unique[i]))/day);
  const facts={},notes={};
  if(unique.length===2){facts.window=span(unique[0],unique[1]);notes.window='UTC dates the query filtered on (end inclusive)';}
@@ -377,8 +378,20 @@ function checkedCaption(summary,facts,numeric,locale='en',reject=()=>{}){
  const sentences=sentencesOf(template);
  if(!sentences.length)return no('no_sentence');
  // Reason codes name the failed check only; prose never reaches the logs.
- try{return renderExplanation({summary:sentences.join(' '),observations:[],limitation:''},facts).summary;}catch(error){const message=String(error?.message||'');return no(/Unknown evidence/.test(message)?'unknown_fact':/unit/i.test(message)?'unit_conflict':/numerical/.test(message)?'unchecked_number':'render');}
+ let rendered;
+ try{rendered=renderExplanation({summary:sentences.join(' '),observations:[],limitation:''},facts).summary;}catch(error){const message=String(error?.message||'');return no(/Unknown evidence/.test(message)?'unknown_fact':/unit/i.test(message)?'unit_conflict':/numerical/.test(message)?'unchecked_number':'render');}
+ // "decreased by -56.1 ZEC": a direction word already carries the sign, so a
+ // matching sign is dropped; a contradicting one ("rose by -5") is rejected.
+ let contradiction=false;
+ rendered=rendered.replace(directionSign,(whole,word,by,approx,sign)=>{
+  const down=fallWords.test(word),negative=sign!=='+';
+  if(down!==negative){contradiction=true;return whole;}
+  return `${word}${by||''} ${approx||''}`;
+ });
+ return contradiction?no('signed_direction'):rendered;
 }
+const fallWords=/^(?:decreased|declined|fell|dropped|shrank|contracted|lost|down)$/i;
+const directionSign=/\b(decreased|declined|fell|dropped|shrank|contracted|lost|down|increased|rose|grew|climbed|expanded|gained|up)(\s+by)?\s+(≈\s?|~)?([+\-−])(?=\d)/gi;
 
 // Catalogue caveats for the datasets a query reads. A sentence matching a
 // caveat's claim pattern must also carry a negation, so an interpretation can

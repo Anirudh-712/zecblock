@@ -277,3 +277,23 @@ test('the caption call proposes a chart that is checked against the result; a ma
   assert.match(reply.answer,/^Orchard ended at /);assert.deepEqual(reply.chart,{view:'area',x:0,y:1,highlight:'latest'});
  }
 });
+
+test('a window that crosses a year names both years; a direction word drops its matching sign and rejects a contradicting one',async()=>{
+ const {windowFacts,checkedCaption}=require('../../v1/lib/ask-research-reply');
+ const {parse}=require('pgsql-parser');
+ const facts=sql=>parse(sql).then(tree=>windowFacts(tree,'en').facts.window);
+ assert.equal(await facts("SELECT 1 FROM blocks WHERE day >= DATE '2025-10-01' AND day < DATE '2026-10-01'"),'Oct 1, 2025 – Sep 30, 2026');
+ assert.equal(await facts("SELECT 1 FROM blocks WHERE day >= DATE '2026-10-22' AND day < DATE '2026-10-29'"),'Oct 22 – Oct 28, 2026');
+ const values={change_c:'≈-56.1 ZEC',change_b:'+173,330'},numeric=new Set(Object.keys(values));
+ assert.equal(checkedCaption('Fees decreased by {{change_c}} while transactions increased by {{change_b}}.',values,numeric),'Fees decreased by ≈56.1 ZEC while transactions increased by 173,330.');
+ let reason;assert.equal(checkedCaption('Fees rose by {{change_c}}.',values,numeric,'en',r=>{reason=r;}),null);assert.equal(reason,'signed_direction');
+ assert.equal(checkedCaption('Fees changed by {{change_c}}.',values,numeric),'Fees changed by ≈-56.1 ZEC.');
+});
+
+test('a fact ID the model wrote without braces renders its checked value; a stray combining mark before it is dropped',()=>{
+ const {renderExplanation}=require('../../v1/lib/ask-explanation');
+ const facts={start_date:'Sep 29, 2026',end_date:'Oct 29, 2026'};
+ // Observed on production: "over the ◌̷start_date to 2026-10-29 observation window".
+ assert.equal(renderExplanation({summary:'Orchard fell over the ̷start_date to {{end_date}} observation window.',observations:[],limitation:''},facts).summary,'Orchard fell over the Sep 29, 2026 to Oct 29, 2026 observation window.');
+ assert.throws(()=>renderExplanation({summary:'Orchard was 343 ZEC.',observations:[],limitation:''},facts),/Unvalidated/);
+});
