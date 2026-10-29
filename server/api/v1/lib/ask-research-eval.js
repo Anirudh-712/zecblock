@@ -242,13 +242,15 @@ function implicitCountUnit(claim,number,role,check){
  const unit=String(check.unit||'').toLowerCase();
  if(role!=='count'||!['transaction','transactions','record','records','block','blocks','swap','swaps','amount','amounts','observation','observations','row','rows','address','addresses','event','events','input','inputs','output','outputs'].includes(unit))return false;
  const named=new RegExp('(?<![\\p{L}\\p{N}])'+unitPattern(unit)+'(?![\\p{L}\\p{N}])','iu'),subjects=aliases(check.subject).filter(subject=>named.test(subject));
- const bound=phraseSpans(claim,subjects).some(span=>span.end<=number.before.length&&/^\s*(?:is|was|are|were|equals?|:|=)\s*$/i.test(number.before.slice(span.end)));
+ const bound=phraseSpans(claim,subjects).some(span=>span.end<=number.before.length&&/^\s*(?:,?\s*(?:is|was|are|were|equals?|at)|:|=)\s*$/i.test(number.before.slice(span.end)));
  return bound&&/^[\s,.]*(?:(?:at\s+(?:height|block|rank|position|group|bucket)\s*#?\s*(?:\d{1,3}(?:,\d{3})+|\d+)|(?:on|in)\s+DATE)[\s,.]*)?$/i.test(number.after);
 }
 // Opt-in reviewed contracts may name a currency in the measured subject.
 // This does not make an arbitrary bare numeric value or asset name a unit.
 function subjectCurrencyUnit(claim,number,role,check){
  if(check.unitInSubject!==true||role!=='usd'||String(check.unit).toUpperCase()!=='USD')return false;
+ const denomination=/^[\s,;:()]*?(?:(?:in|as)\s+)?(USD|US dollars?|dollars?|EUR|euros?|GBP|pounds?|BTC|bitcoins?|ETH|ether|ZEC|TAZ|zatoshis?|zats?|records?|transactions?|swaps?|bytes?|percent(?:age)?|%)(?![\p{L}\p{N}_])/iu.exec(number.after)?.[1];
+ if(denomination&&!new RegExp('^(?:'+unitPattern(check.unit)+')$','i').test(denomination))return false;
  const following=/^\s+([\p{L}%]+)/u.exec(number.after)?.[1];
  if(following&&!/^(?:USD|across|with|for|from|in|on|of|and)$/i.test(following))return false;
  return phraseSpans(claim,aliases(check.subject).filter(subject=>/\bUSD\b/.test(subject))).some(span=>span.end<=number.before.length&&/^\s*(?:,?\s*(?:is|was|are|were|equals?|at)|:|=)\s*$/i.test(number.before.slice(span.end)));
@@ -318,7 +320,7 @@ function genericFinding(item,answer,reference){
   const claim=dated?.claim??withoutKeys(primary,row,keys,item.roles);
   if(check.type==='leader'){
    if(rows.length>1&&/\b(?:alone|unique(?:ly)?|sole|only)\b/i.test(claim))return review(false,'leader-tie-conflict');
-   const maximum=/\b(?:highest|largest|leads?|leading|top|most|maximum)\b/i.test(claim)||comparison&&/\blarger\b/i.test(claim),minimum=/\b(?:lowest|smallest|least|minimum)\b/i.test(claim);
+   const maximum=/\b(?:highest|largest|greatest|leads?|leading|top|most|maximum)\b/i.test(claim)||comparison&&/\blarger\b/i.test(claim),minimum=/\b(?:lowest|smallest|least|minimum)\b/i.test(claim);
    if(check.direction==='max'&&minimum||check.direction==='min'&&maximum)return review(false,'leader-direction-conflict');
    if(!(check.direction==='max'?maximum:minimum))continue;
   }

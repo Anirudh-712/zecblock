@@ -6,7 +6,7 @@ const {formatChain}=require('../../../../lib/ask/data');
 const when='2026-10-28T00:00:00Z';
 const fieldType=role=>['date','month','text'].includes(role)?'text':role==='boolean'?'boolean':'number';
 function result(rows,roles){return {query:{version:3,sql:'SELECT count(*) FROM blocks',limit:100},columns:roles.map((role,i)=>({key:'c'+i,label:'checked_'+i,type:fieldType(role)})),rows,truncated:false,datasets:['blocks'],fingerprint:'a'.repeat(64),retrievedAt:when,indexedThrough:when,coverage:'fixed operator fixture',units:'exact decimal strings'};}
-function grade(item,rows,answer){const candidate=result(rows,item.roles),verification=result([...rows.map(row=>['reference',...row]),...rows.map(row=>['candidate',...row])],['text',...item.roles]);return gradeReply(item,{mode:'ai',answer,research:candidate},verification);}
+function grade(item,rows,answer,observed=rows){const candidate=result(observed,item.roles),verification=result([...rows.map(row=>['reference',...row]),...observed.map(row=>['candidate',...row])],['text',...item.roles]);return gradeReply(item,{mode:'ai',answer,research:candidate},verification);}
 const summer=cases.find(item=>item.id==='monthly_change_2026_summer');
 const summerRows=[['2026-06-01',null,'42369',null,null],['2026-07-01','42369','43287','918','2.17'],['2026-08-01','43287','65548','22261','51.43']];
 const summerAnswer='The shielded count rose by 22,261 from 43,287 in Jul 1, 2026 to 65,548 in Aug 1, 2026, a 51.43% increase. Chronologically: Jun 1, 2026 had no preceding in-range baseline and a current count of 42,369; Jul 1, 2026 had a preceding count of 42,369, current count of 43,287, signed change of 918 and percent change of 2.17%; Aug 1, 2026 had a preceding count of 43,287, current count of 65,548, signed change of 22,261 and percent change of 51.43%.';
@@ -75,4 +75,48 @@ test('the independently observed annual model error remains a failed finding',()
  const item=cases.find(value=>value.id==='annual_2025'),fixture=require('../fixtures/ask-monthly-change-2025.json'),rows=fixture.rows.map(row=>[row[0],row[1],row[2],row[4],row[5]]);
  const wrong='Shielded counts peaked in 2025-11-01 00:00:00 at 63,100 transactions, while transparent counts peaked that month at 410,477; the shielded share was 13.32%. The three-month rolling average of shielded transactions reached 52,099 in 2025-12-01 00:00:00. The largest absolute month-to-month change was a decrease of 23,078 shielded transactions in 2025-12-01 00:00:00 versus 63,100 the previous month.';
  const outcome=grade(item,rows,wrong);assert.equal(outcome.passed,false);assert.equal(outcome.dimensions.result,'passed');assert.equal(outcome.dimensions.narrative,'failed');
+});
+
+
+const flowItem=cases.find(item=>item.id==='flow_pool_direction_totals');
+// Fixed DOM-observed cells for a finding-only control. They do not certify the
+// original SQL's rounded amounts against the independent full-precision oracle.
+const flowRows=[['ironwood','shield','52523','451317.22','0'],['ironwood','deshield','48429','346280.28','0'],['sapling','shield','3145','45802.27','0'],['sapling','deshield','2252','55579.24','0'],['orchard','deshield','1162','7416.24','0'],['mixed','deshield','287','6595.63','0'],['mixed','shield','9','245.15','0']];
+const flowAnswer='Ironwood shielding had the most public boundary records, at 52,523, with 451,317.22 ZEC in total. Ironwood deshielding followed with 48,429 records and 346,280.28 ZEC; both directions report 0 missing amounts. Flow-history completeness is unverified.';
+const independent=cases.find(item=>item.id==='independent_flow_swap_baselines');
+const independentRows=[['2026-09-03','29917.948929150000','6016271.548450247945','18908.5375539657140000','2149912.052704096097','949','0','0'],['2026-09-16','9866.9332726800000000','3779378.368955595656','7015.9067292700000000','2781554.359519001036','864','0','0'],['2026-09-17','36813.406369060000','9584743.672472445365','7050.5243050857142857','2850886.158448825219','1126','0','0'],['2026-09-18','16011.1569258300000000','7264447.920965382576','11067.1606311542857143','3501171.971176248520','1330','0','0'],['2026-09-19','17711.8134635600000000','6171150.096531739602','12049.7862627900000000','4211373.414958780399','1200','0','0'],['2026-09-29','17513.8120922200000000','10364642.325895396767','11404.5570541842857143','4373857.810737065650','903','0','0'],['2026-09-30','22619.592866320000','11887622.483949866099','12320.2102722542860000','5113287.997284926199','812','0','0']];
+const independentAnswer='The qualifying day with the greatest public deshielding was Sep 17, 2026: 36,813.40636906 ZEC deshielded and 9,584,743.672472445365 USD in tracked outflows, above preceding seven-observation averages of 7,050.5243050857142857 ZEC and 2,850,886.158448825219 USD. It had 1,126 outflow swaps, with 0 missing flow amounts and 0 missing USD values; this concurrence does not establish causation.';
+
+test('a greatest public deshielding leader retains its correct mixed-metric wording',()=>{
+ const good=grade(independent,independentRows,independentAnswer);assert.equal(good.passed,true);assert.equal(good.dimensions.result,'passed');assert.equal(good.dimensions.narrative,'passed');
+ const together='The qualifying day with the greatest public deshielding was Sep 17, 2026: 36,813.40636906 ZEC, with 9,584,743.672472445365 USD in tracked outflows.';
+ const mixed=grade(independent,independentRows,together);assert.equal(mixed.passed,false);assert.equal(mixed.dimensions.result,'passed');assert.equal(mixed.diagnostics.stage,'narrative-manual-review','mixed units in one unsplit finding remain conservatively unverified');
+ for(const wrong of [together.replace('36,813.40636906 ZEC','36,813.40636906 USD'),together.replace('36,813.40636906 ZEC','36,813.40636906 records'),together.replace('36,813.40636906 ZEC','9,584,743.672472445365 ZEC'),together.replace('Sep 17','Sep 16'),together.replace('greatest','smallest'),together.replace('9,584,743.672472445365 USD','9,584,743.672472445365 ZEC'),together.replace('9,584,743.672472445365 USD','7,050.5243050857142857 ZEC'),together.replace('9,584,743.672472445365 USD','2,850,886.158448825219 USD'),together.replace('in tracked outflows','in treasury assets')])assert.equal(grade(independent,independentRows,wrong).passed,false,wrong);
+});
+
+test('simple count findings pass while mixed-measure clauses remain manually reviewed',()=>{
+ const finding=grade(flowItem,flowRows,flowAnswer);assert.equal(finding.passed,false);assert.equal(finding.dimensions.result,'passed');assert.equal(finding.dimensions.narrative,'failed');assert.equal(finding.diagnostics.stage,'narrative-manual-review');
+ assert.equal(grade(flowItem,flowRows,'Ironwood shielding had the most public boundary records, at 52,523.').passed,true);
+ for(const wrong of [flowAnswer.replace('52,523,','52,523 ZEC,'),flowAnswer.replace('52,523,','52,523 USD,'),flowAnswer.replace('52,523,','451,317.22,'),flowAnswer.replace('52,523,','52,524,'),flowAnswer.replace('Ironwood shielding had','Orchard shielding had'),flowAnswer.replace('Ironwood shielding had','Ironwood deshielding had'),flowAnswer.replace('451,317.22 ZEC','451,317.22 records'),flowAnswer.replace('451,317.22 ZEC','346,280.28 ZEC'),flowAnswer.replace('451,317.22 ZEC in total','451,317.22 ZEC in fees')])assert.equal(grade(flowItem,flowRows,wrong).passed,false,wrong);
+});
+
+test('accepting a count finding cannot waive a result-cell precision mismatch',()=>{
+ const observed=structuredClone(flowRows);observed[0][3]='451317.22000001';
+ const mismatch=grade(flowItem,flowRows,'Ironwood shielding had the most public boundary records, at 52,523.',observed);assert.equal(mismatch.passed,false);assert.equal(mismatch.dimensions.result,'failed');assert.equal(mismatch.dimensions.narrative,'passed');assert.ok(mismatch.checks.includes('measures-or-window-mismatch'));
+});
+
+test('USD named subjects reject punctuation-hidden denomination changes',()=>{
+ for(const suffix of [', EUR.',', in EUR.',', as ZEC.',', records.',', %.']){
+  const answer='Ethereum leads the known reported USD subtotal, at 67,164,165.404122879465'+suffix;
+  assert.equal(grade(swaps,swapRows,answer).passed,false,suffix);
+ }
+ assert.equal(grade(swaps,swapRows,'Ethereum leads the known reported USD subtotal, at 67,164,165.404122879465.').passed,true);
+});
+
+
+test('unresolved mixed-measure tails cannot hide negation, unavailability or denomination changes',()=>{
+ const stem='Ironwood shielding had the most public boundary records, at 52,523, with 451,317.22 ZEC in total';
+ for(const ending of [', but that total is unavailable.',', but not 451,317.22 ZEC in total.',', in EUR.',', but the total was 0 ZEC.']){
+  const outcome=grade(flowItem,flowRows,stem+ending);assert.equal(outcome.passed,false,ending);assert.equal(outcome.dimensions.result,'passed');assert.equal(outcome.dimensions.narrative,'failed');assert.equal(outcome.diagnostics.stage,'narrative-manual-review');
+ }
 });
