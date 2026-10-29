@@ -16,7 +16,7 @@ const explanationSchema = z.object({
 const schema = z.toJSONSchema(explanationSchema); delete schema.$schema;
 const explanationTask = {
   name: 'explain_analysis', schema, validator: explanationSchema,
-  instruction: `Write a concise, useful explanation of this Zcash mainnet analysis using only verified facts and methodology. Return a summary, up to two observations, and a limitation only when useful (otherwise empty). Every numerical value and date MUST be an exact supplied {{fact_id}} placeholder; facts already include units. No literal digits, URLs, markup or invented placeholders. Keep under two hundred words. ${analysisGuidance}`,
+  instruction: `Write a concise, useful explanation of this Zcash mainnet analysis using only verified facts and methodology. Return a summary, up to two observations, and a limitation only when useful (otherwise empty). Every numerical value and date MUST be an exact supplied {{fact_id}} placeholder; facts already include units. No literal digits, URLs, markup or invented placeholders. Keep under two hundred words. After a direction word (rose, fell, increased, decreased, grew, declined) use the unsigned {{*_size}} fact, never the signed {{*_change}}; use {{*_change}} only without a direction word. ${analysisGuidance}`,
 };
 
 // Literal ranges keep provider decoding and the final Unicode-aware renderer
@@ -70,8 +70,10 @@ async function loadExplanationEvidence(spec, internalClient, signal) {
   const facts = { start_date: summary.start, end_date: summary.end, observation_count: String(summary.points.length) };
   const series = summary.totals.map(item => {
     facts[`${item.key}_value`] = `${formatValue(item.value, evidence.unit)}${item.value === null ? '' : ` ${evidence.unit}`}`;
-    facts[`${item.key}_change`] = `${formatValue(item.change, evidence.unit, true)}${item.change === null ? '' : ` ${evidence.unit === '%' ? 'percentage points' : evidence.unit}`}`;
-    return { label: item.label, value: `{{${item.key}_value}}`, valueExact: item.value, change: `{{${item.key}_change}}`, changeExact: item.change,
+    const changeUnit = item.change === null ? '' : ` ${evidence.unit === '%' ? 'percentage points' : evidence.unit}`;
+    facts[`${item.key}_change`] = `${formatValue(item.change, evidence.unit, true)}${changeUnit}`;
+    facts[`${item.key}_size`] = `${formatValue(item.change === null ? null : String(item.change).replace(/^-/, ''), evidence.unit)}${changeUnit}`;
+    return { label: item.label, value: `{{${item.key}_value}}`, valueExact: item.value, change: `{{${item.key}_change}}`, size: `{{${item.key}_size}}`, changeExact: item.change,
       direction: item.change === null ? 'unavailable' : BigInt(item.change) > 0 ? 'increased' : BigInt(item.change) < 0 ? 'decreased' : 'unchanged' };
   });
   const rankings = evidence.dimension === 'chain' ? summary.points.slice(0, 5).map((point, index) => {
@@ -114,6 +116,12 @@ function substituteFacts(text, facts) {
   return rendered + text.slice(cursor);
 }
 
+// "fell by −35 ZEC" repeats its direction; drop a sign that agrees with the
+// preceding word. A contradicting pair ("rose by −35") is left as written.
+const FALLING = 'fell|decreased|declined|dropped|lost|shrank|down', RISING = 'rose|increased|grew|gained|climbed|up';
+function tidySigns(text) {
+  return text.replace(new RegExp(`\\b(${FALLING}) by [−-](?=\\d)`, 'gi'), '$1 by ').replace(new RegExp(`\\b(${RISING}) by \\+(?=\\d)`, 'gi'), '$1 by ');
+}
 function renderExplanation(raw, facts) {
   const parsed = explanationSchema.parse(raw);
   function render(raw) {
@@ -127,7 +135,7 @@ function renderExplanation(raw, facts) {
     // Unassigned and private-use code points can masquerade as digits (U+0C73
     // stood in for "317" on staging) and are never valid prose.
     if (/[\p{N}\p{So}\p{Cn}\p{Co}{}<>]|https?:|www\./iu.test(remainder)) throw new Error('Unvalidated numerical claim or markup');
-    return substituteFacts(text, facts);
+    return tidySigns(substituteFacts(text, facts));
   }
   return { summary: render(parsed.summary), observations: parsed.observations.map(render), limitation: render(parsed.limitation) };
 }

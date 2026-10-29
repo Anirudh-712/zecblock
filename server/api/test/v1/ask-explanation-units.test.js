@@ -119,3 +119,10 @@ test('chart explanation router renders one unit from server evidence with a stub
   assert.deepEqual(body.data.explanation.observations, ['Its balance changed by +1.00 ZEC.']);
   assert.equal(body.data.evidenceKey, evidence.evidenceKey); assert.equal(providerCalls, 1);
 });
+
+test('a sign that only repeats its direction word is dropped; a contradicting one is kept', () => {
+  const { renderExplanation } = require('../../v1/lib/ask-explanation');
+  const facts = { fall_change: '−35,638.54 ZEC', rise_change: '+12 ZEC', odd_change: '−3 ZEC' };
+  const { summary } = renderExplanation({ summary: 'It fell by {{fall_change}} and rose by {{rise_change}}; it rose by {{odd_change}}. Net {{fall_change}}.', observations: [], limitation: '' }, facts);
+  assert.equal(summary, 'It fell by 35,638.54 ZEC and rose by 12 ZEC; it rose by −3 ZEC. Net −35,638.54 ZEC.');
+});
