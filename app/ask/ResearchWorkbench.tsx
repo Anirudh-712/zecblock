@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import {defaultResearchChart,shortLabel,supportsLine,cellLink,dateFormatter} from '@/lib/ask/research-display';
+import {defaultResearchChart,shortLabel,supportsLine,cellLink,dateFormatter,chartValues} from '@/lib/ask/research-display';
 import type { ResearchChart, ResearchDocument, ResearchLibrary, ResearchResult, ResearchNarrative } from '@/lib/ask/research-contract';
 import { researchDocumentSchema, researchNarrativeSchema } from '@/lib/ask/research-contract';
 import { emptyLibrary, readLibrary, writeLibrary, readPortable, mergePortable, markdownReport, csvReport, MAX_BYTES } from '@/lib/ask/research-library';
@@ -145,6 +145,20 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
     if (!target || !window.confirm(`Delete the dashboard “${target.title}”? Its saved analyses stay in your library.`)) return;
     if (update(lib => ({ ...lib, dashboards: lib.dashboards.filter(d => d.id !== board) }), `Deleted “${target.title}”.`, 'Could not delete this dashboard.') && boardId === board) setBoardId(null);
   }
+  // A dashboard refresh stores a new result for the same saved SQL. The chart
+  // is kept when its columns still exist; an explanation of the old data is dropped.
+  function refreshDocument(docId: string, data: ResearchResult) {
+    const lib = libraryRef.current, doc = lib.documents.find(d => d.id === docId);
+    if (!doc || data.query.sql !== doc.query.sql || data.query.limit !== doc.query.limit) return false;
+    const fits = (i: number) => i < data.columns.length;
+    const chart = fits(doc.chart.x) && fits(doc.chart.y) && (doc.chart.series || []).every(fits) ? doc.chart : defaultResearchChart(data);
+    const { narrative, ...rest } = doc;
+    try {
+      const next = researchDocumentSchema.parse({ ...rest, chart, result: data, ...(narrative && narrative.fingerprint === data.fingerprint ? { narrative } : {}), savedAt: new Date().toISOString() });
+      persist({ ...lib, documents: lib.documents.map(d => d.id === docId ? next : d) });
+      return true;
+    } catch { return false; }
+  }
   async function importFile(file: File | undefined) {
     if (!file) return;
     setImporting(true); const previous = raw.current;
@@ -179,7 +193,7 @@ export function useResearchTools(initial?: ResearchResult, initialTitle = 'My Zc
   }
   // Opening or closing a dashboard starts with no leftover action message.
   function showDashboard(board: string | null) { setBoardId(board); setNotice(''); setError(''); setShareURL(''); }
-  return { library, ready, id, title, setTitle, notes, setNotes, sql, setSQL, limit, setLimit, result, narrative, chart, setChart, boardId, setBoardId: showDashboard, notice, error, importing, shareURL, dirty, copyLink, saveShared, accept, annotate, open, reset, document, save, importFile, exportFile, exportCSV, renameDocument, updateNotes, removeDocument, toggleDashboard, createDashboard, renameDashboard, removeFromDashboard, deleteDashboard, downloadLibrary: () => download('zecblock-library.json', JSON.stringify(libraryRef.current, null, 2), 'application/json') };
+  return { library, ready, id, title, setTitle, notes, setNotes, sql, setSQL, limit, setLimit, result, narrative, chart, setChart, boardId, setBoardId: showDashboard, notice, error, importing, shareURL, dirty, copyLink, saveShared, accept, annotate, open, reset, document, save, importFile, exportFile, exportCSV, renameDocument, updateNotes, removeDocument, toggleDashboard, createDashboard, renameDashboard, removeFromDashboard, deleteDashboard, refreshDocument, downloadLibrary: () => download('zecblock-library.json', JSON.stringify(libraryRef.current, null, 2), 'application/json') };
 }
 type Tools = ReturnType<typeof useResearchTools>;
 
@@ -292,6 +306,20 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
   const [newBoard, setNewBoard] = useState('');
   const saveNow = () => { const savedId = tools.save(); if (savedId) onSaved?.(savedId); };
   const columnSelect = (axis: 'x' | 'y') => <label className={styles.inlineField}>{axis === 'x' ? 'Labels' : 'Values'}<span className={styles.selectWrap}><select className={styles.input} disabled={axis === 'y' && !numeric} value={tools.chart[axis]} onChange={event => { const index = Number(event.target.value); tools.setChart({ ...tools.chart, [axis]: index, view: axis === 'x' && tools.chart.view === 'line' && !supportsLine(result,index) ? 'bar' : tools.chart.view }); }}>{result.columns.map((column, index) => axis === 'y' && column.type !== 'number' ? null : <option key={column.key} value={index}>{column.label.replaceAll('_', ' ')}</option>)}</select></span></label>;
+  // Values: one or up to five numeric columns, drawn together; the first stays primary.
+  const measures = result.columns.map((column, index) => ({ column, index })).filter(({ column }) => column.type === 'number');
+  const chosen = chartValues(result, tools.chart);
+  const toggleValue = (index: number) => {
+    const next = chosen.includes(index) ? chosen.filter(i => i !== index) : [...chosen, index].sort((a, b) => a - b);
+    if (!next.length || next.length > 5) return;
+    tools.setChart({ ...tools.chart, y: next[0], series: next.length > 1 ? next.slice(1) : undefined });
+  };
+  const valueLabel = (index: number) => result.columns[index].label.replaceAll('_', ' ');
+  const valuePicker = measures.length > 1 ? <div className={styles.inlineField}>Values<Menu label={<span className={styles.valueText}>{chosen.map(valueLabel).join(', ') || 'Choose'}</span>} ariaLabel={`Chart values: ${chosen.map(valueLabel).join(', ')}`} align="left">
+    <p className={styles.menuHeading}>Draw these columns</p>
+    <div className={styles.checkList}>{measures.map(({ column, index }) => <label key={column.key} className={styles.checkRow}><input type="checkbox" checked={chosen.includes(index)} disabled={chosen.includes(index) ? chosen.length === 1 : chosen.length >= 5} onChange={() => toggleValue(index)} /><span>{valueLabel(index)}</span></label>)}</div>
+    <p className={styles.menuNote}>Up to five. Very different sizes use a second axis.</p>
+  </Menu></div> : columnSelect('y');
   return <div className={`${styles.panelBody} ${embedded ? styles.embeddedPanel : ''}`}>
     {!embedded ? <h2 className={styles.resultTitle}>{tools.title}</h2> : null}
     <div className={`${styles.resultToolbar} ${embedded ? styles.embeddedToolbar : ''}`}>
@@ -326,13 +354,14 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
       </div>
       {trailing ? <div className={styles.resultActions}>{trailing}</div> : null}
     </div>
-    {tools.chart.view !== 'table' ? <div className={styles.chartColumns}>{columnSelect('x')}{columnSelect('y')}</div> : null}
+    {tools.chart.view !== 'table' ? <div className={styles.chartColumns}>{columnSelect('x')}{valuePicker}</div> : null}
     <ShareLinkField tools={tools} />
     <ResearchStatus tools={tools} except={/^(?:Added to|Removed from “|Created)/} />
     <ResearchData result={result} chart={tools.chart} sources={sources} savedSnapshot={saved === true} />
   </div>;
 }
-export function ResearchDashboard({ tools, busy, onOpen }: { tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void }) {
+export type DashboardRefresh = { run: (docs: ResearchDocument[]) => void; stop: () => void; running: boolean; available: boolean; status: string; challenge?: ReactNode };
+export function ResearchDashboard({ tools, busy, onOpen, refresh }: { tools: Tools; busy: boolean; onOpen: (doc: ResearchDocument) => void; refresh?: DashboardRefresh }) {
   const [renaming, setRenaming] = useState(false);
   const board = tools.library.dashboards.find(d => d.id === tools.boardId);
   if (!board) return null;
@@ -341,18 +370,21 @@ export function ResearchDashboard({ tools, busy, onOpen }: { tools: Tools; busy:
     <div className={styles.toolbar}>
       {renaming ? <RenameField value={board.title} label="Dashboard name" onDone={next => { if (next !== null && next.trim() && next.trim() !== board.title) tools.renameDashboard(board.id, next); setRenaming(false); }} /> : <h2 className={styles.resultTitle}>{board.title}</h2>}
       <div className={styles.actions}>
+        {refresh?.available && docs.length ? refresh.running ? <button className={styles.button} onClick={refresh.stop}>Stop refresh</button> : <button className={styles.button} disabled={busy} onClick={() => refresh.run(docs)} title={`Runs ${docs.length} saved ${docs.length === 1 ? 'query' : 'queries'} again; each uses one of your SQL runs`}>Refresh all</button> : null}
         {!renaming ? <button className={styles.button} onClick={() => setRenaming(true)}>Rename</button> : null}
         <Menu label="Share"><button type="button" data-close className={styles.menuItem} onClick={() => void tools.copyLink(true)}>Copy dashboard link</button><p className={styles.menuNote}>Shares each query, name and chart setting, not results. Nothing runs automatically.</p><button type="button" data-close className={styles.menuItem} onClick={tools.downloadLibrary}>Download all saved research</button></Menu>
         <button className={styles.button} onClick={() => tools.deleteDashboard(board.id)}>Delete</button>
         <button className={styles.button} onClick={() => tools.setBoardId(null)}>Close</button>
       </div>
     </div>
-    <p className={styles.caption}>{docs.length} {docs.length === 1 ? 'analysis' : 'analyses'} · saved snapshots, open one to refresh it</p>
+    <p className={styles.caption}>{docs.length} {docs.length === 1 ? 'analysis' : 'analyses'} · {refresh?.available ? `saved results; Refresh all runs ${docs.length === 1 ? 'its query' : `all ${docs.length} queries`} again, one SQL run each` : 'saved results'}</p>
+    {refresh?.status ? <p className={styles.caption} role="status">{refresh.status}</p> : null}
+    {refresh?.challenge}
     <ShareLinkField tools={tools} /><ResearchStatus tools={tools} />
     {docs.length ? <div className={styles.dashboard}>{docs.map(doc => <article key={doc.id} className={`${askStyles.analysis} ${styles.dashboardCard}`} data-wide={doc.chart.view === 'table' && (doc.result?.columns.length ?? 0) > 3 ? 'true' : undefined}>
       <div className={styles.panelBody}>
-        <div className={styles.cardHeader}><button className={styles.cardTitle} disabled={busy} onClick={() => onOpen(doc)}>{doc.title} <span aria-hidden="true">→</span></button><button type="button" className={styles.iconButton} aria-label={`Remove ${doc.title} from this dashboard`} title="Remove from dashboard" onClick={() => tools.removeFromDashboard(board.id, doc.id)}>×</button></div>
-        {doc.result ? <ResearchData result={doc.result} chart={doc.chart} savedSnapshot /> : <p className={styles.caption}>Run this query to add its results.</p>}
+        <div className={styles.cardHeader}><button className={styles.cardTitle} disabled={busy} onClick={() => onOpen(doc)}>{doc.title} <span aria-hidden="true">→</span></button>{refresh?.available && !refresh.running ? <button type="button" className={styles.iconButton} disabled={busy} aria-label={`Refresh ${doc.title}`} title="Run this query again (one SQL run)" onClick={() => refresh.run([doc])}>↻</button> : null}<button type="button" className={styles.iconButton} aria-label={`Remove ${doc.title} from this dashboard`} title="Remove from dashboard" onClick={() => tools.removeFromDashboard(board.id, doc.id)}>×</button></div>
+        {doc.result ? <ResearchData result={doc.result} chart={doc.chart} savedSnapshot /> : <p className={styles.caption}>{refresh?.available ? 'No results yet. Use ↻ to run this query.' : 'Run this query to add its results.'}</p>}
       </div>
     </article>)}</div> : <p className={styles.emptyBoard}>This dashboard is empty. Open a saved analysis and choose Add to dashboard.</p>}
   </section>;

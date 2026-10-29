@@ -135,6 +135,7 @@
 .chartColumns {display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;}
 .inlineField {display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-muted);}
 .inlineField .input {min-width:150px;padding:6px 10px;font-size:12px;}
+.valueText {max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* Library rows: open on the title, rename/remove from the ⋯ menu. */
 .libraryRow {position:relative;display:flex;align-items:center;min-width:0;}
 .libraryRow > button {flex:1;min-width:0;}
@@ -151,8 +152,8 @@
 @media(hover:none){.rowMenu{opacity:1}}
 /* Dashboard cards: tables with many columns take the full row. */
 .dashboardCard[data-wide="true"] {grid-column:1 / -1;}
-.cardHeader {display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
-.cardTitle {text-align:left;font-size:14px;font-weight:500;color:var(--color-text-primary);overflow-wrap:anywhere;}
+.cardHeader {display:flex;align-items:flex-start;gap:8px;}
+.cardTitle {margin-right:auto;text-align:left;font-size:14px;font-weight:500;color:var(--color-text-primary);overflow-wrap:anywhere;}
 .cardTitle:hover:not(:disabled) {color:var(--color-gold);}
 .cardTitle > span {color:var(--color-text-muted);}
 .iconButton {flex-shrink:0;width:28px;height:28px;border:1px solid var(--color-border);border-radius:6px;font-size:16px;line-height:1;color:var(--color-text-muted);}

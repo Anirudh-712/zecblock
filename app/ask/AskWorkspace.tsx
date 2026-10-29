@@ -7,7 +7,7 @@ import { analysisSchema, resolveShortcut, starters, type AnalysisSpec } from '@/
 import { getAskApiUrl, isAuthenticatedAskStaging } from '@/lib/ask/api-base';
 import { ApiError, readApiResponse } from '@/lib/api-client';
 import styles from './ask.module.css';
-import { useResearchTools, ResearchLibrary, ResearchPanel, ResearchData, ResearchDashboard, SharedResearchDraft } from './ResearchWorkbench';
+import { useResearchTools, type DashboardRefresh, ResearchLibrary, ResearchPanel, ResearchData, ResearchDashboard, SharedResearchDraft } from './ResearchWorkbench';
 import type { ResearchDocument, ResearchResult, ResearchNarrative } from '@/lib/ask/research-contract';
 import type {ResearchJobStatus,ResearchJobTicket} from '@/lib/ask/research-job-contract';
 import {jobTicketSchema} from '@/lib/ask/research-job-contract';
@@ -45,6 +45,13 @@ type Session = { transaction?: string; block?: string; id: number; title: string
 type Capability = AskCapability;
 const initialSession: Session = { id: 0, title: 'New analysis', messages: [], spec: null };
 const analysisScopeKey = (spec: AnalysisSpec | null) => spec ? JSON.stringify([spec.metric, spec.period, spec.pool, spec.start, spec.end]) : '';
+
+const pause = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+  const done = () => { clearTimeout(timer); reject(signal.reason); };
+  const timer = setTimeout(() => { signal.removeEventListener('abort', done); resolve(); }, ms);
+  signal.addEventListener('abort', done, { once: true });
+  if (signal.aborted) done();
+});
 
 function analysisTitle(question: string) {
   return question.replace(/^\s*Use SQL research[.!:]?\s*/i, '').trim().slice(0, 120) || 'My Zcash analysis';
@@ -164,6 +171,10 @@ export function AskWorkspace() {
   // composer-originated work scrolls its status into view.
   const [explainingId, setExplainingId] = useState<number | null>(null);
   const [explainError, setExplainError] = useState<{ id: number; text: string } | null>(null);
+  const [refreshStatus, setRefreshStatus] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const tokenRef = useRef('');
+  useEffect(() => { tokenRef.current = token; }, [token]);
   useEffect(() => {
     if (explainingId !== null) return;
     if (busy || feedback.failure || notice || chatError) composerStatus.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
@@ -376,6 +387,57 @@ export function AskWorkspace() {
       }
     }
   }
+  // Dashboard refresh: saved queries run again one at a time, each with its own
+  // verification and one SQL run. A per-minute limit pauses and resumes; a
+  // daily limit, verification failure or Stop ends the refresh. Results are
+  // stored only in this browser's library.
+  async function nextChallenge(signal: AbortSignal) {
+    if (authenticatedStaging) return '';
+    for (let waited = 0; !tokenRef.current; waited += 250) {
+      if (waited >= 60000) throw new ApiError('Verification', 403, 'access-denied', undefined, undefined, 'ask-verification');
+      await pause(250, signal);
+    }
+    const challenge = tokenRef.current;
+    tokenRef.current = ''; setToken(''); setChallengeReset(value => value + 1);
+    return challenge;
+  }
+  async function refreshCards(docs: ResearchDocument[]) {
+    if (busy || request.current || !docs.length || !capability.jobsEnabled || sqlBlocked) return;
+    const controller = new AbortController(); request.current = controller;
+    setBusy(true); setRefreshing(true); feedback.clear('sql'); setChatError(''); setNotice('');
+    let updated = 0, failed = 0, stopped = '';
+    try {
+      for (const [index, doc] of docs.entries()) {
+        const run = async (): Promise<boolean> => {
+          setRefreshStatus(`Refreshing ${index + 1} of ${docs.length}: ${doc.title}…`);
+          try {
+            const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(300000)]);
+            const ticket = await submitResearch(doc.query, await nextChallenge(signal), signal);
+            const result = await waitResearch(ticket, signal, setJobStatus);
+            return tools.refreshDocument(doc.id, result);
+          } catch (error) {
+            if (controller.signal.aborted) throw error;
+            const wait = error instanceof ApiError && error.status === 429 && /minute/.test(error.code || '') ? Number(error.retryAfter) : NaN;
+            if (Number.isFinite(wait) && wait >= 1 && wait <= 60) {
+              setRefreshStatus(`Per-minute SQL limit reached. Continuing in ${wait}s…`);
+              await pause(wait * 1000, controller.signal);
+              return run();
+            }
+            if (error instanceof ApiError && (error.status === 429 || error.code === 'ask-verification')) { stopped = askErrorMessage(error); feedback.report(error, 'sql'); }
+            return false;
+          }
+        };
+        if (await run()) updated++; else failed++;
+        if (stopped) break;
+      }
+      setRefreshStatus(stopped ? `Refreshed ${updated} of ${docs.length}. ${stopped}` : failed ? `Refreshed ${updated} of ${docs.length}. ${failed} could not run; open ${failed === 1 ? 'it' : 'them'} to see the error.` : `Refreshed ${updated === 1 ? 'this analysis' : `all ${updated} analyses`} with current data.`);
+    } catch {
+      setRefreshStatus(`Refresh stopped. ${updated} of ${docs.length} updated; the rest keep their saved results.`);
+    } finally {
+      if (request.current === controller) { request.current = null; setBusy(false); setRefreshing(false); setJobStatus(null); }
+    }
+  }
+  const dashboardRefresh: DashboardRefresh = { run: docs => void refreshCards(docs), stop: () => request.current?.abort(), running: refreshing, available: capability.researchEnabled === true && capability.jobsEnabled === true && !sqlBlocked, status: refreshStatus, challenge: authenticatedStaging ? undefined : <AskChallenge siteKey={capability.siteKey} onToken={setToken} reset={challengeReset}/> };
   function editQuery(message: Message) {
     const sql=message.sql || (message.research ? displaySQL(message.research.query.sql) : undefined);
     if(!sql||busy)return;
@@ -465,7 +527,7 @@ export function AskWorkspace() {
 
     <div className={`${styles.main} ${hasMessages && !tools.boardId ? styles.threadMain : ''}`}>
       {sharedResearch ? <SharedResearchDraft share={sharedResearch} tools={tools} busy={busy} enabled={capability.researchEnabled === true} onDismiss={() => setSharedResearch(null)} onOpen={doc => { openSaved(doc, true); setSharedResearch(null); }} /> : null}
-      {tools.boardId ? <ResearchDashboard tools={tools} busy={busy} onOpen={openSaved}/> : !hasMessages ? <div className={styles.welcome}>
+      {tools.boardId ? <ResearchDashboard tools={tools} busy={busy} onOpen={openSaved} refresh={dashboardRefresh}/> : !hasMessages ? <div className={styles.welcome}>
         <h2 className={styles.welcomeTitle}>What would you like to explore?</h2>
         {composer}
         {sqlMode ? <SQLStarters examples={examplesFor(capability.researchExtended === true).slice(0, 4)} disabled={busy} onPick={example => { setSQLInput(example.sql); tools.setTitle(example.title); setSQLProblem(null); setNotice(`${example.title}: edit it or press Run SQL.`); }} /> : <>

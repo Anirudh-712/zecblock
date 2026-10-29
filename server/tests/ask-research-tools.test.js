@@ -112,3 +112,17 @@ test('UTC-midnight timestamps read as dates and first-of-month columns as months
  assert.equal(dateFormatter({columns:[{key:'c0',label:'t',type:'text'}],rows:[['2025-10-01 12:30:00+00']]},0),null,'a real time of day is left exact');
  assert.equal(dateFormatter({columns:[{key:'c0',label:'n',type:'number'}],rows:[['1']]},0),null);
 });
+test('charts draw up to five distinct value columns and put very different sizes on a second axis',()=>{
+ const {chartValues,axisFor}=require('../../lib/ask/research-display');
+ const r={columns:[{key:'c0',label:'month',type:'text'},{key:'c1',label:'transactions',type:'number'},{key:'c2',label:'fees_zec',type:'number'},{key:'c3',label:'blocks',type:'number'}],rows:[['2025-10-01','225385','165.36','8900'],['2025-11-01','507979','414.27','8600']]};
+ assert.deepEqual(chartValues(r,{view:'line',x:0,y:1}),[1]);
+ assert.deepEqual(chartValues(r,{view:'line',x:0,y:1,series:[2,3]}),[1,2,3]);
+ assert.deepEqual(chartValues(r,{view:'line',x:0,y:1,series:[0]}),[1],'a text column is never drawn as a value');
+ assert.deepEqual(axisFor(r,[1,2,3]),['left','right','right'],'fees in ZEC do not flatten against transaction counts');
+ assert.deepEqual(axisFor(r,[1,1]),['left','left']);
+ const chart=contract.chartSchema;
+ assert.ok(chart.safeParse({view:'line',x:0,y:1,series:[2,3]}).success);
+ assert.ok(chart.safeParse({view:'line',x:0,y:1}).success,'older single-value charts stay valid');
+ assert.equal(chart.safeParse({view:'line',x:0,y:1,series:[1]}).success,false,'a value is drawn once');
+ assert.equal(chart.safeParse({view:'line',x:0,y:1,series:[2,3,4,5,6]}).success,false,'at most five values');
+});

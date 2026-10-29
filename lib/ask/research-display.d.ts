@@ -6,3 +6,6 @@ export function cellLink(key:string,value:string|null):string|null;
 export function chartLabel(result:ResearchResult,row:(string|null)[],x:number,colourColumn?:number):string;
 export function chartSeries(result:ResearchResult,x:number):{column:number;legend:{value:string;color:string}[];colorFor:(value:string|null)=>string|undefined}|null;
 export function dateFormatter(result:ResearchResult,i:number):((value:string)=>string)|null;
+export function chartValues(result:ResearchResult,chart:ResearchChart):number[];
+export function axisFor(result:ResearchResult,values:number[]):('left'|'right')[];
+export const SERIES_COLORS:string[];

@@ -14,8 +14,8 @@ const ticket={id:'00000000-0000-4000-8000-000000000009',token:'a'.repeat(64)};
 const result={query:{version:3,sql:'SELECT height FROM blocks LIMIT 1',limit:100},columns:[{key:'c0',label:'height',type:'number'}],rows:[['3534601']],truncated:false,datasets:['blocks'],fingerprint:'b'.repeat(64),retrievedAt:'2026-10-29T00:00:00.000Z',indexedThrough:'2026-10-29T00:00:00.000Z',coverage:'verified canonical records',units:'Exact decimal strings.'};
 
 class ApiError extends Error{constructor(message,status,type,requestId,retryAfter,code){super(message);this.status=status;this.code=code;}}
-async function fixture(t,{mode='ai',jobsEnabled=true,expired=0}={}) {
-  const states=[],effects=[],elements=[],calls={submit:[],explain:[],annotate:[],run:[]};let cursor=0,pending=[];
+async function fixture(t,{mode='ai',jobsEnabled=true,expired=0,boardId=null,submitFailures=[]}={}) {
+  const states=[],effects=[],elements=[],calls={submit:[],explain:[],annotate:[],run:[],refreshed:[],reports:[]};let cursor=0,pending=[];
   const original={window:global.window,document:global.document,fetch:global.fetch,setInterval:global.setInterval,clearInterval:global.clearInterval,requestAnimationFrame:global.requestAnimationFrame};
   global.window={location:{hash:''},addEventListener(){},removeEventListener(){}};global.document={visibilityState:'visible'};
   global.fetch=async()=>new Response('{}');global.setInterval=()=>1;global.clearInterval=()=>{};global.requestAnimationFrame=fn=>fn();
@@ -24,19 +24,19 @@ async function fixture(t,{mode='ai',jobsEnabled=true,expired=0}={}) {
     useRef(initial){const index=cursor++;return states[index]||(states[index]={current:initial});},
     useEffect(run,deps){const index=cursor++,previous=effects[index];if(!previous||deps.some((value,i)=>!Object.is(value,previous.deps[i])))pending.push(()=>{previous?.cleanup?.();effects[index]={deps,cleanup:run()};});},
   };
-  const feedback={failure:null,failureBlocked:false,requestBlocked:false,blocked:false,blockedFor:()=>false,clear(){},report(){}};
+  const feedback={failure:null,failureBlocked:false,requestBlocked:false,blocked:false,blockedFor:()=>false,clear(){},report:error=>{calls.reports.push(error);}};
   const runtime=require('react/jsx-runtime');const capture=fn=>(type,props,...rest)=>{elements.push({type,props});return fn(type,props,...rest);};
-  const tools={library:{documents:[]},importing:false,title:'Analysis',accept(){},annotate:narrative=>{calls.annotate.push(narrative);return true;}};
+  const tools={library:{documents:[],dashboards:[]},boardId,importing:false,title:'Analysis',accept(){},refreshDocument:(id,data)=>{calls.refreshed.push({id,data});return true;},annotate:narrative=>{calls.annotate.push(narrative);return true;}};
   const imports={
     react,'react/jsx-runtime':{...runtime,jsx:capture(runtime.jsx),jsxs:capture(runtime.jsxs)},
     'next/link':{default:({children,...props})=>React.createElement('a',props,children)},
     '@/lib/ask/contract':require('../../lib/ask/contract'),
     '@/lib/ask/api-base':{getAskApiUrl:()=>'/v1/ask',isAuthenticatedAskStaging:()=>true},
     '@/lib/api-client':{ApiError,readApiResponse:async()=>({data:{mode,provider:mode==='ai'?'OpenAI':null,researchEnabled:true,jobsEnabled,authenticatedStaging:true},meta:{network:'mainnet'}})},
-    './ResearchWorkbench':{useResearchTools:()=>tools,ResearchLibrary:()=>null,ResearchDashboard:()=>null,ResearchPanel:()=>null,ResearchData:()=>null,SharedResearchDraft:()=>null},
+    './ResearchWorkbench':{useResearchTools:()=>tools,ResearchLibrary:()=>null,ResearchDashboard:()=>'dashboard',ResearchPanel:()=>null,ResearchData:()=>null,SharedResearchDraft:()=>null},
     '@/lib/ask/research-job-contract':{jobTicketSchema:{parse:value=>value}},'@/lib/ask/research-contract':{researchResultSchema:{parse:value=>value}},
     '@/lib/ask/research-client':{
-      submitResearch:async query=>{calls.submit.push(query);return ticket;},
+      submitResearch:async query=>{calls.submit.push(query);const failure=submitFailures.shift();if(failure)throw failure;return ticket;},
       waitResearch:async()=>result,
       runResearch:async query=>{calls.run.push(query);return result;},
       explainResearch:async(sent,question)=>{calls.explain.push({sent,question});if(expired-->0)throw new ApiError('gone',404,'not-found',undefined,undefined,'ask-job');return{answer:'The latest returned height is 3,534,601.',locale:'en',mode:'ai',sources:[],spec:null,research:result};},
@@ -62,7 +62,8 @@ async function fixture(t,{mode='ai',jobsEnabled=true,expired=0}={}) {
     elements.find(item=>item.props?.datasets&&typeof item.props.onRun==='function').props.onChange(result.query.sql);render();
     elements.find(item=>item.type==='form').props.onSubmit({preventDefault(){}});await settle();
   }
-  return{calls,render,settle,button,runSQL,get html(){return html;}};
+  const dashboard=()=>elements.find(item=>item.props?.refresh)?.props.refresh;
+  return{calls,render,settle,button,runSQL,dashboard,get html(){return html;}};
 }
 
 test('a finished SQL job offers Explain results, sends its ticket once and shows the checked answer',async t=>{
@@ -101,4 +102,24 @@ test('an explanation that still fails is reported beside the result, not hidden'
   assert.equal(f.calls.submit.length,2,'only one automatic re-run');assert.equal(f.calls.explain.length,2);
   assert.match(f.html,/1 rows returned\. No AI was used\./,'the original answer is kept');
   assert.match(f.html,/Could not explain these results/);
+});
+
+const doc=(id,title)=>({id,title,query:result.query,chart:{view:'table',x:0,y:0},result:null});
+test('dashboard Refresh all runs each saved query once, in order, and stores the new results',async t=>{
+  const f=await fixture(t,{boardId:'board'});const refresh=f.dashboard();
+  assert.ok(refresh?.available,'Refresh is offered when SQL jobs are enabled');
+  refresh.run([doc('a','First'),doc('b','Second')]);await f.settle();await f.settle();
+  assert.equal(f.calls.submit.length,2);assert.deepEqual(f.calls.refreshed.map(item=>item.id),['a','b']);
+  assert.match(f.dashboard().status,/Refreshed all 2 analyses/);assert.equal(f.dashboard().running,false);
+});
+test('a daily SQL limit stops a dashboard refresh and keeps the remaining saved results',async t=>{
+  const quota=new ApiError('limit',429,'rate-limited',undefined,'3600','ask-sql-day');
+  const f=await fixture(t,{boardId:'board',submitFailures:[undefined,quota]});
+  f.dashboard().run([doc('a','First'),doc('b','Second'),doc('c','Third')]);await f.settle();await f.settle();
+  assert.equal(f.calls.submit.length,2,'nothing is submitted after the daily limit');
+  assert.deepEqual(f.calls.refreshed.map(item=>item.id),['a']);
+  assert.match(f.dashboard().status,/Refreshed 1 of 3/);assert.equal(f.calls.reports.at(-1),quota);
+});
+test('dashboard Refresh is not offered without SQL jobs',async t=>{
+  const f=await fixture(t,{boardId:'board',jobsEnabled:false});assert.equal(f.dashboard().available,false);
 });
