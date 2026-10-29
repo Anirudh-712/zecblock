@@ -13,7 +13,8 @@ function load(file,imports={}) {
 const ticket={id:'00000000-0000-4000-8000-000000000009',token:'a'.repeat(64)};
 const result={query:{version:3,sql:'SELECT height FROM blocks LIMIT 1',limit:100},columns:[{key:'c0',label:'height',type:'number'}],rows:[['3534601']],truncated:false,datasets:['blocks'],fingerprint:'b'.repeat(64),retrievedAt:'2026-10-29T00:00:00.000Z',indexedThrough:'2026-10-29T00:00:00.000Z',coverage:'verified canonical records',units:'Exact decimal strings.'};
 
-async function fixture(t,{mode='ai',jobsEnabled=true}={}) {
+class ApiError extends Error{constructor(message,status,type,requestId,retryAfter,code){super(message);this.status=status;this.code=code;}}
+async function fixture(t,{mode='ai',jobsEnabled=true,expired=0}={}) {
   const states=[],effects=[],elements=[],calls={submit:[],explain:[],annotate:[],run:[]};let cursor=0,pending=[];
   const original={window:global.window,document:global.document,fetch:global.fetch,setInterval:global.setInterval,clearInterval:global.clearInterval,requestAnimationFrame:global.requestAnimationFrame};
   global.window={location:{hash:''},addEventListener(){},removeEventListener(){}};global.document={visibilityState:'visible'};
@@ -31,19 +32,19 @@ async function fixture(t,{mode='ai',jobsEnabled=true}={}) {
     'next/link':{default:({children,...props})=>React.createElement('a',props,children)},
     '@/lib/ask/contract':require('../../lib/ask/contract'),
     '@/lib/ask/api-base':{getAskApiUrl:()=>'/v1/ask',isAuthenticatedAskStaging:()=>true},
-    '@/lib/api-client':{readApiResponse:async()=>({data:{mode,provider:mode==='ai'?'OpenAI':null,researchEnabled:true,jobsEnabled,authenticatedStaging:true},meta:{network:'mainnet'}})},
+    '@/lib/api-client':{ApiError,readApiResponse:async()=>({data:{mode,provider:mode==='ai'?'OpenAI':null,researchEnabled:true,jobsEnabled,authenticatedStaging:true},meta:{network:'mainnet'}})},
     './ResearchWorkbench':{useResearchTools:()=>tools,ResearchLibrary:()=>null,ResearchDashboard:()=>null,ResearchPanel:()=>null,ResearchData:()=>null,SharedResearchDraft:()=>null},
     '@/lib/ask/research-job-contract':{jobTicketSchema:{parse:value=>value}},'@/lib/ask/research-contract':{researchResultSchema:{parse:value=>value}},
     '@/lib/ask/research-client':{
       submitResearch:async query=>{calls.submit.push(query);return ticket;},
       waitResearch:async()=>result,
       runResearch:async query=>{calls.run.push(query);return result;},
-      explainResearch:async(sent,question)=>{calls.explain.push({sent,question});return{answer:'The latest returned height is 3,534,601.',locale:'en',mode:'ai',sources:[],spec:null,research:result};},
+      explainResearch:async(sent,question)=>{calls.explain.push({sent,question});if(expired-->0)throw new ApiError('gone',404,'not-found',undefined,undefined,'ask-job');return{answer:'The latest returned height is 3,534,601.',locale:'en',mode:'ai',sources:[],spec:null,research:result};},
     },
     '@/components/ask/AskChallenge':{AskChallenge:()=>null},'@/components/ask/AskTransactions':{AskTransactions:()=>null},'@/components/ask/AskBlocks':{AskBlocks:()=>null},'@/components/ask/AskTransfers':{AskTransfers:()=>null},'@/components/ask/AskAnalytics':{AskAnalytics:()=>null},'@/components/ask/AskSources':{AskSources:()=>null},
-    '@/lib/ask/client':{peekAskHandoff:()=>null,clearAskHandoff(){},askChat:async()=>{throw Error('unexpected chat');}},
+    '@/lib/ask/client':{askErrorMessage:()=>'This research job has expired or is unavailable. Run the query again.',peekAskHandoff:()=>null,clearAskHandoff(){},askChat:async()=>{throw Error('unexpected chat');}},
     '@/lib/ask/composer':require('../../lib/ask/composer'),
-    '@/components/ask/AskFeedback':{AskFeedback:()=>null,AskFailureFeedback:()=>null,useAskFeedback:()=>feedback},
+    '@/components/ask/AskFeedback':{AskFeedback:({title,detail})=>title?React.createElement('p',null,title,' ',detail||''):null,AskFailureFeedback:()=>null,useAskFeedback:()=>feedback},
     '@/lib/ask/data':require('../../lib/ask/data'),'@/lib/ask/research-share':require('../../lib/ask/research-share'),'@/lib/ask/follow-ups':require('../../lib/ask/follow-ups'),...require('./ask-sql-test-imports'),
     './AskAnalysis':{AskAnalysis:()=>null},
   };
@@ -76,6 +77,7 @@ test('a finished SQL job offers Explain results, sends its ticket once and shows
   assert.match(f.html,/The latest returned height is 3,534,601\./);
   assert.equal(f.calls.annotate.at(-1).inputMode,'sql');assert.equal(f.calls.annotate.at(-1).fingerprint,result.fingerprint);
   assert.equal(f.button('Explain results'),undefined,'the ticket is consumed; no second paid explanation is offered');
+  assert.equal(f.button('Refresh & explain'),undefined,'an explained result is not offered again');
 });
 
 test('Explain results is not offered in guided mode',async t=>{
@@ -85,4 +87,18 @@ test('Explain results is not offered in guided mode',async t=>{
 test('Explain results is not offered for a synchronous run without a job ticket',async t=>{
   const synchronous=await fixture(t,{jobsEnabled:false});await synchronous.runSQL();
   assert.equal(synchronous.calls.run.length,1);assert.equal(synchronous.button('Explain results'),undefined);
+});
+
+test('an expired job runs its SQL again once, then explains the refreshed result',async t=>{
+  const f=await fixture(t,{expired:1});await f.runSQL();
+  f.button('Explain results').props.onClick();await f.settle();
+  assert.equal(f.calls.submit.length,2,'the SQL is submitted again for a fresh ticket');
+  assert.equal(f.calls.explain.length,2);assert.match(f.html,/The latest returned height is 3,534,601\./);
+});
+test('an explanation that still fails is reported beside the result, not hidden',async t=>{
+  const f=await fixture(t,{expired:2});await f.runSQL();
+  f.button('Explain results').props.onClick();await f.settle();
+  assert.equal(f.calls.submit.length,2,'only one automatic re-run');assert.equal(f.calls.explain.length,2);
+  assert.match(f.html,/1 rows returned\. No AI was used\./,'the original answer is kept');
+  assert.match(f.html,/Could not explain these results/);
 });
