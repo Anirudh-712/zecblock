@@ -3,11 +3,13 @@
 @source "../app";
 @source "../lib";
 
-/* Avoid painting defaults before local preferences are known, even when
-   hydration is delayed. HomeFeedCard's noscript styles restore the SSR view. */
+/* Server snapshots are visible without hydration. Only a validated saved
+   alternative gets a parser-time preference guard, with bounded fail-open. */
 .home-feed-placeholder { display: none; }
-.home-feed[data-preferences-ready="false"] > .home-feed-content { display: none; }
-.home-feed[data-preferences-ready="false"] > .home-feed-placeholder { display: block; }
+html[data-home-left-pending] .home-feed[data-preference-key="cipherscan-home-card-left"][data-preferences-ready="false"] > .home-feed-content,
+html[data-home-right-pending] .home-feed[data-preference-key="cipherscan-home-card-right"][data-preferences-ready="false"] > .home-feed-content { display: none; }
+html[data-home-left-pending] .home-feed[data-preference-key="cipherscan-home-card-left"][data-preferences-ready="false"] > .home-feed-placeholder,
+html[data-home-right-pending] .home-feed[data-preference-key="cipherscan-home-card-right"][data-preferences-ready="false"] > .home-feed-placeholder { display: block; }
 
 /* Class-based dark: variant — <html> carries .dark/.light (see ThemeContext).
    Matches the selector the v3 config bridge generated (descendants of .dark). */

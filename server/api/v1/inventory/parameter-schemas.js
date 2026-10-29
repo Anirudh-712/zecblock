@@ -35,6 +35,18 @@ const softwareFilters = {
   bucket: {type:'string',enum:['auto','day','week'],default:'auto',description:'Auto selects weekly for ranges longer than 121 days. Weekly buckets start Monday; boundary weeks contain only requested days.'},
 };
 function getQueryConstraint(route, name) {
+  if (['/v1/crosschain/venues/analytics','/v1/crosschain/venues/swaps'].includes(route)) {
+    if (name === 'venue') return { required: true, schema: { type: 'string', enum: ['maya','thorchain'] }, description: 'Independent indexed venue dataset.' };
+    return getQueryConstraint(route.replace('/venues',''), name);
+  }
+  if (route === '/v1/crosschain/venues') {
+    const fields = {
+      venue: { type: 'string', enum: ['maya', 'thorchain'], description: 'One native-ZEC venue. Required; providers have independent observation and availability states.' },
+      limit: { type: 'integer', minimum: 1, maximum: 25, default: 10 },
+      cursor: { type: 'string', maxLength: 2048, pattern: '^[A-Za-z0-9_-]+$', description: 'Opaque data.nextCursor from this venue; do not construct or edit.' },
+    };
+    return fields[name] ? { required: name === 'venue', schema: fields[name], description: fields[name].description } : null;
+  }
   if (route === '/v1/shielded-pools/activity' && name === 'period') {
     return { required: false, schema: { type: 'string', enum: ['7d', '30d', '90d', '1y'], default: '30d' }, description: 'Trailing complete UTC calendar days, excluding today. One year means 365 days.' };
   }
