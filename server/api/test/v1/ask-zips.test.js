@@ -68,8 +68,11 @@ test('model-facing ZIP records expose numbers only as facts the renderer substit
   assert.match(rendered.summary, /^ZIP 317 defines a proportional transfer fee mechanism; the official index lists its status as \[Revision 0\] Active/);
   assert.throws(() => renderExplanation({ summary: 'ZIP 317 defines fees.', observations: [], limitation: '' }, facts), /Unvalidated numerical claim/);
   const plain = zipRecords(matchZips('ZIP 317')).records[0];
-  assert.match(plain.text, /^ZIP 317, "Proportional Transfer Fee Mechanism", has status/);
-  assert.match(plain.text, /does not establish mainnet activation/);
+  assert.match(plain.text, /^ZIP 317 is "Proportional Transfer Fee Mechanism"\. Its current status is Active \(revisions in the official index: \[Revision 0\] Active/);
+  assert.match(plain.text, /Active is its authoritative status/);
+  assert.match(zipRecords(matchZips('ZIP 2005')).records[0].text, /not in force on mainnet unless a network upgrade deploys it/);
+  assert.match(records[0].text, /never spell numbers or versions out in words/);
+  assert.equal(facts.zip_a_current, 'Active'); assert.equal(facts.settled_upgrade, zipIndex.settledUpgrade.name);
 });
 
 test('guided Ask answers ZIP questions from the official index and cites the ZIP page', () => {
@@ -77,7 +80,7 @@ test('guided Ask answers ZIP questions from the official index and cites the ZIP
   // With AI available the direct path must not pre-empt the model for ZIP questions.
   assert.equal(guidedReply({ question: 'What is ZIP 317?', page: 'ask', context: null, history: [], locale: 'auto' }), null);
   assert.ok(reply);
-  assert.match(reply.answer, /ZIP 317, "Proportional Transfer Fee Mechanism"/);
+  assert.match(reply.answer, /ZIP 317 is "Proportional Transfer Fee Mechanism"/);
   assert.deepEqual(reply.sources.map(source => source.url), ['https://zips.z.cash/zip-0317']);
   assert.equal(guidedReply({ question: 'How do transaction fees work?', page: 'ask', context: null, history: [], locale: 'auto' }, { zips: true }), null, 'no ZIP wording → no unprompted ZIP answer');
 });

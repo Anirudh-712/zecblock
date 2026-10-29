@@ -36,26 +36,37 @@ function matchZips(question, limit = 3) {
 }
 
 const letters = 'abc';
-function statusNote(zip) {
-  return nu7.has(zip.number) ? 'It is listed in the official NU7 deployment plan.' : '';
-}
-const settled = index.settledUpgrade ? ` The most recent settled mainnet network upgrade in the index is ${index.settledUpgrade.name}.` : '';
-const caveat = ' Index status alone does not establish mainnet activation; the ZIP text is the authority for its details.';
+const STATUSES = ['Active', 'Final', 'Proposed', 'Draft', 'Withdrawn', 'Rejected', 'Obsolete', 'Reserved'];
+// The first status the index lists is the base revision's ("[Revision 0] Active, …").
+const currentStatus = zip => STATUSES.map(word => ({ word, at: zip.status.indexOf(word) })).filter(item => item.at >= 0).sort((a, b) => a.at - b.at)[0]?.word || zip.status;
+const meaning = {
+  Active: 'Active is its authoritative status in the official index.',
+  Final: 'Final is its authoritative status in the official index.',
+  Proposed: 'It is not final: a Proposed ZIP is not in force on mainnet unless a network upgrade deploys it.',
+  Draft: 'It is not final: a Draft ZIP is not in force on mainnet unless a network upgrade deploys it.',
+  Withdrawn: 'It was withdrawn and is not in force.', Rejected: 'It was rejected and is not in force.',
+  Obsolete: 'It is obsolete and no longer in force.', Reserved: 'The number is reserved; no specification is in force.',
+};
 
-// Reviewed-source records for matched ZIPs. With placeholders (model input) the
-// number/status are server facts the model must cite as {{zip_a}} etc., because
-// prose numerals are rejected; without them (guided path) the text is final.
+// Reviewed-source records for matched ZIPs. With placeholders (model input),
+// numbers, statuses and upgrade names are server facts the model cites as
+// {{zip_a}} etc., because prose numerals are rejected; without them (guided
+// path) the text is final. The ZIP text remains the authority for details.
 function zipRecords(zips, { placeholders = false } = {}) {
   const facts = {};
+  if (index.settledUpgrade) facts.settled_upgrade = index.settledUpgrade.name;
   const records = zips.slice(0, letters.length).map((zip, i) => {
-    const key = `zip_${letters[i]}`;
-    facts[key] = `ZIP ${zip.number}`; facts[`${key}_status`] = zip.status;
-    const name = placeholders ? `{{${key}}}` : `ZIP ${zip.number}`;
-    const status = placeholders ? `{{${key}_status}}` : zip.status;
-    return Object.freeze({
-      id: `zip_${zip.number}`, reviewed: index.retrieved, title: `ZIP ${zip.number}: ${zip.title}`, url: zip.url,
-      text: `${name}, "${zip.title}", has status ${status} in the official ZIP index. ${statusNote(zip)}${placeholders ? ' Refer to this ZIP only as ' + name + ' and its status only as ' + status + '; never type its number.' : ''}${settled}${caveat}`.replace(/\s+/g, ' ').trim(),
-    });
+    const key = `zip_${letters[i]}`, current = currentStatus(zip), revisions = zip.status !== current;
+    Object.assign(facts, { [key]: `ZIP ${zip.number}`, [`${key}_current`]: current, [`${key}_status`]: zip.status });
+    const v = (fact, plain) => placeholders ? `{{${fact}}}` : plain;
+    const parts = [
+      `${v(key, `ZIP ${zip.number}`)} is "${zip.title}". Its current status is ${v(`${key}_current`, current)}${revisions ? ` (revisions in the official index: ${v(`${key}_status`, zip.status)})` : ''}.`,
+      meaning[current] || '',
+      nu7.has(zip.number) ? 'It is listed in the official NU7 deployment plan.' : '',
+      index.settledUpgrade ? `The most recent settled mainnet network upgrade is ${v('settled_upgrade', index.settledUpgrade.name)}.` : '',
+      placeholders ? 'Write every number, version and upgrade name only through these placeholders; never spell numbers or versions out in words.' : '',
+    ];
+    return Object.freeze({ id: `zip_${zip.number}`, reviewed: index.retrieved, title: `ZIP ${zip.number}: ${zip.title}`, url: zip.url, text: parts.filter(Boolean).join(' ') });
   });
   return { records, facts: placeholders ? facts : {} };
 }
