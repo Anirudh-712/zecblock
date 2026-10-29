@@ -51,7 +51,7 @@ def main(stage):
     SELECT json_build_object('database',current_database(),'directory',current_setting('data_directory'),
      'listener_private',current_setting('listen_addresses')='',
      'socket_private',current_setting('unix_socket_permissions')='0700',
-     'reader_active',(SELECT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit AND rolconnlimit=2 FROM pg_roles WHERE rolname='ask_public_reader'),
+     'reader_active',(SELECT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit AND rolconnlimit BETWEEN 1 AND 16 FROM pg_roles WHERE rolname='ask_public_reader'),
      'subscriptions',(SELECT count(*) FROM pg_subscription),
      'subscription_enabled',(SELECT bool_and(subenabled AND subdisableonerr AND NOT subrunasowner AND subname='ask_public_core_v1') FROM pg_subscription),
      'apply_worker_active',(SELECT count(*)=1 FROM pg_stat_subscription WHERE relid IS NULL AND pid IS NOT NULL AND subname='ask_public_core_v1'),
