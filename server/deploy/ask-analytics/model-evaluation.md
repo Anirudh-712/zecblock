@@ -10,6 +10,40 @@ selects `gpt-6-sol` with `reasoning_effort=none`. These are not Codex app model
 settings. Sol is a compatibility-based candidate, not verified SQL quality. The prior owner-authorized Luna probe is historical evidence,
 not approval to silently change the current `ASK_MODEL`.
 
+## Complex-question regression acceptance — October 28, 2026 Mexico City
+
+Staging testing must grade SQL results separately from the natural-language
+finding. A correct result table can accompany a wrong comparison. The fixed
+annual operator case exposed that distinction: the model chose a December
+decrease even though the returned October increase had larger magnitude.
+A bounded checked narrator now independently compares exact consecutive monthly
+count endpoints only when AST lineage proves a direct activity_daily month
+bucket and SUM of the requested count field. It preserves ties, unknowns,
+source identity and returned-row scope. Filters on hidden measures, partial
+months, joins, unresolved expressions and unsupported meanings abstain;
+those queries remain available through the ordinary model explanation path.
+This is pipeline acceptance, not model-only arithmetic accuracy.
+
+Two other fixed operator failures have model-only draft repair diagnostics:
+missing input columns in a fully resolved simple CTE projection, and the known
+month-wide daily address COUNT(DISTINCT address)/COUNT(*) shape. The latter
+receives guidance to retain the full month using per-day correlated raw activity
+counts driven by observed activity_daily dates. The independently run reference
+returned all thirty days within the unchanged worker budget. The earlier coarse
+resource failure does not independently establish a PostgreSQL temp-spill code.
+Both diagnostics use the existing single SQL repair, not additional retries;
+unknown shapes and direct SQL retain their existing acceptance and limits.
+
+Strict valid UTC-midnight date facts render as readable dates; nonmidnight,
+nonzero-offset and arbitrary labels retain their original value. Unsupported
+historical address-balance requests explain that current summaries cannot
+establish earlier balances, without running SQL or changing the intent gate.
+Browser assertions inspect actual checked values, dates, direction, denominator,
+units, nulls and requested scope. A lexical grader flag requires review rather
+than rewriting a valid user answer to match a preferred phrase. Fixed operator
+fixtures are distinct from anonymous visitor telemetry; no visitor question or
+SQL corpus is collected.
+
 ## Expanded research catalogue — October 28, 2026
 
 The catalogue now has **40 operator-authored cases**: 33 research cases and
@@ -36,7 +70,7 @@ node server/api/scripts/evaluate-ask-research.js --all
 `--all` is validation-only and is rejected together with `--allow-paid` or
 individual case IDs. The default live selection remains the original five IDs;
 explicit live batches still have at most six cases and twelve actual outbound
-provider attempts. Synthetic fixture IDs are rejected for live selection.
+provider attempts. Synthetic fixture IDs are rejected for live selection. A research case requires room for at most four actual provider attempts: SQL draft, one SQL repair, explanation and one explanation-format repair. Clarification/unavailable cases require room for at most two. The harness checks both the remaining budget before admission and the attested per-case delta; these bounds fit inside the unchanged twelve-attempt run ceiling. A smaller remaining budget ends the run without sending the next question.
 Existing IP/call/spend/worker ledgers are shared and must not be reset, bypassed
 or expanded to finish the catalogue. A partial live run is not a full-catalogue
 accuracy result.

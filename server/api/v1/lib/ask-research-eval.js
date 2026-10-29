@@ -99,7 +99,7 @@ function matchRoles(item,reference,observed,columns=null){
 function mentionsValue(answer,value){
  if(value===null)return /\b(?:unavailable|missing|unknown)\b/i.test(answer);
  const expected=decimal(value);if(expected===undefined)return false;
- return [...answer.matchAll(/(?<![\w.,])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\w,]|\.\d)/g)].some(match=>decimal(match[0].replaceAll(',',''))===expected);
+ return [...answer.matchAll(/(?<![\w.,])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?!\w|\.\d|,\d)/g)].some(match=>decimal(match[0].replaceAll(',',''))===expected);
 }
 function mentionsDate(answer,value){
  const day=dateKey(value);if(!day)return false;if(answer.includes(day))return true;
@@ -115,7 +115,7 @@ function compareDecimal(left,right){const [a,sa]=decimal(left).split(':'),[b,sb]
 // These bounded English checks calibrate fixed operator cases, not arbitrary
 // prose semantics. Unrecognized or conflicting claims need manual review.
 function claimClauses(answer){return answer.replaceAll('\u2019',"'").split(/[;\n]+|[.!?]\s+|\b(?:but|whereas|while|however|yet)\b/i).map(text=>text.trim()).filter(Boolean);}
-function numbers(text){return [...text.matchAll(/(?<![\w.,])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\w,]|\.\d)/g)].map(match=>({value:match[0].replaceAll(',',''),before:text.slice(0,match.index),after:text.slice(match.index+match[0].length)}));}
+function numbers(text){return [...text.matchAll(/(?<![\w.,])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?!\w|\.\d|,\d)/g)].map(match=>({value:match[0].replaceAll(',',''),before:text.slice(0,match.index),after:text.slice(match.index+match[0].length)}));}
 function review(passed,reason){return passed?{passed:true}:{passed:false,reason};}
 function feeFinding(answer,value){
  const claims=claimClauses(answer).filter(claim=>/\bfees?\b/i.test(claim));
@@ -200,19 +200,28 @@ function validLeaderComparison(tail,row,reference,keys,roles,check,primary){
  const amount='[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?',measure=amount+'\\s*'+unitPattern(check.unit),shape=new RegExp('^(?:'+measure+'\\s+on\\s+DATE|DATE\\s+(?:at\\s+)?'+measure+')\\.?$','i');
  return reference.some(other=>(!/\blarger\b/i.test(primary)||other[check.valueColumn]!==null&&compareDecimal(row[check.valueColumn],other[check.valueColumn])>0)&&keys.some(i=>normalized(other[i],roles[i])!==normalized(row[i],roles[i])&&keyMention(tail,other[i],roles[i],check.keyAliases?.[i]))&&!competingKey(tail,other,reference,keys,roles,check.keyAliases)&&shape.test(withoutKeys(tail,other,keys,roles))&&valueClaim('Comparison value was '+withoutKeys(tail,other,keys,roles),other[check.valueColumn],roles[check.valueColumn],{...check,subject:'comparison value'}));
 }
-function withoutKeys(claim,row,keys,roles){
+function dateKeyPattern(value,role){
+ if(!['date','month'].includes(role)||value===null)return null;
+ const day=dateKey(role==='month'&&/^20\d{2}-\d{2}$/.test(value)?value+'-01':value);if(!day)return null;
+ const [year,month,date]=day.split('-'),name=['January','February','March','April','May','June','July','August','September','October','November','December'][Number(month)-1],word='(?:'+name+'|'+name.slice(0,3)+(name==='September'?'|Sept':'')+')';
+ return role==='month'?`${day}(?:[ T][^ ]+)?|${day.slice(0,7)}|${word}\\s+${Number(date)}\\s*,?\\s*${year}|${word}\\s*,?\\s*${year}|${Number(date)}\\s+${word}\\s*,?\\s*${year}`:`${day}|${Number(date)}\\s+${word}\\s*,?\\s*${year}|${word}\\s+${Number(date)}\\s*,?\\s*${year}`;
+}
+function withoutKeys(claim,row,keys,roles,replacement='DATE'){
  let text=claim;
- for(const i of keys){
-  const value=row[i],role=roles[i];
-  if(value===null)continue;
-  if(role==='date'||role==='month'){
-   const day=dateKey(role==='month'&&/^20\d{2}-\d{2}$/.test(value)?value+'-01':value);if(!day)continue;
-   const [year,month,date]=day.split('-'),name=['January','February','March','April','May','June','July','August','September','October','November','December'][Number(month)-1],word='(?:'+name+'|'+name.slice(0,3)+(name==='September'?'|Sept':'')+')';
-   const pattern=role==='month'?`${day}(?:[ T][^ ]+)?|${day.slice(0,7)}|${word}\\s*,?\\s*${year}|${Number(date)}\\s+${word}\\s*,?\\s*${year}`:`${day}|${Number(date)}\\s+${word}\\s*,?\\s*${year}|${word}\\s+${Number(date)}\\s*,?\\s*${year}`;
-   text=text.replace(new RegExp('\\b(?:'+pattern+')\\b','gi'),'DATE');
-  }
- }
+ for(const i of keys){const pattern=dateKeyPattern(row[i],roles[i]);if(pattern)text=text.replace(new RegExp('\\b(?:'+pattern+')\\b','gi'),replacement);}
  return text;
+}
+// A declared baseline row associates only the recognized FROM endpoint date.
+// Every other baseline-date mention remains visible to competing-key checks.
+function datedChangeClaim(primary,row,reference,keys,roles,check){
+ const baseline=Number.isInteger(check.baseRow)?reference[check.baseRow]:null;
+ if(!baseline||keys.length!==1||!['date','month'].includes(roles[keys[0]])||normalized(baseline[check.valueColumn],roles[check.valueColumn])!==normalized(row[check.baseColumn],roles[check.baseColumn]))return null;
+ const baseDate=dateKeyPattern(baseline[keys[0]],roles[keys[0]]),currentDate=dateKeyPattern(row[keys[0]],roles[keys[0]]);if(!baseDate||!currentDate)return null;
+ const amount='[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?',unit='(?!(?:in|on|and|or|with|as|because|for|during|at|by)\\b)[A-Za-z%]+';
+ const endpoints=new RegExp('\\bfrom\\s+('+amount+')(?:\\s+('+unit+'))?\\s+(?:in|on)\\s+((?:'+baseDate+'))\\s*,?\\s+to\\s+('+amount+')(?:\\s+('+unit+'))?\\s+(?:in|on)\\s+((?:'+currentDate+'))\\b','id').exec(primary);
+ if(!endpoints)return null;
+ const [start,end]=endpoints.indices[3],keyClaim=primary.slice(0,start)+'BASE_DATE'+primary.slice(end),plain='from '+endpoints[1]+(endpoints[2]?' '+endpoints[2]:'')+' to '+endpoints[4]+(endpoints[5]?' '+endpoints[5]:'');
+ return {keyClaim,claim:withoutKeys(primary.slice(0,endpoints.index)+plain+primary.slice(endpoints.index+endpoints[0].length),row,keys,roles)};
 }
 function unitPattern(unit){
  const key=String(unit||'').toLowerCase();
@@ -234,10 +243,18 @@ function implicitCountUnit(claim,number,role,check){
  if(role!=='count'||!['transaction','transactions','record','records','block','blocks','swap','swaps','amount','amounts','observation','observations','row','rows','address','addresses','event','events','input','inputs','output','outputs'].includes(unit))return false;
  const named=new RegExp('(?<![\\p{L}\\p{N}])'+unitPattern(unit)+'(?![\\p{L}\\p{N}])','iu'),subjects=aliases(check.subject).filter(subject=>named.test(subject));
  const bound=phraseSpans(claim,subjects).some(span=>span.end<=number.before.length&&/^\s*(?:is|was|are|were|equals?|:|=)\s*$/i.test(number.before.slice(span.end)));
- return bound&&/^[\s,.]*(?:(?:at\s+(?:height|block|rank|position|group|bucket)\s*#?\s*\d+|(?:on|in)\s+DATE)[\s,.]*)?$/i.test(number.after);
+ return bound&&/^[\s,.]*(?:(?:at\s+(?:height|block|rank|position|group|bucket)\s*#?\s*(?:\d{1,3}(?:,\d{3})+|\d+)|(?:on|in)\s+DATE)[\s,.]*)?$/i.test(number.after);
+}
+// Opt-in reviewed contracts may name a currency in the measured subject.
+// This does not make an arbitrary bare numeric value or asset name a unit.
+function subjectCurrencyUnit(claim,number,role,check){
+ if(check.unitInSubject!==true||role!=='usd'||String(check.unit).toUpperCase()!=='USD')return false;
+ const following=/^\s+([\p{L}%]+)/u.exec(number.after)?.[1];
+ if(following&&!/^(?:USD|across|with|for|from|in|on|of|and)$/i.test(following))return false;
+ return phraseSpans(claim,aliases(check.subject).filter(subject=>/\bUSD\b/.test(subject))).some(span=>span.end<=number.before.length&&/^\s*(?:,?\s*(?:is|was|are|were|equals?|at)|:|=)\s*$/i.test(number.before.slice(span.end)));
 }
 function nearestNumbers(claim,subject){
- const found=numbers(claim).map(number=>({...number,start:number.before.length,end:number.before.length+number.value.length})),selected=[];
+ const found=numbers(claim).map(number=>({...number,start:number.before.length,end:claim.length-number.after.length})),selected=[];
  for(const span of phraseSpans(claim,subject)){
   const after=found.find(number=>number.start>=span.end),before=found.filter(number=>number.end<=span.start).at(-1);
   if(after&&after.start-span.end<=100)selected.push(after);
@@ -269,7 +286,7 @@ function valueClaim(claim,value,role,check){
  if(check.unit&&numbers(claim).some(number=>attachedUnit(number,check.unit)&&normalized(number.value,role)!==normalized(value,role)))return false;
  const expectedUnit=String(check.unit||'').toLowerCase();
  if(['zec','usd','zatoshi','zatoshis','zat','zats','%','percent'].includes(expectedUnit)&&numbers(claim).some(number=>['ZEC','USD','zatoshi','%'].some(unit=>attachedUnit(number,unit)&&!attachedUnit(number,check.unit))))return false;
- return nearestNumbers(claim,check.subject).some(number=>normalized(number.value,role)===normalized(value,role)&&(attachedUnit(number,check.unit)||implicitCountUnit(claim,number,role,check))&&denominatorClaim(claim,number,check.denominator));
+ return nearestNumbers(claim,check.subject).some(number=>normalized(number.value,role)===normalized(value,role)&&(attachedUnit(number,check.unit)||implicitCountUnit(claim,number,role,check)||subjectCurrencyUnit(claim,number,role,check))&&denominatorClaim(claim,number,check.denominator));
 }
 // Reviewed English canary contracts. Unrecognized associations require manual
 // review; lexical checks do not prove arbitrary prose or SQL semantics.
@@ -295,12 +312,13 @@ function genericFinding(item,answer,reference){
  for(const row of rows)for(const original of claims){
   const comparison=check.type==='leader'?leaderComparison(original):null,primary=comparison?.primary??original;
   if(!keys.every(i=>keyMention(primary,row[i],item.roles[i],check.keyAliases?.[i])))continue;
-  if(['leader','change'].includes(check.type)&&competingKey(primary,row,reference,keys,item.roles,check.keyAliases))return review(false,check.type+'-key-association-unresolved');
+  const dated=check.type==='change'?datedChangeClaim(primary,row,reference,keys,item.roles,check):null;
+  if(['leader','change'].includes(check.type)&&competingKey(dated?.keyClaim??primary,row,reference,keys,item.roles,check.keyAliases))return review(false,check.type+'-key-association-unresolved');
   if(comparison&&!validLeaderComparison(comparison.comparison,row,reference,keys,item.roles,check,primary))return review(false,'leader-comparison-unresolved');
-  const claim=withoutKeys(primary,row,keys,item.roles);
+  const claim=dated?.claim??withoutKeys(primary,row,keys,item.roles);
   if(check.type==='leader'){
    if(rows.length>1&&/\b(?:alone|unique(?:ly)?|sole|only)\b/i.test(claim))return review(false,'leader-tie-conflict');
-   const maximum=/\b(?:highest|largest|leading|top|most|maximum)\b/i.test(claim)||comparison&&/\blarger\b/i.test(claim),minimum=/\b(?:lowest|smallest|least|minimum)\b/i.test(claim);
+   const maximum=/\b(?:highest|largest|leads?|leading|top|most|maximum)\b/i.test(claim)||comparison&&/\blarger\b/i.test(claim),minimum=/\b(?:lowest|smallest|least|minimum)\b/i.test(claim);
    if(check.direction==='max'&&minimum||check.direction==='min'&&maximum)return review(false,'leader-direction-conflict');
    if(!(check.direction==='max'?maximum:minimum))continue;
   }

@@ -80,7 +80,10 @@ function unsupportedAnswer(question,locale){
   const text=String(question||''),privateScope=/\b(?:shielded|private)\b/i.test(text);
   const ownership=privateScope&&/\b(?:wallets?|address(?:es)?)\b/i.test(text)&&/\b(?:owners?|ownership|owns?|owned|belongs?|belonging|whose)\b/i.test(text);
   const amount=privateScope&&/\b(?:payments?|transactions?)\b/i.test(text)&&/\b(?:amounts?|values?)\b|\bhow\s+much\b/i.test(text)&&!/\b(?:fees?|bytes?|counts?|rates?|public|aggregate)\b/i.test(text);
-  return ownership||amount?'These public datasets cannot identify shielded-wallet owners or reveal private shielded payment amounts. I can analyze the available public Zcash data and explain Zcash, supported wallets and nodes.':unsupported.en;
+  if(ownership||amount)return 'These public datasets cannot identify shielded-wallet owners or reveal private shielded payment amounts. I can analyze the available public Zcash data and explain Zcash, supported wallets and nodes.';
+  const historicalAddressBalance=/\baddress(?:es)?\b/i.test(text)&&/\bbalances?\b/i.test(text)&&/\b(?:historical|past|previous|closing)\b|\bat\s+(?:the\s+)?close\b|\bas\s+of\b/i.test(text);
+  if(historicalAddressBalance)return 'The available address summaries contain current balances. They do not establish exact balances at an earlier date. I can show current balances or analyze public address activity for that period.';
+  return unsupported.en;
 }
 // A capability question needs a useful clarification, not an out-of-scope reply.
 // Server-owned copy prevents ungrounded numerical claims or model-provided SQL

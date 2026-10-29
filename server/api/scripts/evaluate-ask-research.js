@@ -56,13 +56,14 @@ async function run(args,env,{request=fetch,worker=null,emit=record=>console.log(
   if(!client){client=require('../v1/lib/ask-analytics-client').createAnalyticsClient(env);ownedClient=true;}
   if(!client?.jobsEnabled)throw Error('Private verification worker required');
   for(const item of config.cases){
-   const started=now();let ticket=null,checks=[],passed=false,before=null,fatal=false,diagnostics=null,dimensions={result:item.kind==='research'?'not-checked':'not-applicable',narrative:'not-checked',expectedOutcome:item.kind==='research'?'not-applicable':'not-checked'};
+   const started=now(),maximumProviderAttempts=item.kind==='research'?4:2;let ticket=null,checks=[],passed=false,before=null,fatal=false,diagnostics=null,dimensions={result:item.kind==='research'?'not-checked':'not-applicable',narrative:'not-checked',expectedOutcome:item.kind==='research'?'not-applicable':'not-checked'};
    try{
     await attest();before=identity.providerAttempts;
-    // /chat selection includes its draft, with at most one repair; research
-    // then has one explanation. Wrongly routed nonresearch jobs are cancelled.
-    const maximum=item.kind==='research'?3:2;
-    if(before+maximum>identity.providerAttemptLimit)throw Object.assign(Error('Provider attempt budget insufficient'),{kind:'attempt-budget'});
+    // /chat selection includes the SQL draft and at most one SQL repair.
+    // Research explanation can also need its one budgeted format repair.
+    // Reserve the whole possible path inside the unchanged 12-attempt cap.
+    // Wrongly routed nonresearch jobs are cancelled.
+    if(before+maximumProviderAttempts>identity.providerAttemptLimit)throw Object.assign(Error('Provider attempt budget insufficient'),{kind:'attempt-budget'});
     let reply=await post('/chat',{page:'ask',question:item.question,context:null,history:[],locale:'en',challenge:env.ASK_EVAL_CHALLENGE||'operator-fixed-evaluation'});
     if(item.kind==='research'){
      ticket=jobTicketSchema.parse(reply?.job);
@@ -83,7 +84,7 @@ async function run(args,env,{request=fetch,worker=null,emit=record=>console.log(
     try{await attest();}catch{checks.push('runtime-attestation-lost');passed=false;fatal=true;attestationLost=true;}
     if(ticket&&!passed)try{await post('/research/jobs/cancel',ticket);}catch{/* No raw response logging. */}
    }
-   if(before!==null&&identity&&identity.providerAttempts-before>(item.kind==='research'?3:2)){checks.push('provider-attempt-bound-exceeded');passed=false;fatal=true;}
+   if(before!==null&&identity&&identity.providerAttempts-before>maximumProviderAttempts){checks.push('provider-attempt-bound-exceeded');passed=false;fatal=true;}
    const record={kind:'ask-ai-case',case:item.id,passed,checks,elapsedMs:now()-started,providerAttempts:before===null||attestationLost?null:identity?.providerAttempts-before,...(diagnostics?{diagnostics}:{}),...(dimensions?{dimensions}:{})};records.push(record);emit(record);
    if(fatal||checks.some(code=>['quota','authentication','attempt-budget','worker-quota'].includes(code)))break;
    if(item!==config.cases.at(-1))await pause(31000); // Preserve existing per-IP admission; no simulated identities.

@@ -6,6 +6,7 @@ const {renderExplanation}=require('./ask-explanation');
 const {researchUnitsFor}=require('./ask-research-plan-quality');
 const {researchValueSummary}=require('./ask-research-summary');
 const {researchExtrema}=require('./ask-research-extrema');
+const {researchMonthlyChangeSummary}=require('./ask-research-monthly-change');
 const {researchObservedColumns,poolProvenanceMatches,researchGroundedSummary,allowsObservedSummary}=require('./ask-research-grounded-summary');
 const {askError}=require('./ask-errors');
 function display(value,type,locale){
@@ -14,7 +15,8 @@ function display(value,type,locale){
   const [whole,fraction]=value.split('.');const tail=fraction?.replace(/0+$/,'');
   return whole.replace(/\B(?=(\d{3})+(?!\d))/g,',')+(tail?'.'+tail:'');
  }
- if(/^20\d{2}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value)return new Date(value+'T00:00:00Z').toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
+ const date=/^(20\d{2}-\d{2}-\d{2})(?:[ T]00:00:00(?:\.0+)?(?:Z|\+00(?::?00)?)?)?$/.exec(value)?.[1];
+ if(date&&Number.isFinite(Date.parse(date))&&new Date(date+'T00:00:00Z').toISOString().slice(0,10)===date)return new Date(date+'T00:00:00Z').toLocaleDateString(locale,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'});
  return value.slice(0,160);
 }
 const unboundCalendar=/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/;
@@ -52,6 +54,10 @@ async function researchReply(raw,input,run,locale,answerTaskFor){
  }
  const records=getKnowledge([...new Set(result.datasets.map(d=>({blocks:'block',transactions:'transactions',flows:'pools',daily:'pools',swaps:'crosschain',addresses:'addresses',address_activity:'address',activity_daily:'transactions',flow_daily:'pools'})[d]))]);
  if(!result.rows.length&&/^en(?:-|$)/.test(locale))return {answer:'This SQL returned no matching rows. That does not establish zero activity. Use Edit query to inspect its filters and baseline window.',sources:publicSources(records),spec:null,locale,research:result,evidenceKey:result.fingerprint};
+ // Recompute supported monthly count changes from proven source endpoints.
+ // Other meanings and SQL shapes retain the normal explanation path.
+ const monthlyAnswer=await researchMonthlyChangeSummary(result,question,locale);
+ if(monthlyAnswer)return {answer:monthlyAnswer,sources:publicSources(records),spec:null,locale,research:result,evidenceKey:result.fingerprint};
  const columns=result.columns;
  let inferred=[];
  try{inferred=(await researchUnitsFor(result.query.sql)).columns;}catch{/* An unresolved unit cannot substantiate a monetary claim. */}

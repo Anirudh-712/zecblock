@@ -106,6 +106,19 @@ test('other unsupported English requests keep useful unavailable copy without un
   assert.equal(calls,questions.length);assert.equal(sourceCalls,0);
 });
 
+test('unsupported historical address balances explain current-only source semantics without extra inference or queries',async()=>{
+ const noSource=async()=>assert.fail('unsupported history does not execute a query');
+ const analytics={researchEnabled:true,researchExtended:true,jobsEnabled:true,catalogue:[],execute:noSource,submit:noSource};
+ const questions=['Use current address summaries to give exact transparent address balances at the close of September 1, 2026. Do not substitute current balances.','Show historical address balances.','What was this address balance as of last year?'];let calls=0;
+ for(const question of questions){
+  const result=await chat({...input,question,locale:'en'},async(body,task)=>{calls++;return task.validator.parse({intent:'unsupported',sql:null,transactionQuery:null,blockQuery:null,flowQuery:null,spec:null,topics:[],locale:'en'});},{dispatch:noSource},signal,'',{},analytics);
+  assert.match(result.answer,/summaries contain current balances/);assert.match(result.answer,/do not establish exact balances at an earlier date/);assert.match(result.answer,/public address activity/);assert.deepEqual(result.sources,[]);assert.equal(result.spec,null);assert.equal(result.job,undefined);
+ }
+ assert.equal(calls,questions.length);
+ const privateReply=await chat({...input,question:'Who owns this shielded address and what was its historical balance?',locale:'en'},async(body,task)=>task.validator.parse({intent:'unsupported',sql:null,transactionQuery:null,blockQuery:null,flowQuery:null,spec:null,topics:[],locale:'en'}),{dispatch:noSource},signal,'',{},analytics);
+ assert.match(privateReply.answer,/cannot identify shielded-wallet owners/);assert.doesNotMatch(privateReply.answer,/summaries contain current balances/);
+});
+
 test('incomplete model analysis plans report validation failure without source access', async () => {
   for (const intent of ['analysis', 'analytics']) {
     let sourceCalls = 0;
