@@ -11,7 +11,14 @@ import { readFile, writeFile } from 'node:fs/promises';
 
 const SOURCE = 'https://raw.githubusercontent.com/zcash/zips/main/README.rst';
 const OUTPUT = new URL('../server/api/v1/lib/ask-zips.json', import.meta.url);
-const entities = text => text.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
+// Decode entities in one pass (so "&amp;lt;" stays "&lt;"), then drop markup
+// until none remains; titles are plain text and never keep angle brackets.
+const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
+const entities = text => {
+  let plain = text.replace(/&(?:amp|lt|gt|quot|#39);/g, entity => ENTITIES[entity]);
+  for (let previous; previous !== plain;) { previous = plain; plain = plain.replace(/<[^<>]*>/g, ''); }
+  return plain.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim();
+};
 
 export function parseIndex(readme) {
   const start = readme.indexOf('Index of ZIPs');

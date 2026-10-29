@@ -28,5 +28,5 @@ test('result cells retain exact decimals and complete safe identifiers; numeric 
  const data={...result,rows:[result.rows[0],['<script>secret()</script>','3508499','Unattributed',null]],indexedThrough:'2026-10-07T00:00:00Z',retrievedAt:'2026-10-07T00:01:00Z',coverage:'Public data',units:'ZEC',fingerprint:'a'.repeat(64)};
  const html=require('react-dom/server').renderToStaticMarkup(React.createElement(m.exports.ResearchData,{result:data,chart:defaultResearchChart(data)}));
  assert.match(html,/<th scope="col" data-numeric="true">public deshield zec/);assert.match(html,/<td data-numeric="true"><span title="279.99975">279.99975/);
- assert.match(html,new RegExp('href="/tx/'+'a'.repeat(64)+'"'));assert.match(html,/Unavailable/);assert.doesNotMatch(html,/<script>/);assert.match(html,/&lt;script&gt;/);
+ assert.match(html,new RegExp('href="/tx/'+'a'.repeat(64)+'"'));assert.match(html,/Unavailable/);assert.doesNotMatch(html,/<script/i);assert.match(html,/&lt;script&gt;/);
 });

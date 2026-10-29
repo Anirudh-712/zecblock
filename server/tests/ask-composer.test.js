@@ -68,7 +68,7 @@ test('progress, inline errors, quota resets and retries have accessible, safe ma
  const failure={title:'Request limit reached',detail:'The daily allowance is used.',retryAt:Date.parse('2026-10-07T00:00:00Z'),retryable:false};
  const blocked=renderToStaticMarkup(React.createElement(AskFailureFeedback,{failure,blocked:true,onRetry:()=>{}}));assert.match(blocked,/Try again after/);assert.doesNotMatch(blocked,/<button/);
  const ready=renderToStaticMarkup(React.createElement(AskFailureFeedback,{failure,blocked:false,onRetry:()=>{}}));assert.match(ready,/You can try again/);assert.match(ready,/<button/);
- const unsafe=renderToStaticMarkup(React.createElement(AskFeedback,{title:'<script>bad()</script>',error:true}));assert.match(unsafe,/role="alert"/);assert.doesNotMatch(unsafe,/<script>/);
+ const unsafe=renderToStaticMarkup(React.createElement(AskFeedback,{title:'<script>bad()</script>',error:true}));assert.match(unsafe,/role="alert"/);assert.doesNotMatch(unsafe,/<script/i);
 });
 test('long retry windows include the local calendar date without promising capacity resets',()=>{
  const original=Date.now;const now=Date.parse('2026-10-06T23:50:00Z');Date.now=()=>now;

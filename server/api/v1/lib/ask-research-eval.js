@@ -229,7 +229,7 @@ function unitPattern(unit){
  if(key==='%'||key==='percent')return '(?:%|percent(?:age)?(?!\\s+points?))';
  if(/percentage points?/.test(key))return 'percentage points?';
  if(key==='address'||key==='addresses')return 'address(?:es)?';
- return escape(key.replace(/s$/,'')).replace(/transaction$/,'transaction')+'s?';
+ return escape(key.replace(/s$/,''))+'s?';
 }
 function attachedUnit(number,unit){
  if(!unit)return true;

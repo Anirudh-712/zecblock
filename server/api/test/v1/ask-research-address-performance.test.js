@@ -13,7 +13,7 @@ test('source aliases and equivalent UTC numeric bounds preserve only the proven 
 });
 test('the efficient fixed per-day reference remains accepted without a repair diagnostic',async()=>{const {cases}=require('../../v1/lib/ask-research-eval-cases');const ref=cases.find(c=>c.id==='daily_address_incidences').referenceSQL;assert.deepEqual((await diagnose(ref)).issues,[]);});
 test('one-day, custom-grain and unresolved source queries remain queryable without this hint',async()=>{
- const rejected=[sql.replace("2026-10-01 00:00:00+00","2026-09-02 00:00:00+00"),sql.replace("count(DISTINCT address)","count(address)"),sql.replace("count(*) AS address_transaction_incidences","count(txid) AS address_transaction_incidences"),sql.replace("SELECT address,txid,timestamp FROM address_activity WHERE", "SELECT address,txid,timestamp FROM address_activity WHERE").replace("::bigint),daily_counts", "::bigint LIMIT 100),daily_counts"),sql.replace("count(DISTINCT address)","count(DISTINCT txid)"),sql.replace("'YYYY-MM-DD'","'YYYY-MM'")];
+ const rejected=[sql.replace("2026-10-01 00:00:00+00","2026-09-02 00:00:00+00"),sql.replace("count(DISTINCT address)","count(address)"),sql.replace("count(*) AS address_transaction_incidences","count(txid) AS address_transaction_incidences").replace("::bigint),daily_counts", "::bigint LIMIT 100),daily_counts"),sql.replace("count(DISTINCT address)","count(DISTINCT txid)"),sql.replace("'YYYY-MM-DD'","'YYYY-MM'")];
  for(const statement of rejected){const {compiled,issues}=await diagnose(statement);assert.deepEqual(issues,[],statement);assert.ok(compiled.request.sql);}
 });
 test('CTE shadowing, joined sources and preaggregated inputs cannot acquire raw address lineage',async()=>{
