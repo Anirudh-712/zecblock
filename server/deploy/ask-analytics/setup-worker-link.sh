@@ -27,7 +27,9 @@ dir=/etc/zecblock-ask-worker-link
 case "${1:-}" in
   api-key)
     id ask_worker_link >/dev/null 2>&1 || useradd --system --shell /usr/sbin/nologin --no-create-home --user-group ask_worker_link
-    install -d -m 0700 -o root -g root "$dir"
+    # 0755 so the service account reads known_hosts; the identity stays 0600 and
+    # reaches the service only through systemd LoadCredential.
+    install -d -m 0755 -o root -g root "$dir"
     printf '%s\n' "$ANALYTICS_HOSTKEY" > "$dir/known_hosts"; chmod 0644 "$dir/known_hosts"
     [[ -f "$dir/identity" ]] || ssh-keygen -q -t ed25519 -N '' -C ask-worker-link@"$(hostname)" -f "$dir/identity"
     chmod 0600 "$dir/identity"
