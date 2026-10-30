@@ -73,3 +73,11 @@ test('a latest period running past the indexed data is flagged, never the low or
  assert.equal(partialPeriod({...months,rows:[months.rows[2]]},0),-1);
  assert.equal(partialPeriod({...months,indexedThrough:undefined},0),-1);
 });
+test('axis ticks shorten daily dates within one year so the last tick fits; other dates keep their format',()=>{
+ const {axisDateFormatter}=require('../../lib/ask/research-display');
+ const axis=values=>axisDateFormatter({columns:[{key:'c0',label:'date',type:'text'}],rows:values.map(v=>[v])},0);
+ assert.equal(axis(['2026-09-29','2026-10-28'])('2026-10-28'),'Oct 28');
+ assert.equal(axis(['2025-12-30','2026-01-02'])('2026-01-02'),'2026-01-02');
+ assert.equal(axis(['2025-10-01 00:00:00+00','2025-11-01 00:00:00+00'])('2025-11-01 00:00:00+00'),'Nov 2025');
+ assert.equal(axisDateFormatter({columns:[{key:'c0',label:'n',type:'number'}],rows:[['1'],['2']]},0),null);
+});
