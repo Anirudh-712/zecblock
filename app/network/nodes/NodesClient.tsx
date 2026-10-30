@@ -13,6 +13,7 @@ import { NodeMapExplorer } from '@/components/network/NodeMapExplorer';
 import { clientLabel, clientColor } from '@/lib/network-colors';
 import { scoreColor } from '@/components/ui/RadialGauge';
 import type { NodeStats } from '@/components/NodeMap';
+import { ExportButton } from '@/components/ExportButton';
 
 interface NodeEntry {
   id: number;
@@ -410,7 +411,22 @@ export default function NodesClient() {
               <h3 className="text-sm font-semibold text-primary">Observed nodes</h3>
               <p className="text-caption text-muted mt-1">Reported software, location and the latest crawler measurements.</p>
             </div>
-            <DirectoryPagination page={page} total={total} pageSize={PAGE_SIZE} onChange={setPage} />
+            <div className="flex flex-wrap items-center gap-3">
+              {nodes.length > 0 && (
+                <ExportButton
+                  type="csv"
+                  data={nodes}
+                  filename={`zecblock-nodes-page-${page + 1}`}
+                  csvHeaders={['Client', 'Version', 'Protocol version', 'Country', 'Tor', 'Tor type', 'Ping (ms)', 'Active', 'Peers (degree)', 'Betweenness', 'Closeness', 'ISP', 'Source', 'First seen (UTC)', 'Last seen (UTC)']}
+                  csvMapper={(node: NodeEntry) => [
+                    node.client, node.version ?? '', String(node.protocolVersion ?? ''), node.country ?? '', node.isTor ? 'yes' : 'no', node.torType ?? '',
+                    String(node.pingMs ?? ''), node.isActive ? 'yes' : 'no', String(node.degree ?? ''), String(node.betweenness ?? ''), String(node.closeness ?? ''),
+                    node.isp ?? '', node.source, node.firstSeen, node.lastSeen,
+                  ]}
+                />
+              )}
+              <DirectoryPagination page={page} total={total} pageSize={PAGE_SIZE} onChange={setPage} />
+            </div>
           </div>
 
           {loading ? (

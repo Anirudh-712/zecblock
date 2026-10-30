@@ -122,7 +122,7 @@ test('server-render fetches abort a hung origin inside their deadline', async ()
     SERVER_RENDER_BUILD_FETCH_TIMEOUT_MS,
     SERVER_RENDER_DEV_FETCH_TIMEOUT_MS,
     SERVER_RENDER_FETCH_TIMEOUT_MS,
-  } = loadTypeScriptModule('lib/server-fetch.ts');
+  } = loadTypeScriptModule('lib/server-fetch.ts', { './api-config': { getApiUrl: () => 'https://api.invalid' } });
   assert.ok(
     SERVER_RENDER_FETCH_TIMEOUT_MS <= 1_000,
     'the production page budget must stay below the 2s TTFB target',
@@ -469,7 +469,7 @@ test('homepage, rich list, and detail HTML opt into the Next full route cache', 
 
   assert.match(richList, /export const revalidate = 60/);
   assert.doesNotMatch(richList, /force-dynamic/);
-  assert.match(richList, /fetchWithDeadline\(/);
+  assert.match(richList, /fetchApiDataWithDeadline</);
   assert.match(richList, /retainLastGoodOrBuildFallback\(/);
 
   // Block and tx layouts use dynamic fetch-level revalidation (3600s for

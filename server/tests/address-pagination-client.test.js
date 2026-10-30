@@ -185,6 +185,7 @@ test('address server/loading/empty/overview amounts and metadata use the configu
       '@/components/CopyButton': { CopyButton: () => null },
       'next/navigation': { notFound: () => { throw new Error('Unexpected not found'); } },
       '@/lib/zcash': { detectAddressType: () => 'transparent' },
+      '@/lib/address-syntax': { isValidAddressSyntax: () => true },
       '@/lib/isr-fallback': { retainLastGoodOrBuildFallback: value => value },
       '@/lib/seo': {
         getAddressResolution: async () => ({ state: 'found', meta }),
@@ -211,6 +212,7 @@ test('TEX address pages (ZIP 320) link their P2PKH form and leave indexing to it
     '@/components/CopyButton': { CopyButton: () => null },
     'next/navigation': { notFound: () => { throw new Error('Unexpected not found'); } },
     '@/lib/zcash': zcash,
+    '@/lib/address-syntax': loadAddressComponent('../../../lib/address-syntax.ts', 'ZEC', { './zcash': zcash }),
     '@/lib/isr-fallback': { retainLastGoodOrBuildFallback: value => value },
     '@/lib/seo': {
       getAddressResolution: async () => ({ state: 'found', meta }),
