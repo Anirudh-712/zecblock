@@ -132,8 +132,8 @@
 .newBoard {display:flex;gap:6px;margin-top:8px;padding:8px 2px 2px;border-top:1px solid var(--color-border);}
 .newBoard .input {flex:1;}
 /* Chart columns sit with the chart, only while a chart is shown. */
-/* Chart settings: a quiet line of text controls under the toolbar, secondary to it. */
-.chartColumns {display:flex;flex-wrap:wrap;align-items:center;gap:2px 18px;margin:-6px 0 24px;}
+/* Chart settings: a quiet line of text controls under the chart. */
+.chartColumns {display:flex;flex-wrap:wrap;align-items:center;gap:2px 18px;margin:14px 0 0;padding-top:12px;border-top:1px solid var(--color-border-subtle);}
 .chartColumns .inlineField {gap:2px;}
 .chartColumns .inlineField .input {min-width:0;width:auto;border:0;background:transparent;padding:3px 20px 3px 4px;border-radius:5px;font-size:12px;color:var(--color-text-secondary);}
 .chartColumns .selectWrap::after {right:7px;width:5px;height:5px;}
