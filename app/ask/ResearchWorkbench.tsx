@@ -284,13 +284,14 @@ export function ResearchEditor({ tools, extended=false }: { extended?:boolean; t
 // except: notices already shown where the action happened (the dashboard menu).
 export function ResearchStatus({ tools, except }: { tools: Tools; except?: RegExp }) { return <>{tools.error ? <p className={styles.error} role="alert">{tools.error}</p> : null}{tools.notice && !except?.test(tools.notice) ? <p className={styles.caption} role="status">{tools.notice}</p> : null}</>; }
 
-export function ResearchData({ result, chart, sources, showDetails = true, savedSnapshot = false }: { result: ResearchResult; chart: ResearchChart; sources?: ReactNode; showDetails?: boolean; savedSnapshot?: boolean }) {
+export function ResearchData({ result, chart, sources, showDetails = true, savedSnapshot = false, settings }: { result: ResearchResult; chart: ResearchChart; sources?: ReactNode; showDetails?: boolean; savedSnapshot?: boolean; settings?: ReactNode }) {
   const dates = result.columns.map((_, i) => dateFormatter(result, i));
+  const rowCount = `${result.rows.length} ${result.rows.length === 1 ? 'row' : 'rows'}${result.truncated ? ' (limited)' : ''}`;
   const text = (cell: string | null, i: number) => cell !== null && dates[i] ? dates[i]!(cell) : cell && /^(?:txid|hash|miner|address)$/.test(result.columns[i].label.toLowerCase()) ? shortLabel(cell) : exactDisplay(cell, result.columns[i].type);
   const table = <div className={styles.scroll} tabIndex={0} role="region" aria-label="Scrollable query results"><table className={styles.table}><caption className="sr-only">Query results, preserving exact decimals</caption><thead><tr>{result.columns.map(column => <th key={column.key} scope="col" data-numeric={column.type === 'number'}>{column.label.replaceAll('_', ' ')}</th>)}</tr></thead><tbody>{result.rows.map((row, index) => <tr key={index}>{row.map((cell, i) => <td key={i} data-numeric={result.columns[i].type === 'number'}>{cellLink(result.columns[i].label.toLowerCase(),cell) ? <Link href={cellLink(result.columns[i].label.toLowerCase(),cell)!} title={cell || undefined} aria-label={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : shortLabel(cell)}</Link> : <span title={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : text(cell, i)}</span>}</td>)}</tr>)}</tbody></table>{!result.rows.length ? <p className={styles.caption}>No matching records were returned.</p> : null}</div>;
   return <>
-    <p className={styles.caption}>{result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}{result.truncated ? ' (limited)' : ''}</p>
-    {chart.view === 'table' ? table : <><Plot result={result} chart={chart} /><details className={styles.exactTable}><summary>View data</summary>{table}</details></>}
+    {/* Charts carry the row count on View data, keeping the chart header to its value. */}
+    {chart.view === 'table' ? <><p className={styles.caption}>{rowCount}</p>{table}</> : <><Plot result={result} chart={chart} />{settings}<details className={styles.exactTable}><summary>View data · {rowCount}</summary>{table}</details></>}
     {showDetails ? <details className={styles.disclosure}><summary>Sources &amp; details</summary><div className={styles.provenance}>
       {savedSnapshot ? <p className={styles.snapshotNote}>Saved snapshot. Run the query to refresh its data.</p> : null}
       <dl className={styles.provRows}>
@@ -336,6 +337,12 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
     <div className={styles.checkList}>{measures.map(({ column, index }) => <label key={column.key} className={styles.checkRow}><input type="checkbox" checked={chosen.includes(index)} disabled={chosen.includes(index) ? chosen.length === 1 : chosen.length >= 5} onChange={() => toggleValue(index)} /><span>{valueLabel(index)}</span></label>)}</div>
     <p className={styles.menuNote}>Up to five. Very different sizes use a second axis.</p>
   </Menu></div> : columnSelect('y');
+  const chartSettings = <div className={styles.chartColumns}>{columnSelect('x')}{valuePicker}
+      <label className={styles.inlineField}>Highlight<span className={styles.selectWrap}><select className={styles.input} value={tools.chart.highlight || 'none'} onChange={event => update({ ...tools.chart, highlight: event.target.value === 'none' ? undefined : event.target.value as ResearchHighlight })}>
+        <option value="none">None</option>{lineAllowed ? <><option value="latest">Latest</option><option value="change">Change</option></> : null}<option value="peak">Peak</option><option value="low">Low</option>
+      </select></span></label>
+      {chosen.length > 1 && tools.chart.view !== 'line' ? <label className={styles.checkRow}><input type="checkbox" checked={!!tools.chart.stacked} onChange={event => update({ ...tools.chart, stacked: event.target.checked || undefined })} /><span>Stack</span></label> : null}
+    </div>;
   return <div className={`${styles.panelBody} ${embedded ? styles.embeddedPanel : ''}`}>
     {!embedded ? <h2 className={styles.resultTitle}>{tools.title}</h2> : null}
     <div className={`${styles.resultToolbar} ${embedded ? styles.embeddedToolbar : ''}`}>
@@ -370,15 +377,10 @@ export function ResearchPanel({ tools, result, busy, titleId, embedded = false, 
       </div>
       {trailing ? <div className={styles.resultActions}>{trailing}</div> : null}
     </div>
-    {tools.chart.view !== 'table' ? <div className={styles.chartColumns}>{columnSelect('x')}{valuePicker}
-      <label className={styles.inlineField}>Highlight<span className={styles.selectWrap}><select className={styles.input} value={tools.chart.highlight || 'none'} onChange={event => update({ ...tools.chart, highlight: event.target.value === 'none' ? undefined : event.target.value as ResearchHighlight })}>
-        <option value="none">None</option>{lineAllowed ? <><option value="latest">Latest</option><option value="change">Change</option></> : null}<option value="peak">Peak</option><option value="low">Low</option>
-      </select></span></label>
-      {chosen.length > 1 && tools.chart.view !== 'line' ? <label className={styles.checkRow}><input type="checkbox" checked={!!tools.chart.stacked} onChange={event => update({ ...tools.chart, stacked: event.target.checked || undefined })} /><span>Stack</span></label> : null}
-    </div> : null}
     <ShareLinkField tools={tools} />
     <ResearchStatus tools={tools} except={/^(?:Added to|Removed from “|Created)/} />
-    <ResearchData result={result} chart={tools.chart} sources={sources} savedSnapshot={saved === true} />
+    {/* Chart settings sit under the chart: the value and chart lead, adjustments follow. */}
+    <ResearchData result={result} chart={tools.chart} sources={sources} savedSnapshot={saved === true} settings={chartSettings} />
   </div>;
 }
 export type DashboardRefresh = { run: (docs: ResearchDocument[]) => void; stop: () => void; running: boolean; available: boolean; status: string; challenge?: ReactNode };
