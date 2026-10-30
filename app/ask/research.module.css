@@ -132,7 +132,14 @@
 .newBoard {display:flex;gap:6px;margin-top:8px;padding:8px 2px 2px;border-top:1px solid var(--color-border);}
 .newBoard .input {flex:1;}
 /* Chart columns sit with the chart, only while a chart is shown. */
-.chartColumns {display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;}
+/* Chart settings: one compact bar under the toolbar, styled like the view switch. */
+.chartColumns {display:inline-flex;flex-wrap:wrap;align-items:center;max-width:100%;margin:-4px 0 8px;padding:2px;border:1px solid var(--color-border);border-radius:7px;background:var(--color-surface);}
+.chartColumns > * {padding:0 2px 0 10px;min-height:30px;}
+.chartColumns > * + * {border-left:1px solid var(--color-border);}
+.chartColumns .inlineField .input {min-width:0;width:auto;border:0;background:transparent;padding:5px 30px 5px 4px;font-size:12px;color:var(--color-text-primary);}
+.chartColumns .inlineField .input:hover {background:var(--color-hover);}
+.chartColumns .menu > summary {border:0;min-height:30px;padding:5px 10px 5px 4px;color:var(--color-text-primary);}
+.chartColumns .checkRow {padding:0 10px;border-radius:0;}
 .inlineField {display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-muted);}
 .inlineField .input {min-width:150px;padding:6px 10px;font-size:12px;}
 .valueText {max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -208,14 +215,15 @@
 .inlineCopy .copyButton {width:26px;height:26px;}
 .narrowOnly {display:none;}
 /* Phones: chart settings share one row, labels above their controls. */
-@media(max-width:640px){.wideOnly{display:none}.narrowOnly{display:inline}.chartColumns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.chartColumns .inlineField{flex-direction:column;align-items:stretch;gap:4px;min-width:0}.chartColumns .inlineField .input,.chartColumns .menu,.chartColumns .menu > summary{min-width:0;width:100%}.chartColumns .valueText{max-width:none;flex:1}.resultToolbar > .resultActions{gap:6px}.resultToolbar .resultActions > button,.resultToolbar .resultActions > .button,.resultToolbar .resultActions .menu > summary{padding:6px 9px;font-size:12px}}
+@media(max-width:640px){.wideOnly{display:none}.narrowOnly{display:inline}.chartColumns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;padding:10px;margin-top:0}.chartColumns > *{padding:0;min-height:0}.chartColumns > * + *{border-left:0}.chartColumns .inlineField .input,.chartColumns .menu > summary{border:1px solid var(--color-border);padding-left:10px}.chartColumns .inlineField{flex-direction:column;align-items:stretch;gap:4px;min-width:0}.chartColumns .inlineField .input,.chartColumns .menu,.chartColumns .menu > summary{min-width:0;width:100%}.chartColumns .valueText{max-width:none;flex:1}.resultToolbar > .resultActions{gap:6px}.resultToolbar .resultActions > button,.resultToolbar .resultActions > .button,.resultToolbar .resultActions .menu > summary{padding:6px 9px;font-size:12px}}
 /* Phones: menus open as a bottom sheet so none runs off either edge. */
 @media(max-width:640px){.menuBody,.menu[data-align="left"] > .menuBody{position:fixed;left:12px;right:12px;top:auto;bottom:calc(12px + env(safe-area-inset-bottom));width:auto;max-height:70dvh;overflow-y:auto;z-index:60}.rowMenu > .menuBody,.iconMenu > .menuBody{width:auto}}
 /* Chart header: the highlighted exact value on the left, the legend on the right. */
-.plotHead {display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:8px;}
-.plotStat {display:flex;flex-direction:column;gap:2px;min-width:0;}
+.plotHead {display:flex;align-items:flex-end;justify-content:space-between;gap:8px 24px;flex-wrap:wrap;margin:4px 0 12px;}
+.plotStat {display:flex;flex-direction:column;gap:4px;min-width:0;}
+.plotStatRow {display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;}
 .plotStatLabel {font-size:12px;color:var(--color-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.plotStatValue {font-family:var(--font-mono);font-size:22px;line-height:1.2;color:var(--color-text-primary);font-variant-numeric:tabular-nums;}
-.plotStatChange {font-family:var(--font-mono);font-size:12px;color:var(--color-text-secondary);}
+.plotStatValue {font-family:var(--font-mono);font-size:24px;line-height:1.1;color:var(--color-text-primary);font-variant-numeric:tabular-nums;}
+.plotStatChange {font-family:var(--font-mono);font-size:13px;color:var(--color-text-secondary);}
 .plotStatChange[data-direction="up"] {color:var(--color-shielding);}
 .plotStatChange[data-direction="down"] {color:var(--color-deshielding);}

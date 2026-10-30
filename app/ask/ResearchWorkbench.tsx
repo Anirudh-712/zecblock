@@ -286,11 +286,12 @@ export function ResearchStatus({ tools, except }: { tools: Tools; except?: RegEx
 
 export function ResearchData({ result, chart, sources, showDetails = true, savedSnapshot = false }: { result: ResearchResult; chart: ResearchChart; sources?: ReactNode; showDetails?: boolean; savedSnapshot?: boolean }) {
   const dates = result.columns.map((_, i) => dateFormatter(result, i));
+  const rowCount = `${result.rows.length} ${result.rows.length === 1 ? 'row' : 'rows'}${result.truncated ? ' (limited)' : ''}`;
   const text = (cell: string | null, i: number) => cell !== null && dates[i] ? dates[i]!(cell) : cell && /^(?:txid|hash|miner|address)$/.test(result.columns[i].label.toLowerCase()) ? shortLabel(cell) : exactDisplay(cell, result.columns[i].type);
   const table = <div className={styles.scroll} tabIndex={0} role="region" aria-label="Scrollable query results"><table className={styles.table}><caption className="sr-only">Query results, preserving exact decimals</caption><thead><tr>{result.columns.map(column => <th key={column.key} scope="col" data-numeric={column.type === 'number'}>{column.label.replaceAll('_', ' ')}</th>)}</tr></thead><tbody>{result.rows.map((row, index) => <tr key={index}>{row.map((cell, i) => <td key={i} data-numeric={result.columns[i].type === 'number'}>{cellLink(result.columns[i].label.toLowerCase(),cell) ? <Link href={cellLink(result.columns[i].label.toLowerCase(),cell)!} title={cell || undefined} aria-label={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : shortLabel(cell)}</Link> : <span title={cell || undefined}>{result.columns[i].type==='number' ? exactDisplay(cell,'number') : text(cell, i)}</span>}</td>)}</tr>)}</tbody></table>{!result.rows.length ? <p className={styles.caption}>No matching records were returned.</p> : null}</div>;
   return <>
-    <p className={styles.caption}>{result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}{result.truncated ? ' (limited)' : ''}</p>
-    {chart.view === 'table' ? table : <><Plot result={result} chart={chart} /><details className={styles.exactTable}><summary>View data</summary>{table}</details></>}
+    {/* Charts carry the row count on View data, keeping the chart header to its value. */}
+    {chart.view === 'table' ? <><p className={styles.caption}>{rowCount}</p>{table}</> : <><Plot result={result} chart={chart} /><details className={styles.exactTable}><summary>View data · {rowCount}</summary>{table}</details></>}
     {showDetails ? <details className={styles.disclosure}><summary>Sources &amp; details</summary><div className={styles.provenance}>
       {savedSnapshot ? <p className={styles.snapshotNote}>Saved snapshot. Run the query to refresh its data.</p> : null}
       <dl className={styles.provRows}>

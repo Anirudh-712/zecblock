@@ -37,7 +37,7 @@ test('one view switch and direct actions: Edit SQL, Save, Add to dashboard, Shar
 });
 test('table mode is direct and Sources & details contains guide, exact query and provenance together',()=>{
  const {html}=panel();assert.equal((html.match(/<summary>Sources &amp; details<\/summary>/g)||[]).length,1);assert.match(html,/Reading a block/);assert.match(html,/SQL behind this result/);assert.match(html,/SELECT height FROM blocks LIMIT 1/);assert.match(html,/Query fingerprint/);assert.match(html,/3,534,000/);assert.doesNotMatch(html,/<summary>View data<\/summary>/);
- const capture=[],exports=load({capture});const chart=renderToStaticMarkup(React.createElement(exports.ResearchData,{result,chart:{view:'bar',x:0,y:0},showDetails:false}));assert.match(chart,/<summary>View data<\/summary>/);assert.doesNotMatch(chart,/Sources &amp; details|Query fingerprint/);
+ const capture=[],exports=load({capture});const chart=renderToStaticMarkup(React.createElement(exports.ResearchData,{result,chart:{view:'bar',x:0,y:0},showDetails:false}));assert.match(chart,/<summary>View data · 1 row<\/summary>/);assert.doesNotMatch(chart,/Sources &amp; details|Query fingerprint/);
 });
 test('share menu describes a reusable draft and CSV is disabled for an edited SQL snapshot',()=>{
  const {html,capture}=panel({shareURL:'https://fixture.example/ask#research=example',sql:'SELECT height FROM blocks LIMIT 2'});assert.match(html,/name="research-link"/);assert.match(html,/Shares the SQL, name and chart settings, not results\. It never runs automatically\./);assert.equal(capture.find(e=>e.type==='button'&&e.props.children==='Results as CSV').props.disabled,true);

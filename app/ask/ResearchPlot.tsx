@@ -51,8 +51,10 @@ export default function ResearchPlot({result,chart}:{result:ResearchResult;chart
   {mark||legend.length?<div className={styles.plotHead}>
    {mark?<div className={styles.plotStat} aria-hidden="true">
     <span className={styles.plotStatLabel}>{HIGHLIGHT_LABEL[mark.kind]} · {result.columns[chart.y].label.replaceAll('_',' ')} · {pointLabel(mark.label)}{mark.partial?' (to date)':''}</span>
-    <span className={styles.plotStatValue}>{grouped(mark.value)}</span>
-    {mark.kind==='change'?<span className={styles.plotStatChange} data-direction={mark.delta>0?'up':mark.delta<0?'down':'flat'}>{delta}{mark.pct!==null?` (${mark.pct>0?'+':''}${mark.pct.toFixed(1)}%)`:''} since {pointLabel(mark.from.label)}</span>:null}
+    <span className={styles.plotStatRow}>
+     <span className={styles.plotStatValue}>{grouped(mark.value)}</span>
+     {mark.kind==='change'?<span className={styles.plotStatChange} data-direction={mark.delta>0?'up':mark.delta<0?'down':'flat'}>{delta}{mark.pct!==null?` (${mark.pct>0?'+':''}${mark.pct.toFixed(1)}%)`:''} since {pointLabel(mark.from.label)}</span>:null}
+    </span>
    </div>:<span/>}
    {legend.length?<ul className="flex flex-wrap justify-end gap-4 text-xs text-secondary" aria-hidden="true">{legend.map(item=><li key={item.value} className="flex items-center gap-2"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{background:item.color}}/>{item.value}</li>)}</ul>:null}
   </div>:null}
