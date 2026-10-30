@@ -19,7 +19,7 @@ export default function ZiftPage() {
   return <div className={`${styles.page} max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7`}>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replace(/</g, '\\u003c') }} />
     <header className="flex flex-wrap items-start justify-between gap-4 border-b border-cipher-border pb-6">
-      <div><div className="flex items-center gap-3"><ZiftMark size={28} /><h1 className="text-2xl font-medium tracking-tight text-primary">Zift</h1><span className="text-sm text-muted">by ZecBlock</span><span className="border border-cipher-border rounded px-2 py-0.5 text-caption font-mono text-muted">PREVIEW</span></div>
+      <div><div className="flex items-center gap-3"><ZiftMark size={28} /><h1 className="text-2xl font-medium tracking-tight text-primary">Zift</h1><span className="text-sm text-muted">by ZecBlock</span><span className="border border-cipher-border rounded px-2 py-0.5 text-caption font-mono text-muted">BETA</span></div>
         <p className="mt-2 max-w-2xl text-sm text-secondary">Explore Zcash mainnet data: ask a question or write SQL, chart the results and save dashboards. Every number links to its source.</p></div>
       <span className="flex items-center gap-2 text-caption font-mono text-muted pt-2"><span className="h-1.5 w-1.5 bg-brand-gold" aria-hidden="true" />MAINNET DATA</span>
     </header>
